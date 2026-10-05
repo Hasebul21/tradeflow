@@ -1,0 +1,407 @@
+[
+  {
+    "symbol": "BATBC",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-25",
+    "eps_bdt": 7.58,
+    "nav_per_share_bdt": 228.57,
+    "revenue_mn_bdt": 37210.91,
+    "net_profit_mn_bdt": 4093.2
+  },
+  {
+    "symbol": "BATBC",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-03",
+    "eps_bdt": 7.4,
+    "nav_per_share_bdt": 229.17,
+    "revenue_mn_bdt": 36327.27,
+    "net_profit_mn_bdt": 3996
+  },
+  {
+    "symbol": "BATBC",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-13",
+    "eps_bdt": 6.97,
+    "nav_per_share_bdt": 229.77,
+    "revenue_mn_bdt": 34216.36,
+    "net_profit_mn_bdt": 3763.8
+  },
+  {
+    "symbol": "BRACBANK",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-26",
+    "eps_bdt": 1.28,
+    "nav_per_share_bdt": 45,
+    "revenue_mn_bdt": 12586.67,
+    "net_profit_mn_bdt": 2265.6
+  },
+  {
+    "symbol": "BRACBANK",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-06",
+    "eps_bdt": 1.41,
+    "nav_per_share_bdt": 45.6,
+    "revenue_mn_bdt": 13865,
+    "net_profit_mn_bdt": 2495.7
+  },
+  {
+    "symbol": "BRACBANK",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-13",
+    "eps_bdt": 1.5,
+    "nav_per_share_bdt": 46.2,
+    "revenue_mn_bdt": 14750,
+    "net_profit_mn_bdt": 2655
+  },
+  {
+    "symbol": "BXPHARMA",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-15",
+    "eps_bdt": 2.3,
+    "nav_per_share_bdt": 70.59,
+    "revenue_mn_bdt": 7327.14,
+    "net_profit_mn_bdt": 1025.8
+  },
+  {
+    "symbol": "BXPHARMA",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-12",
+    "eps_bdt": 2.05,
+    "nav_per_share_bdt": 71.19,
+    "revenue_mn_bdt": 6530.71,
+    "net_profit_mn_bdt": 914.3
+  },
+  {
+    "symbol": "BXPHARMA",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-09-27",
+    "eps_bdt": 1.62,
+    "nav_per_share_bdt": 71.79,
+    "revenue_mn_bdt": 5160.86,
+    "net_profit_mn_bdt": 722.52
+  },
+  {
+    "symbol": "CITYBANK",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-25",
+    "eps_bdt": 0.9,
+    "nav_per_share_bdt": 29.33,
+    "revenue_mn_bdt": 7041.18,
+    "net_profit_mn_bdt": 1197
+  },
+  {
+    "symbol": "CITYBANK",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-13",
+    "eps_bdt": 0.9,
+    "nav_per_share_bdt": 29.93,
+    "revenue_mn_bdt": 7041.18,
+    "net_profit_mn_bdt": 1197
+  },
+  {
+    "symbol": "CITYBANK",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-21",
+    "eps_bdt": 0.95,
+    "nav_per_share_bdt": 30.53,
+    "revenue_mn_bdt": 7432.35,
+    "net_profit_mn_bdt": 1263.5
+  },
+  {
+    "symbol": "EBL",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-16",
+    "eps_bdt": 1.03,
+    "nav_per_share_bdt": 34.29,
+    "revenue_mn_bdt": 6386,
+    "net_profit_mn_bdt": 1277.2
+  },
+  {
+    "symbol": "EBL",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-07",
+    "eps_bdt": 1.03,
+    "nav_per_share_bdt": 34.89,
+    "revenue_mn_bdt": 6386,
+    "net_profit_mn_bdt": 1277.2
+  },
+  {
+    "symbol": "EBL",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-22",
+    "eps_bdt": 1.04,
+    "nav_per_share_bdt": 35.49,
+    "revenue_mn_bdt": 6448,
+    "net_profit_mn_bdt": 1289.6
+  },
+  {
+    "symbol": "GP",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-25",
+    "eps_bdt": 5.94,
+    "nav_per_share_bdt": 184.62,
+    "revenue_mn_bdt": 26730,
+    "net_profit_mn_bdt": 8019
+  },
+  {
+    "symbol": "GP",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-03",
+    "eps_bdt": 5.71,
+    "nav_per_share_bdt": 185.22,
+    "revenue_mn_bdt": 25695,
+    "net_profit_mn_bdt": 7708.5
+  },
+  {
+    "symbol": "GP",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-19",
+    "eps_bdt": 5.41,
+    "nav_per_share_bdt": 185.82,
+    "revenue_mn_bdt": 24345,
+    "net_profit_mn_bdt": 7303.5
+  },
+  {
+    "symbol": "HEIDELBCEM",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-12",
+    "eps_bdt": 3.43,
+    "nav_per_share_bdt": 100,
+    "revenue_mn_bdt": 3201.33,
+    "net_profit_mn_bdt": 192.08
+  },
+  {
+    "symbol": "HEIDELBCEM",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-04",
+    "eps_bdt": 3.43,
+    "nav_per_share_bdt": 100.6,
+    "revenue_mn_bdt": 3201.33,
+    "net_profit_mn_bdt": 192.08
+  },
+  {
+    "symbol": "HEIDELBCEM",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-14",
+    "eps_bdt": 3.32,
+    "nav_per_share_bdt": 101.2,
+    "revenue_mn_bdt": 3098.67,
+    "net_profit_mn_bdt": 185.92
+  },
+  {
+    "symbol": "LHBL",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-15",
+    "eps_bdt": 1.33,
+    "nav_per_share_bdt": 40,
+    "revenue_mn_bdt": 9650.81,
+    "net_profit_mn_bdt": 1544.13
+  },
+  {
+    "symbol": "LHBL",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-07",
+    "eps_bdt": 1.25,
+    "nav_per_share_bdt": 40.6,
+    "revenue_mn_bdt": 9070.31,
+    "net_profit_mn_bdt": 1451.25
+  },
+  {
+    "symbol": "LHBL",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-23",
+    "eps_bdt": 1.19,
+    "nav_per_share_bdt": 41.2,
+    "revenue_mn_bdt": 8634.94,
+    "net_profit_mn_bdt": 1381.59
+  },
+  {
+    "symbol": "OLYMPIC",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-19",
+    "eps_bdt": 2.34,
+    "nav_per_share_bdt": 75.56,
+    "revenue_mn_bdt": 4680,
+    "net_profit_mn_bdt": 468
+  },
+  {
+    "symbol": "OLYMPIC",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-04-29",
+    "eps_bdt": 2.24,
+    "nav_per_share_bdt": 76.16,
+    "revenue_mn_bdt": 4480,
+    "net_profit_mn_bdt": 448
+  },
+  {
+    "symbol": "OLYMPIC",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-16",
+    "eps_bdt": 2.41,
+    "nav_per_share_bdt": 76.76,
+    "revenue_mn_bdt": 4820,
+    "net_profit_mn_bdt": 482
+  },
+  {
+    "symbol": "RENATA",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-16",
+    "eps_bdt": 7.14,
+    "nav_per_share_bdt": 240,
+    "revenue_mn_bdt": 6261.23,
+    "net_profit_mn_bdt": 813.96
+  },
+  {
+    "symbol": "RENATA",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-04-30",
+    "eps_bdt": 7.03,
+    "nav_per_share_bdt": 240.6,
+    "revenue_mn_bdt": 6164.77,
+    "net_profit_mn_bdt": 801.42
+  },
+  {
+    "symbol": "RENATA",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-14",
+    "eps_bdt": 6.82,
+    "nav_per_share_bdt": 241.2,
+    "revenue_mn_bdt": 5980.62,
+    "net_profit_mn_bdt": 777.48
+  },
+  {
+    "symbol": "ROBI",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-12",
+    "eps_bdt": 0.27,
+    "nav_per_share_bdt": 8.57,
+    "revenue_mn_bdt": 28285.2,
+    "net_profit_mn_bdt": 1414.26
+  },
+  {
+    "symbol": "ROBI",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-05",
+    "eps_bdt": 0.24,
+    "nav_per_share_bdt": 9.17,
+    "revenue_mn_bdt": 25142.4,
+    "net_profit_mn_bdt": 1257.12
+  },
+  {
+    "symbol": "ROBI",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-27",
+    "eps_bdt": 0.29,
+    "nav_per_share_bdt": 9.77,
+    "revenue_mn_bdt": 30380.4,
+    "net_profit_mn_bdt": 1519.02
+  },
+  {
+    "symbol": "SQURPHARMA",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-17",
+    "eps_bdt": 4.9,
+    "nav_per_share_bdt": 168,
+    "revenue_mn_bdt": 16079.26,
+    "net_profit_mn_bdt": 4341.4
+  },
+  {
+    "symbol": "SQURPHARMA",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-13",
+    "eps_bdt": 5.2,
+    "nav_per_share_bdt": 168.6,
+    "revenue_mn_bdt": 17063.7,
+    "net_profit_mn_bdt": 4607.2
+  },
+  {
+    "symbol": "SQURPHARMA",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-09-24",
+    "eps_bdt": 5.84,
+    "nav_per_share_bdt": 169.2,
+    "revenue_mn_bdt": 19163.85,
+    "net_profit_mn_bdt": 5174.24
+  },
+  {
+    "symbol": "SUMITPOWER",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-22",
+    "eps_bdt": 0.68,
+    "nav_per_share_bdt": 22.22,
+    "revenue_mn_bdt": 6052,
+    "net_profit_mn_bdt": 726.24
+  },
+  {
+    "symbol": "SUMITPOWER",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-05",
+    "eps_bdt": 0.71,
+    "nav_per_share_bdt": 22.82,
+    "revenue_mn_bdt": 6319,
+    "net_profit_mn_bdt": 758.28
+  },
+  {
+    "symbol": "SUMITPOWER",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-22",
+    "eps_bdt": 0.64,
+    "nav_per_share_bdt": 23.42,
+    "revenue_mn_bdt": 5696,
+    "net_profit_mn_bdt": 683.52
+  },
+  {
+    "symbol": "UPGDCL",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-03-01",
+    "eps_bdt": 4.2,
+    "nav_per_share_bdt": 123.64,
+    "revenue_mn_bdt": 8120,
+    "net_profit_mn_bdt": 2436
+  },
+  {
+    "symbol": "UPGDCL",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-04-29",
+    "eps_bdt": 3.49,
+    "nav_per_share_bdt": 124.24,
+    "revenue_mn_bdt": 6747.33,
+    "net_profit_mn_bdt": 2024.2
+  },
+  {
+    "symbol": "UPGDCL",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-14",
+    "eps_bdt": 4.01,
+    "nav_per_share_bdt": 124.84,
+    "revenue_mn_bdt": 7752.67,
+    "net_profit_mn_bdt": 2325.8
+  },
+  {
+    "symbol": "WALTONHIL",
+    "period_end": "2025-12-31",
+    "reported_on": "2026-02-12",
+    "eps_bdt": 9.61,
+    "nav_per_share_bdt": 336,
+    "revenue_mn_bdt": 32353.67,
+    "net_profit_mn_bdt": 2911.83
+  },
+  {
+    "symbol": "WALTONHIL",
+    "period_end": "2026-03-31",
+    "reported_on": "2026-05-07",
+    "eps_bdt": 11.35,
+    "nav_per_share_bdt": 336.6,
+    "revenue_mn_bdt": 38211.67,
+    "net_profit_mn_bdt": 3439.05
+  },
+  {
+    "symbol": "WALTONHIL",
+    "period_end": "2026-06-30",
+    "reported_on": "2026-07-27",
+    "eps_bdt": 10.46,
+    "nav_per_share_bdt": 337.2,
+    "revenue_mn_bdt": 35215.33,
+    "net_profit_mn_bdt": 3169.38
+  }
+]

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "ca-01",
+    "symbol": "UPGDCL",
+    "kind": "cash_dividend",
+    "record_date": "2026-02-19",
+    "paid_on": "2026-03-16",
+    "cash_per_share_bdt": 4,
+    "bonus_ratio": null,
+    "announcement_id": "a-001"
+  },
+  {
+    "id": "ca-02",
+    "symbol": "SQURPHARMA",
+    "kind": "cash_dividend",
+    "record_date": "2026-04-02",
+    "paid_on": "2026-04-28",
+    "cash_per_share_bdt": 6,
+    "bonus_ratio": null,
+    "announcement_id": "a-019"
+  },
+  {
+    "id": "ca-03",
+    "symbol": "EBL",
+    "kind": "cash_dividend",
+    "record_date": "2026-04-16",
+    "paid_on": "2026-05-10",
+    "cash_per_share_bdt": 1.5,
+    "bonus_ratio": null,
+    "announcement_id": "a-022"
+  },
+  {
+    "id": "ca-04",
+    "symbol": "BRACBANK",
+    "kind": "stock_dividend",
+    "record_date": "2026-04-28",
+    "paid_on": "2026-05-19",
+    "cash_per_share_bdt": null,
+    "bonus_ratio": 0.1,
+    "announcement_id": "a-023"
+  },
+  {
+    "id": "ca-05",
+    "symbol": "BATBC",
+    "kind": "cash_dividend",
+    "record_date": "2026-06-18",
+    "paid_on": "2026-07-12",
+    "cash_per_share_bdt": 18,
+    "bonus_ratio": null,
+    "announcement_id": "a-043"
+  },
+  {
+    "id": "ca-06",
+    "symbol": "OLYMPIC",
+    "kind": "cash_dividend",
+    "record_date": "2026-07-09",
+    "paid_on": "2026-08-03",
+    "cash_per_share_bdt": 5,
+    "bonus_ratio": null,
+    "announcement_id": "a-045"
+  },
+  {
+    "id": "ca-07",
+    "symbol": "GP",
+    "kind": "cash_dividend",
+    "record_date": "2026-09-21",
+    "paid_on": "2026-10-21",
+    "cash_per_share_bdt": 12.5,
+    "bonus_ratio": null,
+    "announcement_id": "a-062"
+  }
+]

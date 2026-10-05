@@ -1,0 +1,952 @@
+[
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-11",
+    "close": 5298.15
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-12",
+    "close": 5284.57
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-13",
+    "close": 5334.13
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-14",
+    "close": 5330.03
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-15",
+    "close": 5348.96
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-18",
+    "close": 5291.5
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-19",
+    "close": 5316.62
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-20",
+    "close": 5328.36
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-21",
+    "close": 5346.99
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-22",
+    "close": 5341.85
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-25",
+    "close": 5335.21
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-26",
+    "close": 5359.35
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-27",
+    "close": 5389.45
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-28",
+    "close": 5391.24
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-01-29",
+    "close": 5398.82
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-01",
+    "close": 5398.22
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-02",
+    "close": 5383.19
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-03",
+    "close": 5361.58
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-04",
+    "close": 5375.25
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-05",
+    "close": 5403.65
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-08",
+    "close": 5360.28
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-09",
+    "close": 5318.03
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-10",
+    "close": 5361.35
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-11",
+    "close": 5403.14
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-12",
+    "close": 5378.99
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-15",
+    "close": 5430.27
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-16",
+    "close": 5423.44
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-17",
+    "close": 5407.49
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-18",
+    "close": 5370.93
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-19",
+    "close": 5463.19
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-22",
+    "close": 5443.12
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-23",
+    "close": 5408.99
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-24",
+    "close": 5404.69
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-25",
+    "close": 5388.27
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-02-26",
+    "close": 5389.7
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-01",
+    "close": 5404.22
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-02",
+    "close": 5405.06
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-03",
+    "close": 5422.66
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-04",
+    "close": 5418.18
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-05",
+    "close": 5438.16
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-08",
+    "close": 5458.75
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-09",
+    "close": 5520.42
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-10",
+    "close": 5539.71
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-11",
+    "close": 5552.32
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-12",
+    "close": 5545.66
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-15",
+    "close": 5550.32
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-16",
+    "close": 5514.82
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-17",
+    "close": 5530.38
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-18",
+    "close": 5558.03
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-19",
+    "close": 5551.91
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-22",
+    "close": 5541.35
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-23",
+    "close": 5509.36
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-24",
+    "close": 5548.29
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-25",
+    "close": 5556.17
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-26",
+    "close": 5604.13
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-29",
+    "close": 5603.9
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-30",
+    "close": 5640.4
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-03-31",
+    "close": 5626.6
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-01",
+    "close": 5582.86
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-02",
+    "close": 5622.17
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-05",
+    "close": 5638.07
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-06",
+    "close": 5623.78
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-07",
+    "close": 5666.15
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-08",
+    "close": 5689.15
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-09",
+    "close": 5610.3
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-12",
+    "close": 5604.82
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-13",
+    "close": 5622.79
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-14",
+    "close": 5666.73
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-15",
+    "close": 5645.91
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-16",
+    "close": 5670.23
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-19",
+    "close": 5677.54
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-20",
+    "close": 5726.81
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-21",
+    "close": 5743.92
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-22",
+    "close": 5783.42
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-23",
+    "close": 5775.91
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-26",
+    "close": 5808.05
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-27",
+    "close": 5803.34
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-28",
+    "close": 5792.73
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-29",
+    "close": 5758.59
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-04-30",
+    "close": 5769.24
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-03",
+    "close": 5730.87
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-04",
+    "close": 5779.96
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-05",
+    "close": 5785.55
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-06",
+    "close": 5783.79
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-07",
+    "close": 5790.94
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-10",
+    "close": 5775.86
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-11",
+    "close": 5827.73
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-12",
+    "close": 5819.94
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-13",
+    "close": 5819.85
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-14",
+    "close": 5776.95
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-17",
+    "close": 5743.23
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-18",
+    "close": 5662.33
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-19",
+    "close": 5620.46
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-20",
+    "close": 5646.1
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-21",
+    "close": 5619.95
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-24",
+    "close": 5614.68
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-25",
+    "close": 5585.19
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-26",
+    "close": 5554.2
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-27",
+    "close": 5581.24
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-28",
+    "close": 5559.28
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-05-31",
+    "close": 5580.21
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-01",
+    "close": 5651.42
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-02",
+    "close": 5641.6
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-03",
+    "close": 5701.31
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-04",
+    "close": 5707.52
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-07",
+    "close": 5763.25
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-08",
+    "close": 5775.79
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-09",
+    "close": 5786.89
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-10",
+    "close": 5744.37
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-11",
+    "close": 5694.15
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-14",
+    "close": 5713.24
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-15",
+    "close": 5721.76
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-16",
+    "close": 5764.58
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-17",
+    "close": 5764.09
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-18",
+    "close": 5771.06
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-21",
+    "close": 5788.79
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-22",
+    "close": 5758.48
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-23",
+    "close": 5839.24
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-24",
+    "close": 5835.77
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-25",
+    "close": 5878.81
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-28",
+    "close": 5908.27
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-29",
+    "close": 5909.17
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-06-30",
+    "close": 5972.9
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-01",
+    "close": 6025.03
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-02",
+    "close": 6110.71
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-05",
+    "close": 6076.89
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-06",
+    "close": 6112.94
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-07",
+    "close": 6097.15
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-08",
+    "close": 6108.46
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-09",
+    "close": 6145.47
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-12",
+    "close": 6175.81
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-13",
+    "close": 6146.95
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-14",
+    "close": 6179.11
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-15",
+    "close": 6136.95
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-16",
+    "close": 6117.49
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-19",
+    "close": 6180.02
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-20",
+    "close": 6130.11
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-21",
+    "close": 6164.23
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-22",
+    "close": 6183.84
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-23",
+    "close": 6218.02
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-26",
+    "close": 6204.38
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-27",
+    "close": 6210.17
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-28",
+    "close": 6161.5
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-29",
+    "close": 6165.95
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-07-30",
+    "close": 6234.8
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-02",
+    "close": 6193.64
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-03",
+    "close": 6143.38
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-04",
+    "close": 6184.13
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-05",
+    "close": 6225.83
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-06",
+    "close": 6181.52
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-09",
+    "close": 6173.56
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-10",
+    "close": 6153.58
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-11",
+    "close": 6112.63
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-12",
+    "close": 6072.3
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-13",
+    "close": 6047.72
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-16",
+    "close": 6087.27
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-17",
+    "close": 6081.24
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-18",
+    "close": 6092.57
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-19",
+    "close": 6123.59
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-20",
+    "close": 6163.84
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-23",
+    "close": 6213.8
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-24",
+    "close": 6239.55
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-25",
+    "close": 6234.84
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-26",
+    "close": 6155.58
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-27",
+    "close": 6122.34
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-30",
+    "close": 6152.13
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-08-31",
+    "close": 6208.43
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-01",
+    "close": 6202.05
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-02",
+    "close": 6217.96
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-03",
+    "close": 6233.01
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-06",
+    "close": 6239.6
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-07",
+    "close": 6249.2
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-08",
+    "close": 6263.26
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-09",
+    "close": 6209.82
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-10",
+    "close": 6267.47
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-13",
+    "close": 6245.6
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-14",
+    "close": 6239.66
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-15",
+    "close": 6257.54
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-16",
+    "close": 6259.87
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-17",
+    "close": 6251.16
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-20",
+    "close": 6332.98
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-21",
+    "close": 6357.58
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-22",
+    "close": 6324.54
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-23",
+    "close": 6328.72
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-24",
+    "close": 6355.83
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-27",
+    "close": 6346.8
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-28",
+    "close": 6331.08
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-29",
+    "close": 6323.07
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-09-30",
+    "close": 6314.76
+  },
+  {
+    "index": "DSEX",
+    "bar_date": "2026-10-01",
+    "close": 6308.39
+  }
+]

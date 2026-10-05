@@ -1,0 +1,596 @@
+[
+  {
+    "id": "a-001",
+    "symbol": "UPGDCL",
+    "published_at": "2026-02-03T09:00:00.000Z",
+    "category": "dividend_declaration",
+    "title": "Cash dividend of Tk 4.00 per share declared",
+    "body": "The board has recommended a cash dividend of 40% (Tk 4.00 per share). The record date is 19 Feb 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-002",
+    "symbol": "HEIDELBCEM",
+    "published_at": "2026-02-12T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 3.43, against Tk 3.33 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-003",
+    "symbol": "UPGDCL",
+    "published_at": "2026-02-12T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the cash dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-004",
+    "symbol": "ROBI",
+    "published_at": "2026-02-12T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.27, against Tk 0.29 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-005",
+    "symbol": "WALTONHIL",
+    "published_at": "2026-02-12T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 9.61, against Tk 8.57 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-006",
+    "symbol": "BXPHARMA",
+    "published_at": "2026-02-15T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 2.30, against Tk 2.10 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-007",
+    "symbol": "LHBL",
+    "published_at": "2026-02-15T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.33, against Tk 1.52 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-008",
+    "symbol": "RENATA",
+    "published_at": "2026-02-16T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 7.14, against Tk 8.09 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-009",
+    "symbol": "EBL",
+    "published_at": "2026-02-16T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.03, against Tk 0.91 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-010",
+    "symbol": "SQURPHARMA",
+    "published_at": "2026-02-17T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 4.90, against Tk 4.60 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-011",
+    "symbol": "OLYMPIC",
+    "published_at": "2026-02-19T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 2.34, against Tk 2.18 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-012",
+    "symbol": "SUMITPOWER",
+    "published_at": "2026-02-22T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.68, against Tk 0.64 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-013",
+    "symbol": "BATBC",
+    "published_at": "2026-02-25T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 7.58, against Tk 8.24 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-014",
+    "symbol": "CITYBANK",
+    "published_at": "2026-02-25T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.90, against Tk 0.79 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-015",
+    "symbol": "GP",
+    "published_at": "2026-02-25T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 5.94, against Tk 5.84 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-016",
+    "symbol": "BRACBANK",
+    "published_at": "2026-02-26T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.28, against Tk 1.45 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-017",
+    "symbol": "UPGDCL",
+    "published_at": "2026-03-01T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 4.20, against Tk 4.44 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-018",
+    "symbol": "EBL",
+    "published_at": "2026-03-05T09:00:00.000Z",
+    "category": "other",
+    "title": "Credit rating surveillance completed",
+    "body": "The credit rating agency kept the bank's long-term and short-term ratings unchanged after its annual surveillance.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-019",
+    "symbol": "SQURPHARMA",
+    "published_at": "2026-03-12T09:00:00.000Z",
+    "category": "dividend_declaration",
+    "title": "Cash dividend of Tk 6.00 per share declared",
+    "body": "The board has recommended a cash dividend of 60% (Tk 6.00 per share). The record date is 2 Apr 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-020",
+    "symbol": "LHBL",
+    "published_at": "2026-03-19T09:00:00.000Z",
+    "category": "other",
+    "title": "Reply to an exchange query on recent price movement",
+    "body": "The company states that it has no undisclosed price-sensitive information behind the recent unusual movement in its share price.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-021",
+    "symbol": "SQURPHARMA",
+    "published_at": "2026-03-25T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the cash dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-022",
+    "symbol": "EBL",
+    "published_at": "2026-03-31T09:00:00.000Z",
+    "category": "dividend_declaration",
+    "title": "Cash dividend of Tk 1.50 per share declared",
+    "body": "The board has recommended a cash dividend of 15% (Tk 1.50 per share). The record date is 16 Apr 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-023",
+    "symbol": "BRACBANK",
+    "published_at": "2026-04-07T09:00:00.000Z",
+    "category": "bonus_declaration",
+    "title": "10% stock dividend (bonus shares) declared",
+    "body": "The board has recommended a 10% stock dividend: 10 bonus shares for every 100 held. The record date is 28 Apr 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-024",
+    "symbol": "EBL",
+    "published_at": "2026-04-09T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the cash dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-025",
+    "symbol": "BRACBANK",
+    "published_at": "2026-04-22T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the stock dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-026",
+    "symbol": "OLYMPIC",
+    "published_at": "2026-04-29T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 2.24, against Tk 2.44 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-027",
+    "symbol": "UPGDCL",
+    "published_at": "2026-04-29T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 3.49, against Tk 3.30 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-028",
+    "symbol": "RENATA",
+    "published_at": "2026-04-30T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 7.03, against Tk 7.72 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-029",
+    "symbol": "BATBC",
+    "published_at": "2026-05-03T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 7.40, against Tk 8.17 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-030",
+    "symbol": "GP",
+    "published_at": "2026-05-03T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 5.71, against Tk 6.35 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-031",
+    "symbol": "HEIDELBCEM",
+    "published_at": "2026-05-04T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 3.43, against Tk 3.85 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-032",
+    "symbol": "ROBI",
+    "published_at": "2026-05-05T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.24, against Tk 0.22 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-033",
+    "symbol": "SUMITPOWER",
+    "published_at": "2026-05-05T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.71, against Tk 0.80 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-034",
+    "symbol": "BRACBANK",
+    "published_at": "2026-05-06T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.41, against Tk 1.51 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-035",
+    "symbol": "EBL",
+    "published_at": "2026-05-07T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.03, against Tk 0.91 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-036",
+    "symbol": "LHBL",
+    "published_at": "2026-05-07T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.25, against Tk 1.32 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-037",
+    "symbol": "WALTONHIL",
+    "published_at": "2026-05-07T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 11.35, against Tk 11.14 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-038",
+    "symbol": "BXPHARMA",
+    "published_at": "2026-05-12T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 2.05, against Tk 2.20 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-039",
+    "symbol": "CITYBANK",
+    "published_at": "2026-05-13T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.90, against Tk 0.98 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-040",
+    "symbol": "SQURPHARMA",
+    "published_at": "2026-05-13T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 5.20, against Tk 4.80 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-041",
+    "symbol": "WALTONHIL",
+    "published_at": "2026-05-14T09:00:00.000Z",
+    "category": "price_sensitive",
+    "title": "Board approves a new compressor production line",
+    "body": "The board approved an investment of Tk 1,200 million in a new compressor production line, to be funded from retained earnings.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-042",
+    "symbol": "UPGDCL",
+    "published_at": "2026-05-26T09:00:00.000Z",
+    "category": "other",
+    "title": "Change of corporate office address",
+    "body": "The company has moved its corporate office. Shareholder services are unchanged.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-043",
+    "symbol": "BATBC",
+    "published_at": "2026-06-01T09:00:00.000Z",
+    "category": "dividend_declaration",
+    "title": "Cash dividend of Tk 18.00 per share declared",
+    "body": "The board has recommended a cash dividend of 180% (Tk 18.00 per share). The record date is 18 Jun 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-044",
+    "symbol": "BATBC",
+    "published_at": "2026-06-11T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the cash dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-045",
+    "symbol": "OLYMPIC",
+    "published_at": "2026-06-23T09:00:00.000Z",
+    "category": "dividend_declaration",
+    "title": "Cash dividend of Tk 5.00 per share declared",
+    "body": "The board has recommended a cash dividend of 50% (Tk 5.00 per share). The record date is 9 Jul 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-046",
+    "symbol": "CITYBANK",
+    "published_at": "2026-06-25T09:00:00.000Z",
+    "category": "other",
+    "title": "Credit rating surveillance completed",
+    "body": "The credit rating agency kept the bank's ratings unchanged after its annual surveillance.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-047",
+    "symbol": "OLYMPIC",
+    "published_at": "2026-07-05T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the cash dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-048",
+    "symbol": "BATBC",
+    "published_at": "2026-07-13T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 6.97, against Tk 7.42 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-049",
+    "symbol": "BRACBANK",
+    "published_at": "2026-07-13T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.50, against Tk 1.35 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-050",
+    "symbol": "RENATA",
+    "published_at": "2026-07-14T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 6.82, against Tk 6.22 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-051",
+    "symbol": "UPGDCL",
+    "published_at": "2026-07-14T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 4.01, against Tk 4.42 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-052",
+    "symbol": "HEIDELBCEM",
+    "published_at": "2026-07-14T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 3.32, against Tk 3.49 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-053",
+    "symbol": "OLYMPIC",
+    "published_at": "2026-07-16T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 2.41, against Tk 2.75 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-054",
+    "symbol": "GP",
+    "published_at": "2026-07-19T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 5.41, against Tk 4.61 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-055",
+    "symbol": "CITYBANK",
+    "published_at": "2026-07-21T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.95, against Tk 0.95 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-056",
+    "symbol": "SUMITPOWER",
+    "published_at": "2026-07-22T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.64, against Tk 0.56 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-057",
+    "symbol": "EBL",
+    "published_at": "2026-07-22T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.04, against Tk 1.15 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-058",
+    "symbol": "LHBL",
+    "published_at": "2026-07-23T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.19, against Tk 1.21 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-059",
+    "symbol": "ROBI",
+    "published_at": "2026-07-27T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 0.29, against Tk 0.30 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-060",
+    "symbol": "WALTONHIL",
+    "published_at": "2026-07-27T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 10.46, against Tk 9.88 for the same quarter last year.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-061",
+    "symbol": "HEIDELBCEM",
+    "published_at": "2026-08-02T09:00:00.000Z",
+    "category": "price_sensitive",
+    "title": "Plant shut for annual maintenance",
+    "body": "One kiln will be shut for three weeks of planned maintenance. Sales will be met from stock.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-062",
+    "symbol": "GP",
+    "published_at": "2026-08-30T09:00:00.000Z",
+    "category": "dividend_declaration",
+    "title": "Cash dividend of Tk 12.50 per share declared",
+    "body": "The board has recommended a cash dividend of 125% (Tk 12.50 per share). The record date is 21 Sept 2026.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-063",
+    "symbol": "GP",
+    "published_at": "2026-09-10T05:00:00.000Z",
+    "category": "agm",
+    "title": "Annual general meeting approves the dividend",
+    "body": "Shareholders approved the cash dividend at the annual general meeting, held on a digital platform.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-064",
+    "symbol": "GP",
+    "published_at": "2026-09-17T09:00:00.000Z",
+    "category": "other",
+    "title": "Record date for the cash dividend",
+    "body": "Shareholders on the register on the record date, 21 Sept 2026, will receive the cash dividend. The shares trade ex-dividend from the next session.",
+    "price_sensitive": false
+  },
+  {
+    "id": "a-065",
+    "symbol": "SQURPHARMA",
+    "published_at": "2026-09-24T09:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit higher than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 5.84, against Tk 4.97 for the same quarter last year. Export sales grew faster than local sales.",
+    "price_sensitive": true
+  },
+  {
+    "id": "a-066",
+    "symbol": "BXPHARMA",
+    "published_at": "2026-09-27T05:00:00.000Z",
+    "category": "earnings",
+    "title": "Quarterly results: profit lower than the same quarter last year",
+    "body": "Earnings per share for the quarter were Tk 1.62, against Tk 2.41 for the same quarter last year. The company cited higher raw material and finance costs.",
+    "price_sensitive": true
+  }
+]

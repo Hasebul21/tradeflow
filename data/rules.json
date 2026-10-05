@@ -1,0 +1,136 @@
+{
+  "max_position_weight_pct": 25,
+  "sector_tolerance_pct": 5,
+  "sector_targets": [
+    {
+      "sector": "Bank",
+      "target_percent": 25
+    },
+    {
+      "sector": "Pharmaceuticals & Chemicals",
+      "target_percent": 30
+    },
+    {
+      "sector": "Telecommunication",
+      "target_percent": 15
+    },
+    {
+      "sector": "Food & Allied",
+      "target_percent": 10
+    },
+    {
+      "sector": "Cement",
+      "target_percent": 5
+    },
+    {
+      "sector": "Fuel & Power",
+      "target_percent": 10
+    },
+    {
+      "sector": "Engineering",
+      "target_percent": 5
+    }
+  ],
+  "trade_plans": [
+    {
+      "id": "p-01",
+      "created_at": "2026-08-06T14:00:00.000Z",
+      "symbol": "BXPHARMA",
+      "side": "buy",
+      "target_price": 167.3,
+      "quantity_shares": 40,
+      "note": "Average down once more",
+      "executed": true
+    },
+    {
+      "id": "p-02",
+      "created_at": "2026-08-20T14:00:00.000Z",
+      "symbol": "WALTONHIL",
+      "side": "buy",
+      "target_price": 1179.6,
+      "quantity_shares": 70,
+      "note": "First long-term lot in Walton if it dips",
+      "executed": false
+    },
+    {
+      "id": "p-03",
+      "created_at": "2026-08-27T14:00:00.000Z",
+      "symbol": "EBL",
+      "side": "buy",
+      "target_price": 26.6,
+      "quantity_shares": 300,
+      "note": "Add to the cheaper bank",
+      "executed": false
+    },
+    {
+      "id": "p-04",
+      "created_at": "2026-09-03T14:00:00.000Z",
+      "symbol": "SQURPHARMA",
+      "side": "sell",
+      "target_price": 257.7,
+      "quantity_shares": 100,
+      "note": "Trim the overweight position",
+      "executed": false
+    },
+    {
+      "id": "p-05",
+      "created_at": "2026-09-03T14:00:00.000Z",
+      "symbol": "BATBC",
+      "side": "sell",
+      "target_price": 554.8,
+      "quantity_shares": 30,
+      "note": "Take some profit",
+      "executed": false
+    },
+    {
+      "id": "p-06",
+      "created_at": "2026-09-10T14:00:00.000Z",
+      "symbol": "GP",
+      "side": "buy",
+      "target_price": 358.8,
+      "quantity_shares": 50,
+      "note": "Add on a dip of 4% or more",
+      "executed": false
+    },
+    {
+      "id": "p-07",
+      "created_at": "2026-09-15T14:00:00.000Z",
+      "symbol": "BXPHARMA",
+      "side": "buy",
+      "target_price": 128.2,
+      "quantity_shares": 100,
+      "note": "Average down only after the next results",
+      "executed": false
+    },
+    {
+      "id": "p-08",
+      "created_at": "2026-09-17T14:00:00.000Z",
+      "symbol": "LHBL",
+      "side": "sell",
+      "target_price": 81.6,
+      "quantity_shares": 400,
+      "note": "Sell if the cement thesis plays out",
+      "executed": false
+    },
+    {
+      "id": "p-09",
+      "created_at": "2026-09-21T14:00:00.000Z",
+      "symbol": "RENATA",
+      "side": "buy",
+      "target_price": 853.4,
+      "quantity_shares": 5,
+      "note": "Add a little on weakness",
+      "executed": false
+    },
+    {
+      "id": "p-10",
+      "created_at": "2026-09-24T14:00:00.000Z",
+      "symbol": "SUMITPOWER",
+      "side": "sell",
+      "target_price": 32.8,
+      "quantity_shares": 500,
+      "note": "Close the trade at a 6% gain",
+      "executed": false
+    }
+  ]
+}

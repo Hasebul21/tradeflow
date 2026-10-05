@@ -1,0 +1,77 @@
+[
+  {
+    "symbol": "GP",
+    "name": "Grameenphone",
+    "sector": "Telecommunication"
+  },
+  {
+    "symbol": "ROBI",
+    "name": "Robi Axiata",
+    "sector": "Telecommunication"
+  },
+  {
+    "symbol": "BRACBANK",
+    "name": "BRAC Bank",
+    "sector": "Bank"
+  },
+  {
+    "symbol": "EBL",
+    "name": "Eastern Bank",
+    "sector": "Bank"
+  },
+  {
+    "symbol": "CITYBANK",
+    "name": "The City Bank",
+    "sector": "Bank"
+  },
+  {
+    "symbol": "SQURPHARMA",
+    "name": "Square Pharmaceuticals",
+    "sector": "Pharmaceuticals & Chemicals"
+  },
+  {
+    "symbol": "BXPHARMA",
+    "name": "Beximco Pharmaceuticals",
+    "sector": "Pharmaceuticals & Chemicals"
+  },
+  {
+    "symbol": "RENATA",
+    "name": "Renata",
+    "sector": "Pharmaceuticals & Chemicals"
+  },
+  {
+    "symbol": "BATBC",
+    "name": "British American Tobacco Bangladesh",
+    "sector": "Food & Allied"
+  },
+  {
+    "symbol": "OLYMPIC",
+    "name": "Olympic Industries",
+    "sector": "Food & Allied"
+  },
+  {
+    "symbol": "LHBL",
+    "name": "LafargeHolcim Bangladesh",
+    "sector": "Cement"
+  },
+  {
+    "symbol": "HEIDELBCEM",
+    "name": "Heidelberg Materials Bangladesh",
+    "sector": "Cement"
+  },
+  {
+    "symbol": "UPGDCL",
+    "name": "United Power Generation",
+    "sector": "Fuel & Power"
+  },
+  {
+    "symbol": "SUMITPOWER",
+    "name": "Summit Power",
+    "sector": "Fuel & Power"
+  },
+  {
+    "symbol": "WALTONHIL",
+    "name": "Walton Hi-Tech Industries",
+    "sector": "Engineering"
+  }
+]

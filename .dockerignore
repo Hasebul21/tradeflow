@@ -1,0 +1,10 @@
+node_modules
+.next
+.env*
+!.env.example
+*.log
+logs
+data/memory
+.git
+coverage
+tsconfig.tsbuildinfo

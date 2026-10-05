@@ -1,0 +1,34 @@
+{
+  "name": "tradeflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small stock portfolio ledger for the Dhaka Stock Exchange: transactions, holdings, P/L and the owner's own rules, on synthetic data.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "seed": "node scripts/seed.mjs",
+    "db:load": "node scripts/load-postgres.mjs"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "@ant-design/nextjs-registry": "^1.3.0",
+    "antd": "^6.6.5",
+    "dayjs": "^1.11.23",
+    "next": "16.2.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "pg": "^8.23.1",
+    "typescript": "^5",
+    "vitest": "^4.1.5"
+  }
+}

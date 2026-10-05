@@ -1,0 +1,356 @@
+[
+  {
+    "id": "j-001",
+    "transaction_id": "t-001",
+    "created_at": "2026-01-15T07:00:00.000Z",
+    "thesis": "Buying GP for the dividend. It pays out most of its profit and the cash flow is steady.",
+    "horizon": "years",
+    "exit_condition": "Sell if the dividend is cut.",
+    "tags": [
+      "dividend",
+      "defensive"
+    ]
+  },
+  {
+    "id": "j-002",
+    "transaction_id": "t-002",
+    "created_at": "2026-01-20T07:00:00.000Z",
+    "thesis": "BRACBANK is the best-run private bank I follow, and the share is cheap against its book value.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-003",
+    "transaction_id": "t-003",
+    "created_at": "2026-01-26T07:00:00.000Z",
+    "thesis": "Square is the steadiest pharma company on the exchange. A core holding to keep adding to.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "pharma",
+      "core"
+    ]
+  },
+  {
+    "id": "j-004",
+    "transaction_id": "t-004",
+    "created_at": "2026-01-29T07:00:00.000Z",
+    "thesis": "Power plants with fixed government contracts should hold up if the market falls.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "defensive",
+      "power"
+    ]
+  },
+  {
+    "id": "j-005",
+    "transaction_id": "t-005",
+    "created_at": "2026-02-05T07:00:00.000Z",
+    "thesis": "Buying BATBC for the dividend. It pays a large cash dividend every year.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "dividend"
+    ]
+  },
+  {
+    "id": "j-006",
+    "transaction_id": "t-006",
+    "created_at": "2026-02-11T07:00:00.000Z",
+    "thesis": "A cheap second bank, to spread the bank exposure beyond BRACBANK.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-007",
+    "transaction_id": "t-007",
+    "created_at": "2026-02-17T07:00:00.000Z",
+    "thesis": "A small position in Renata. It is expensive, but profit grows every year.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "pharma",
+      "growth"
+    ]
+  },
+  {
+    "id": "j-008",
+    "transaction_id": "t-008",
+    "created_at": "2026-02-25T07:00:00.000Z",
+    "thesis": "A short trade on Heidelberg: it has fallen for weeks and looks oversold.",
+    "horizon": "weeks",
+    "exit_condition": null,
+    "tags": [
+      "trade",
+      "cyclical"
+    ]
+  },
+  {
+    "id": "j-009",
+    "transaction_id": "t-009",
+    "created_at": "2026-03-05T07:00:00.000Z",
+    "thesis": "Olympic sells biscuits everywhere in the country; demand holds up in a slow economy.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "defensive"
+    ]
+  },
+  {
+    "id": "j-010",
+    "transaction_id": "t-010",
+    "created_at": "2026-03-11T07:00:00.000Z",
+    "thesis": "City Bank trades below its book value and pays a steady dividend.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-011",
+    "transaction_id": "t-013",
+    "created_at": "2026-03-29T07:00:00.000Z",
+    "thesis": "A short trade on Robi: the share has fallen a long way and data revenue is growing.",
+    "horizon": "weeks",
+    "exit_condition": "Sell half if it gains 15%.",
+    "tags": [
+      "trade",
+      "telecom"
+    ]
+  },
+  {
+    "id": "j-012",
+    "transaction_id": "t-014",
+    "created_at": "2026-04-02T07:00:00.000Z",
+    "thesis": "Adding to GP before the dividend record date.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "dividend",
+      "defensive"
+    ]
+  },
+  {
+    "id": "j-013",
+    "transaction_id": "t-015",
+    "created_at": "2026-04-08T07:00:00.000Z",
+    "thesis": "Buying BXPHARMA expecting earnings growth from new export markets this year.",
+    "horizon": "months",
+    "exit_condition": "Sell if two quarters in a row show lower profit.",
+    "tags": [
+      "pharma",
+      "growth"
+    ]
+  },
+  {
+    "id": "j-014",
+    "transaction_id": "t-016",
+    "created_at": "2026-04-14T07:00:00.000Z",
+    "thesis": "Cement demand should pick up when building projects restart after the monsoon.",
+    "horizon": "months",
+    "exit_condition": "Sell if it falls 15% below what I paid.",
+    "tags": [
+      "cyclical"
+    ]
+  },
+  {
+    "id": "j-015",
+    "transaction_id": "t-017",
+    "created_at": "2026-04-20T07:00:00.000Z",
+    "thesis": "Adding to BRACBANK; the bank is still cheap against its book value.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-016",
+    "transaction_id": "t-019",
+    "created_at": "2026-04-30T07:00:00.000Z",
+    "thesis": "A trade on Summit Power: the share is near its yearly low.",
+    "horizon": "weeks",
+    "exit_condition": "Sell if it gains 10%.",
+    "tags": [
+      "trade",
+      "power"
+    ]
+  },
+  {
+    "id": "j-017",
+    "transaction_id": "t-020",
+    "created_at": "2026-05-06T07:00:00.000Z",
+    "thesis": "Adding to BATBC for the dividend income.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "dividend"
+    ]
+  },
+  {
+    "id": "j-018",
+    "transaction_id": "t-021",
+    "created_at": "2026-05-12T07:00:00.000Z",
+    "thesis": "Adding to EBL at a low price against book value.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-019",
+    "transaction_id": "t-023",
+    "created_at": "2026-05-24T07:00:00.000Z",
+    "thesis": "Adding a little more Renata after a dip.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "pharma",
+      "growth"
+    ]
+  },
+  {
+    "id": "j-020",
+    "transaction_id": "t-026",
+    "created_at": "2026-06-09T07:00:00.000Z",
+    "thesis": "Adding to Square, still my highest-conviction holding.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "pharma",
+      "core"
+    ]
+  },
+  {
+    "id": "j-021",
+    "transaction_id": "t-028",
+    "created_at": "2026-06-21T07:00:00.000Z",
+    "thesis": "Adding to City Bank while it stays below book value.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-022",
+    "transaction_id": "t-030",
+    "created_at": "2026-07-01T07:00:00.000Z",
+    "thesis": "Adding to LHBL before the building season.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "cyclical"
+    ]
+  },
+  {
+    "id": "j-023",
+    "transaction_id": "t-032",
+    "created_at": "2026-07-13T07:00:00.000Z",
+    "thesis": "Averaging down on BXPHARMA. The export story has not changed.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "pharma",
+      "growth"
+    ]
+  },
+  {
+    "id": "j-024",
+    "transaction_id": "t-034",
+    "created_at": "2026-07-23T07:00:00.000Z",
+    "thesis": "Adding to GP before the dividend record date.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "dividend",
+      "defensive"
+    ]
+  },
+  {
+    "id": "j-025",
+    "transaction_id": "t-037",
+    "created_at": "2026-08-10T07:00:00.000Z",
+    "thesis": "Adding to BRACBANK; the bank is still cheap against its book value.",
+    "horizon": "years",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-026",
+    "transaction_id": "t-038",
+    "created_at": "2026-08-16T07:00:00.000Z",
+    "thesis": "Adding to Square, still my highest-conviction holding.",
+    "horizon": "years",
+    "exit_condition": "Trim if it goes above 25% of the portfolio.",
+    "tags": [
+      "pharma",
+      "core"
+    ]
+  },
+  {
+    "id": "j-027",
+    "transaction_id": "t-039",
+    "created_at": "2026-08-20T07:00:00.000Z",
+    "thesis": "Adding to EBL at a low price against book value.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "bank",
+      "value"
+    ]
+  },
+  {
+    "id": "j-028",
+    "transaction_id": "t-040",
+    "created_at": "2026-08-26T07:00:00.000Z",
+    "thesis": "Averaging down on BXPHARMA. The export story has not changed.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "pharma",
+      "growth"
+    ]
+  },
+  {
+    "id": "j-029",
+    "transaction_id": "t-041",
+    "created_at": "2026-09-01T07:00:00.000Z",
+    "thesis": "A small trade on Walton ahead of the festival sales season.",
+    "horizon": "weeks",
+    "exit_condition": null,
+    "tags": [
+      "trade"
+    ]
+  },
+  {
+    "id": "j-030",
+    "transaction_id": "t-044",
+    "created_at": "2026-09-14T07:00:00.000Z",
+    "thesis": "Adding to United Power for its steady income.",
+    "horizon": "months",
+    "exit_condition": null,
+    "tags": [
+      "defensive",
+      "power"
+    ]
+  }
+]

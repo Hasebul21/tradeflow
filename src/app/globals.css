@@ -1,0 +1,173 @@
+:root {
+  --ink: #1f2421;
+  --muted: #5b615e;
+  --line: #e3e7e4;
+  --up: #1b7f4b;
+  --down: #b3261e;
+  --brand: #0f6b5c;
+}
+
+html,
+body {
+  margin: 0;
+  background: #f5f6f4;
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Headings, the app name and card titles. antd puts the class on the heading itself (h1.ant-typography). */
+h1,
+h2,
+h3,
+h4,
+.brand,
+h1.ant-typography,
+h2.ant-typography,
+h3.ant-typography,
+.ant-typography h1,
+.ant-typography h2,
+.ant-typography h3,
+.ant-card-head-title {
+  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
+}
+
+.num,
+.ant-statistic-content {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/*
+ * antd lets table cells break anywhere (overflow-wrap: break-word), which
+ * split "SQURPHARMA" and "Contribution" in two. Cells stay on one line; a
+ * table wider than its card scrolls sideways instead. Long text columns opt
+ * in to wrapping with .cell-wrap, and then break only at spaces.
+ */
+.ant-table-wrapper .ant-table-thead > tr > th,
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.ant-table-wrapper .ant-table-tbody > tr > td.cell-wrap {
+  white-space: normal;
+}
+.ant-tag {
+  white-space: nowrap;
+}
+
+.up {
+  color: var(--up);
+}
+.down {
+  color: var(--down);
+}
+.muted {
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard focus is always visible, on top of antd's own outline. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  /* Above antd's sticky table headers (z-index 3) and dropdowns stay above this. */
+  z-index: 20;
+}
+.brand {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--brand);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.app-nav {
+  flex: 1;
+  min-width: 0;
+}
+.app-content {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px 20px;
+  box-sizing: border-box;
+}
+.app-footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.page-header {
+  margin-bottom: 20px;
+}
+.page-title.ant-typography {
+  margin: 0 0 4px;
+  font-size: 26px;
+}
+.page-purpose.ant-typography {
+  margin: 0;
+}
+
+.stack > * + * {
+  margin-top: 20px;
+}
+
+.cell-wrap,
+.wrap-text {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.preview-box {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #f0c36d;
+  background: #fffbeb;
+  border-radius: 8px;
+}
+
+.signed {
+  white-space: nowrap;
+}
+
+.stat-value {
+  white-space: nowrap;
+}
+
+/* A company name under its symbol: wraps at spaces so it does not widen the column. */
+.sub-name {
+  font-size: 12px;
+  white-space: normal;
+  max-width: 170px;
+}
+
+.required-mark {
+  color: var(--down);
+}
