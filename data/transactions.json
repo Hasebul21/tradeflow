@@ -493,16 +493,5 @@
     "category": null,
     "fees_bdt": 12.4,
     "account_type": "trade"
-  },
-  {
-    "id": "bb2024a3-08ae-43fa-9c19-f9ec86a7877b",
-    "created_at": "2026-10-06T05:00:00.000Z",
-    "symbol": "HEIDELBCEM",
-    "side": "buy",
-    "quantity": 50000,
-    "price_per_share": 33333,
-    "category": null,
-    "fees_bdt": 0.04,
-    "account_type": "long_term"
   }
 ]
