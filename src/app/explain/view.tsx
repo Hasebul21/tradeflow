@@ -9,7 +9,7 @@ import type { TraceLine } from "@/agent/trace";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
-import { adviceBadge, correctionChip, movedBadge, outOfScopeBadge, selfCorrectionBanner } from "./badges";
+import { adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner } from "./badges";
 import { runPreTrade, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
 
@@ -272,7 +272,7 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
           <Descriptions size="small" column={{ xs: 1, md: 2 }} bordered>
             <Descriptions.Item label="Accepted">{`accepted in round ${out.rounds}`}</Descriptions.Item>
             <Descriptions.Item label="Scores">
-              {out.scores ? `accuracy ${out.scores.accuracy}, appropriateness ${out.scores.appropriateness}, actionability ${out.scores.actionability}, total ${out.scores.total} of 9` : "not scored"}
+              {scoresText(out, state.steps)}
             </Descriptions.Item>
             <Descriptions.Item label="Model">{out.model_source}</Descriptions.Item>
             <Descriptions.Item label="Usage">

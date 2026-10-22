@@ -91,7 +91,7 @@ export type RunOutput = {
   applied_corrections: { id: string; content: string }[];
   /** The round the draft was accepted in, or the rounds run. */
   rounds: number;
-  /** From the last Evaluator call; null when it rejected the draft in code or never ran. */
+  /** From the last Evaluator call; null when it rejected the draft in code, never ran, or had no score (score_unavailable). */
   scores: RunScores | null;
   /** "sample-model", or the model ids the replies reported; never a key or a URL. */
   model_source: string;
@@ -287,7 +287,14 @@ async function flaggedTradePlans(tracer: Tracer): Promise<number> {
 // ---------------------------------------------------------------------------------------------------------------
 // run
 
-type Draft = { findings: Finding[]; gaps: string[]; scores: Scores | null; total: number; round: number };
+/** The newer draft replaces the best one when it scored higher, or when neither has a score. */
+function betterDraft(draft: Draft, best: Draft): boolean {
+  if (draft.scores === null && best.scores === null) return true;
+  return draft.total !== null && (best.total === null || draft.total > best.total);
+}
+
+/** total is null when the Evaluator accepted the draft unscored (score_unavailable). */
+type Draft = { findings: Finding[]; gaps: string[]; scores: Scores | null; total: number | null; round: number };
 
 /** What the loop ends with, before the reply is built. `rounds` is the round accepted in, or the rounds run. */
 type NeedsHuman = { kind: "needs_human"; stop: StopReason; detail: string; draft: Draft | null; rounds: number; summary?: string; review_markdown?: string };
@@ -512,7 +519,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         agent_name: AGENT,
         action: "stop",
         input_summary: `round ${roundsRun()} of ${config.MAX_ROUNDS}`,
-        output_summary: capped(`${reason}: ${detail}; the run returns needs_human with ${draft === null ? "no draft" : `the best draft (${draft.findings.length} findings, total ${draft.total})`}`),
+        output_summary: capped(`${reason}: ${detail}; the run returns needs_human with ${draft === null ? "no draft" : `the best draft (${draft.findings.length} findings, ${draft.total === null ? "score unavailable" : `total ${draft.total}`})`}`),
         status: "needs_human",
         why: reason,
         retry_count: Math.min(round, config.MAX_ROUNDS - 1),
@@ -705,10 +712,11 @@ export async function run(options: RunOptions): Promise<RunResult> {
         );
         if (verdict.model !== null) modelIds.add(verdict.model.model_id);
         lastConfidence = verdict.model === null ? null : verdict.confidence;
-        lastScores = verdict.scores === null ? null : { ...verdict.scores, total: verdict.total };
+        // A null total (score_unavailable) leaves output.scores null; it is never read as 0.
+        lastScores = verdict.scores === null || verdict.total === null ? null : { ...verdict.scores, total: verdict.total };
         const draft: Draft = { ...latest, scores: verdict.scores, total: verdict.total };
         latest = draft;
-        if (best === null || draft.total > best.total || (draft.scores === null && best.scores === null)) best = draft;
+        if (best === null || betterDraft(draft, best)) best = draft;
         if (verdict.accepted) {
           accepted = draft;
           break;

@@ -47,6 +47,14 @@ function traceOf(runId: string): TraceLine[] {
     .map((line) => JSON.parse(line) as TraceLine);
 }
 
+/** The Evaluator total, or "score unavailable" when the Evaluator accepted the draft unscored; never 0 for a missing score. */
+function totalCell(row: Row): string {
+  const total = row.result?.output?.scores?.total;
+  if (typeof total === "number") return String(total);
+  if (row.result === null) return "-";
+  return traceOf(row.id).some((line) => line.agent_name === "Evaluator" && line.action === "score_unavailable") ? "score unavailable" : "-";
+}
+
 const cell = (value: unknown): string => (value === null || value === undefined ? "-" : String(value).replace(/\|/g, "/"));
 
 function tableLines(rows: Row[]): string[] {
@@ -56,7 +64,7 @@ function tableLines(rows: Row[]): string[] {
     const r = row.result;
     const failed = row.failed.map((c) => `${c.name}: ${c.detail}`).join("; ");
     lines.push(
-      `| ${row.id} | ${row.verdict} | ${cell(r?.status)} | ${cell(r?.output?.citations.length)} | ${cell(r?.output?.rounds)} | ${cell(r?.output?.scores?.total)} | ${cell(r?.usage?.model_calls)} | ${cell(r?.usage?.query_calls)} | ${r === null ? "-" : r.usage.tokens_in + r.usage.tokens_out} | ${row.verdict === "skipped" ? "-" : row.seconds.toFixed(2)} | ${cell(failed || (row.verdict === "skipped" ? "input file not written yet" : ""))} |`,
+      `| ${row.id} | ${row.verdict} | ${cell(r?.status)} | ${cell(r?.output?.citations.length)} | ${cell(r?.output?.rounds)} | ${totalCell(row)} | ${cell(r?.usage?.model_calls)} | ${cell(r?.usage?.query_calls)} | ${r === null ? "-" : r.usage.tokens_in + r.usage.tokens_out} | ${row.verdict === "skipped" ? "-" : row.seconds.toFixed(2)} | ${cell(failed || (row.verdict === "skipped" ? "input file not written yet" : ""))} |`,
     );
   }
   return lines;

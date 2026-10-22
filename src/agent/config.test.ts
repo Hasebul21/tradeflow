@@ -25,7 +25,7 @@ describe("limits and defaults", () => {
       MAX_MEMORIES: 5,
       MAX_PROMPT_CHARS: 40000,
       TEMPERATURE: 0.2,
-      MAX_COMPLETION_TOKENS: 4000,
+      MAX_COMPLETION_TOKENS: 8000,
       PORT: 8000,
       LOG_LEVEL: "info",
     });

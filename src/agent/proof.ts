@@ -19,7 +19,8 @@ export type Proof = {
   meterless: { memories_recalled: number; taken_by_tag: number; corrections_applied: number; world_facts_written: number };
   nemotron: { models: { model_id: string; calls: number }[]; tokens_in: number; tokens_out: number; strong_to_main_fallbacks: number };
   guards: { checked: number; blocked: number; injections_flagged: number; advice_declined: number };
-  loop: { rounds: number; rejected_rounds: number; final_score_out_of_9: number };
+  /** final_score_out_of_9 is null when the last Evaluator verdict was score_unavailable, never 0. */
+  loop: { rounds: number; rejected_rounds: number; final_score_out_of_9: number | null };
 };
 
 const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
@@ -73,6 +74,9 @@ export function proofFromTrace(lines: readonly ProofLine[]): Proof {
       proof.loop.rounds += 1;
       if (action === "reject") proof.loop.rejected_rounds += 1;
       proof.loop.final_score_out_of_9 = Math.round(num(line.confidence) * 9);
+    } else if (agent === "Evaluator" && action === "score_unavailable") {
+      proof.loop.rounds += 1;
+      proof.loop.final_score_out_of_9 = null;
     }
   }
   proof.nemotron.models = [...calls].map(([model_id, n]) => ({ model_id, calls: n }));

@@ -38,4 +38,12 @@ describe("proofFromTrace", () => {
   it("does not count a cached query", () => {
     expect(proofFromTrace([{ agent_name: "Query", action: "cached", status: "cached", source: "local" }]).zetaris.queries).toBe(0);
   });
+
+  it("reads a score_unavailable verdict as a round with no final score, never as 0", () => {
+    const proof = proofFromTrace([
+      { agent_name: "Evaluator", action: "reject", status: "rejected", confidence: 0.44 },
+      { agent_name: "Evaluator", action: "score_unavailable", status: "accepted", confidence: null },
+    ]);
+    expect(proof.loop).toEqual({ rounds: 2, rejected_rounds: 1, final_score_out_of_9: null });
+  });
 });

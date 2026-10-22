@@ -4,7 +4,7 @@
 // openai-node retries by itself (maxRetries 2 by default). It is switched off here (maxRetries 0) so the retry
 // count, the backoff and the trace lines are ours, and so one call makes at most the requests this file counts.
 import OpenAI from "openai";
-import { ConfigError, loadConfig, type Config, type Tier } from "./config";
+import { ConfigError, EMPTY_RESPONSE_RETRY_MAX_TOKENS, loadConfig, type Config, type Tier } from "./config";
 import { complete as completeWithSampleModel } from "./sample-model";
 import type { Tracer, TraceInput } from "./trace";
 
@@ -453,9 +453,18 @@ function isEmptyResponse(error: unknown): boolean {
   return fields.some((field) => typeof field === "string" && /empty_response/i.test(field));
 }
 
-/** Whether a request turns reasoning off: always for the fast tier, and for the retry after an empty reply. */
-function sendsReasoningOff(tier: Tier, requested: string, forced: boolean): boolean {
-  return !noReasoningSwitch.has(requested) && (tier === "fast" || forced);
+/** True for OpenRouter's host. Every other METERLESS_BASE_URL host is Nightshift (127.0.0.1:8088 by default). */
+function isOpenRouter(host: string): boolean {
+  return host === "openrouter.ai" || host.endsWith(".openrouter.ai");
+}
+
+/**
+ * Whether a request turns reasoning off: only the fast tier, and only on OpenRouter. Nightshift never gets the
+ * switch on any tier: the owner's replays of 22 Oct showed its Nemotron lanes answer 502 empty_response every time
+ * with reasoning { enabled: false }, and time out on the Analyst's request.
+ */
+function sendsReasoningOff(state: CallState, tier: Tier, requested: string): boolean {
+  return tier === "fast" && isOpenRouter(state.host) && !noReasoningSwitch.has(requested);
 }
 
 function buildParams(
@@ -463,7 +472,7 @@ function buildParams(
   tier: Tier,
   requested: string,
   messages: HistoryMessage[],
-  reasoningOff = false,
+  maxTokens: number = state.cfg.MAX_COMPLETION_TOKENS,
 ): OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming {
   const { cfg, options } = state;
   // max_tokens is deprecated in the SDK types in favour of max_completion_tokens; the spec names max_tokens.
@@ -471,16 +480,16 @@ function buildParams(
     model: requested,
     messages,
     temperature: cfg.TEMPERATURE,
-    max_tokens: cfg.MAX_COMPLETION_TOKENS,
+    max_tokens: maxTokens,
   };
   if (options.json === true && !noJsonMode.has(requested)) params.response_format = { type: "json_object" };
   if (options.tools !== undefined && options.tools.length > 0) {
     params.tools = options.tools;
     params.tool_choice = "auto";
   }
-  if (sendsReasoningOff(tier, requested, reasoningOff)) {
-    // openai-node has no extra_body, so the switch goes into the params directly. Nightshift and OpenRouter both
-    // honour reasoning { enabled: false }; Nightshift does not pass chat_template_kwargs on, so it is not sent.
+  if (sendsReasoningOff(state, tier, requested)) {
+    // openai-node has no extra_body, so the switch goes into the params directly. chat_template_kwargs is never
+    // sent: Nightshift does not pass it on, and OpenRouter takes reasoning { enabled: false }.
     params.reasoning = { enabled: false };
   }
   return params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
@@ -513,10 +522,10 @@ async function sendWithRetry(
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const { options, cfg } = state;
   let transportRetried = false;
-  // Set for the one retry after a 502 "empty_response": that request turns reasoning off.
-  let reasoningOff = false;
+  // Raised for the one retry after a 502 "empty_response": the same request with a larger token budget.
+  let maxTokens = cfg.MAX_COMPLETION_TOKENS;
   for (;;) {
-    const params = buildParams(state, tier, requested, messages, reasoningOff);
+    const params = buildParams(state, tier, requested, messages, maxTokens);
     const timeout = attemptTimeoutMs(state, tier);
     try {
       return await state.client.chat.completions.create(params, { timeout, maxRetries: 0 });
@@ -541,7 +550,7 @@ async function sendWithRetry(
         case "refused":
           throw new NightshiftNotRunning("Nightshift not running: start it and check METERLESS_BASE_URL");
         case "bad_request": {
-          const dropped = dropRejectedParam(state, tier, requested, failure.message, sendsReasoningOff(tier, requested, reasoningOff));
+          const dropped = dropRejectedParam(state, tier, requested, failure.message, sendsReasoningOff(state, tier, requested));
           if (dropped !== null) {
             state.retries += 1;
             continue;
@@ -560,17 +569,17 @@ async function sendWithRetry(
           if (!transportRetried && timeLeftMs(state) >= RETRY_FLOOR_MS) {
             transportRetried = true;
             state.retries += 1;
-            // A 502 "empty_response": the model reasoned past the token budget. The one retry turns reasoning
-            // off instead of repeating the same request, unless this model id already rejected the switch.
-            if (isEmptyResponse(error) && !noReasoningSwitch.has(requested)) {
-              reasoningOff = true;
+            // A 502 "empty_response": the model returned no content. The one retry is the same request (reasoning
+            // left as it was) with max_tokens raised to EMPTY_RESPONSE_RETRY_MAX_TOKENS.
+            if (isEmptyResponse(error)) {
+              maxTokens = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
               options.tracer?.log({
                 agent_name: options.agent,
-                action: "reasoning_off_retry",
+                action: "empty_response_retry",
                 input_summary: `${tier} model request`,
-                output_summary: "HTTP 502 empty_response; trying once more with reasoning off",
+                output_summary: `HTTP 502 empty_response; trying once more with max_tokens ${maxTokens}`,
                 status: "retry",
-                why: "the model reasoned past the token budget",
+                why: "the model returned no content (HTTP 502 empty_response)",
                 model: requested,
               });
               await sleep(BACKOFF_MS);

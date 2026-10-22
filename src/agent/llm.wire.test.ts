@@ -41,7 +41,7 @@ describe("complete with the real openai client", () => {
     expect(headers.get("authorization")).toBe(`Bearer ${KEY}`);
     expect(headers.get("meterless-app")).toBe("tradeflow");
     expect(headers.get("meterless-scope")).toBe("user");
-    expect(JSON.parse(String(init.body))).toMatchObject({ model: "lane/main", temperature: 0.2, max_tokens: 4000 });
+    expect(JSON.parse(String(init.body))).toMatchObject({ model: "lane/main", temperature: 0.2, max_tokens: 8000 });
   });
 
   it("maps a real 401 to Unauthorized after one request", async () => {

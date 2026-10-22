@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DISCLAIMER } from "./agents/writer";
 import { loadConfig } from "./config";
 import type { Finding } from "./guards";
-import type { AgentName, CompleteOptions, CompleteResult } from "./llm";
+import { ModelHttpError, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
 import { asksForAdvice, run, type RunResult } from "./orchestrator";
 import type { TraceLine } from "./trace";
 
@@ -360,5 +360,32 @@ describe("a plain run", () => {
     expect(late.error?.message).toContain("after the data");
     expect(late.usage.model_calls).toBe(0);
     expect(trace(late).at(-1)).toMatchObject({ agent_name: "Orchestrator", action: "run_end", status: "error" });
+  });
+});
+
+describe("a run whose scoring call returns no answer", () => {
+  it("accepts the draft on the code checks, writes the review and ends success with output.scores null and one score_unavailable line", async () => {
+    // What llm.ts throws after a 502 empty_response and its one retry: the Evaluator's scoring call only.
+    stubs.override = async (options) => {
+      if (options.agent !== "Evaluator") return null;
+      throw new ModelHttpError("The fast model call failed twice: 502 empty_response", 502);
+    };
+    const result = await explainWeek("orch-score-unavailable");
+    expect(result.status).toBe("success");
+    const output = result.output!;
+    expect(output.scores).toBeNull();
+    expect(output).toMatchObject({ rounds: 1, needs_human: false, partial: false, stop_reason: null });
+    expect(output.review_markdown.trimEnd().split("\n").at(-1)).toBe(DISCLAIMER);
+    const lines = trace(result);
+    const unavailable = by(lines, "Evaluator", "score_unavailable");
+    expect(unavailable).toHaveLength(1);
+    expect(unavailable[0]).toMatchObject({ target_agent: "Writer", status: "accepted", confidence: null, why: "the model returned no answer; the code checks passed" });
+    expect(by(lines, "Evaluator", "code_check").every((line) => line.status === "ok")).toBe(true);
+    expect(by(lines, "Evaluator", "accept")).toHaveLength(0);
+    expect(by(lines, "Evaluator", "reject")).toHaveLength(0);
+    expect(by(lines, "Writer").length).toBeGreaterThan(0);
+    const end = by(lines, "Orchestrator", "run_end");
+    expect(end).toHaveLength(1);
+    expect(end[0]).toMatchObject({ status: "ok", confidence: null });
   });
 });

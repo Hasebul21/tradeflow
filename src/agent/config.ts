@@ -60,6 +60,9 @@ const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 /** The organisers' maximum for one model call (guide of 19 Oct). */
 const MODEL_TIMEOUT_CAP_MS = 180000;
 
+/** max_tokens for llm.ts's one retry after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
+export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 8000;
+
 /** The Nightshift placeholder token; it is never a real credential. */
 const REJECTED_KEYS = new Set(["rt-local"]);
 
@@ -81,7 +84,7 @@ const limitsSchema = z.object({
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),
   TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
-  MAX_COMPLETION_TOKENS: positiveInt(4000),
+  MAX_COMPLETION_TOKENS: positiveInt(8000),
   PORT: z.coerce.number().int().min(1).max(65535).default(8000),
 });
 

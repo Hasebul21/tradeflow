@@ -34,12 +34,24 @@ export function outOfScopeBadge(output: Pick<Output, "gaps"> | null | undefined)
   return (output?.gaps ?? []).some((gap) => /asks for nothing the portfolio data covers/.test(gap)) ? "Out of scope: listed under what I could not cover" : null;
 }
 
+/** True when the Evaluator accepted the draft on the code checks alone because the model returned no score. */
+export function scoreUnavailable(lines: readonly Line[]): boolean {
+  return lines.some((line) => line.agent_name === "Evaluator" && line.action === "score_unavailable");
+}
+
+/** The Scores cell: the three scores and the total, "score unavailable" (never 0) when the model gave none, or "not scored". */
+export function scoresText(output: Pick<Output, "scores"> | null | undefined, lines: readonly Line[]): string {
+  const s = output?.scores;
+  if (s) return `accuracy ${s.accuracy}, appropriateness ${s.appropriateness}, actionability ${s.actionability}, total ${s.total} of 9`;
+  return scoreUnavailable(lines) ? "score unavailable: the model returned no answer; the code checks passed" : "not scored";
+}
+
 /** The banner under the result header when more than one round ran, or null. The reason is the Evaluator's first rejection. */
 export function selfCorrectionBanner(output: Pick<Output, "rounds" | "scores"> | null | undefined, lines: readonly Line[]): string | null {
   if (output === null || output === undefined || output.rounds <= 1) return null;
   const reject = lines.find((line) => line.agent_name === "Evaluator" && line.action === "reject");
   const reason = typeof reject?.why === "string" && reject.why !== "" ? reject.why : "the Evaluator asked for a fix";
-  const score = output.scores ? `, score ${output.scores.total}/9` : "";
+  const score = output.scores ? `, score ${output.scores.total}/9` : scoreUnavailable(lines) ? ", score unavailable" : "";
   return `Draft 1 rejected: ${reason}. Draft ${output.rounds} accepted${score}.`;
 }
 

@@ -3,7 +3,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadConfig, type Config } from "../config";
 import type { Finding } from "../guards";
-import type { CompleteOptions, CompleteResult } from "../llm";
+import { ModelHttpError, ModelTimeout, type CompleteOptions, type CompleteResult } from "../llm";
 import { loadQueryData, type QueryData } from "../queries";
 import { RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
@@ -185,7 +185,7 @@ describe("the Evaluator with the sample model", () => {
     const verdict = evaluatorLines(lines, "accept");
     expect(verdict).toHaveLength(1);
     expect(verdict[0]).toMatchObject({ target_agent: "Writer", status: "accepted", model: "sample-model", retry_count: 1 });
-    expect(verdict[0].confidence).toBe(Math.round((outcome.total / 9) * 100) / 100);
+    expect(verdict[0].confidence).toBe(Math.round((outcome.total! / 9) * 100) / 100);
     expect(verdict[0].output_summary).toContain(`accuracy=${outcome.scores!.accuracy} appropriateness=${outcome.scores!.appropriateness} actionability=${outcome.scores!.actionability}`);
     // The tokens are on the model_call line, once; the verdict line repeats nothing, so a run's lines add up.
     expect(verdict[0].usage).toBeUndefined();
@@ -265,5 +265,53 @@ describe("the Evaluator on a stubbed reply", () => {
     expect(outcome.accepted).toBe(true);
     expect(modelCalls(lines)).toHaveLength(1);
     expect(run.usage.model_calls).toBe(calls);
+  });
+});
+
+describe("the Evaluator when the fast model returns no answer", () => {
+  // What llm.ts throws after a 502 empty_response and its one retry at max_tokens 8000.
+  const noAnswer = (calls: CompleteOptions[] = []) => async (options: CompleteOptions): Promise<CompleteResult> => {
+    calls.push(options);
+    throw new ModelHttpError("The fast model call failed twice: 502 empty_response", 502);
+  };
+
+  it("accepts a draft that passed the code checks with score, total and confidence null and one score_unavailable line", async () => {
+    const { run, findings, gaps } = await draft();
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const outcome = await evaluate(input(run, findings, { gaps }), { tracer, run, round: 1, complete: noAnswer(calls) });
+    expect(calls).toHaveLength(1);
+    expect(outcome).toMatchObject({ accepted: true, scores: null, total: null, confidence: null, fix: "", target_agent: "Writer", model: null });
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.code_checks.map((check) => [check.check, check.ok])).toEqual([["citations", true], ["guard", true], ["coverage", true]]);
+    const unavailable = evaluatorLines(lines, "score_unavailable");
+    expect(unavailable).toHaveLength(1);
+    expect(unavailable[0]).toMatchObject({ target_agent: "Writer", status: "accepted", why: "the model returned no answer; the code checks passed", confidence: null, retry_count: 1 });
+    expect(evaluatorLines(lines, "accept")).toHaveLength(0);
+    expect(evaluatorLines(lines, "reject")).toHaveLength(0);
+  });
+
+  it("still rejects a draft that fails a code check, with no model call and no score_unavailable line", async () => {
+    const { run } = runState();
+    const moves = await run.query("week_moves", { as_of: AS_OF });
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const bad = finding("BXPHARMA", [moves.run_query_id], [{ label: "made up", value: 123456.78 }]);
+    const outcome = await evaluate(input(run, [bad]), { tracer, run, complete: noAnswer(calls) });
+    expect(calls).toHaveLength(0);
+    expect(outcome).toMatchObject({ accepted: false, scores: null, total: 0, confidence: 0, target_agent: "Planner" });
+    expect(outcome.fix).not.toBe("");
+    expect(evaluatorLines(lines, "reject")).toHaveLength(1);
+    expect(evaluatorLines(lines, "score_unavailable")).toHaveLength(0);
+  });
+
+  it("passes any other model error through unchanged", async () => {
+    const { run, findings, gaps } = await draft();
+    const { lines, tracer } = collector();
+    const timeout = async (): Promise<CompleteResult> => {
+      throw new ModelTimeout("The fast model call timed out twice.");
+    };
+    await expect(evaluate(input(run, findings, { gaps }), { tracer, run, complete: timeout })).rejects.toBeInstanceOf(ModelTimeout);
+    expect(evaluatorLines(lines, "score_unavailable")).toHaveLength(0);
   });
 });
