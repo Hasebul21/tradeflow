@@ -1,0 +1,11 @@
+{
+  "run_id": "example_7a",
+  "input": {
+    "task": "feedback",
+    "review_run_id": "example_3a",
+    "text": "Compare each holding with its sector index before DSEX."
+  },
+  "options": {
+    "sample_mode": false
+  }
+}

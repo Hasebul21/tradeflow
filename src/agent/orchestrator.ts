@@ -66,6 +66,8 @@ export type RunOptions = {
   sampleMode?: boolean;
   /** Default loadConfig(). Passed to every agent and so to every complete() call. */
   config?: Config;
+  /** Set when every query must run locally (an eval fixture data dir that is not in Postgres): the trace's reason. */
+  localReason?: string;
 };
 
 export type StopReason = "rounds" | "query_calls" | "model_calls" | "tokens" | "round_timeout" | "run_timeout" | "writer_rejected";
@@ -415,7 +417,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     const flagRow = () => {
       flags.injection = true;
     };
-    run = new RunState({ runId, tracer, config, sampleMode, onResult: (fresh) => scrubResult(fresh, tracer, flagRow) });
+    run = new RunState({ runId, tracer, config, sampleMode, ...(options.localReason === undefined ? {} : { localReason: options.localReason }), onResult: (fresh) => scrubResult(fresh, tracer, flagRow) });
     const state = run;
 
     // 1. as_of, once. Every input, trace line and memory tag uses the resolved date.
@@ -862,7 +864,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     if (outcome.kind === "feedback") {
       const output: RunOutput = {
         summary: outcome.summary,
-        review_markdown: outcome.summary,
+        // Every review ends with the disclaimer line, the feedback acknowledgement too.
+        review_markdown: `${outcome.summary}\n\n${DISCLAIMER}`,
         findings: [],
         gaps: [],
         citations: [],

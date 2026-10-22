@@ -5,7 +5,7 @@
 // error reply with zero usage. Server only (run() writes the trace).
 import { randomUUID } from "node:crypto";
 import { loadConfig, type Config } from "./config";
-import { RUN_ID_PATTERN, run, type RunError, type RunInput, type RunResult } from "./orchestrator";
+import { RUN_ID_PATTERN, run, type RunError, type RunInput, type RunOptions, type RunResult } from "./orchestrator";
 
 export type RunRequest = { run_id?: string | null; input?: RunInput | null; options?: { sample_mode?: boolean | null } | null };
 
@@ -33,8 +33,11 @@ function failure(runId: string, task: string, error: RunError, started: number):
   return { run_id: runId, task, status: "error", output: null, error, agents: [], usage, trace_id: runId, log_file: null, execution_time_seconds: usage.duration_ms / 1000 };
 }
 
-/** Checks the envelope, then runs. `body` is whatever was parsed from the request: it may be anything. */
-export async function runRequest(body: unknown): Promise<RunResult> {
+/**
+ * Checks the envelope, then runs. `body` is whatever was parsed from the request: it may be anything. `extra` is for
+ * trusted callers only (scripts/eval.ts), never from a request body: localReason keeps every query local.
+ */
+export async function runRequest(body: unknown, extra: Pick<RunOptions, "localReason"> = {}): Promise<RunResult> {
   const started = Date.now();
   const invalid = (runId: string, task: string, message: string) => failure(runId, task, { type: "InvalidInput", message, recoverable: false }, started);
   const runId0 = isObject(body) && typeof body.run_id === "string" ? body.run_id : "";
@@ -73,6 +76,7 @@ export async function runRequest(body: unknown): Promise<RunResult> {
       input: input as RunInput,
       sampleMode: resolveSampleMode(config, sample),
       config,
+      ...(extra.localReason === undefined ? {} : { localReason: extra.localReason }),
     });
   } catch (error) {
     const type = error instanceof Error ? error.name : "Internal";

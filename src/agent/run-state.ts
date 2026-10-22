@@ -37,6 +37,8 @@ export type RunStateOptions = {
   data?: QueryData;
   /** A Zetaris client to use instead of the one built from config; null forces local. */
   zetaris?: ZetarisClient | null;
+  /** Set when every query must run locally; the reason each Query trace line gives. */
+  localReason?: string;
   /**
    * Applied to every fresh result before it is cached and stored, so what the models and checkCitations see is the
    * same. The orchestrator uses it to remove injection wording from rows.
@@ -85,6 +87,7 @@ export class RunState {
   private readonly cache = new Map<string, QueryResult>();
   private data: QueryData | undefined;
   private readonly zetaris: ZetarisClient | null | undefined;
+  private readonly localReason: string | undefined;
   private readonly onResult: ((result: QueryResult) => QueryResult) | undefined;
 
   constructor(options: RunStateOptions) {
@@ -94,6 +97,7 @@ export class RunState {
     this.sampleMode = options.sampleMode ?? this.config.sampleMode;
     this.data = options.data;
     this.zetaris = options.zetaris;
+    this.localReason = options.localReason;
     this.onResult = options.onResult;
     this.started = Date.now();
   }
@@ -140,6 +144,7 @@ export class RunState {
       sampleMode: this.sampleMode,
       data,
       ...(this.zetaris === undefined ? {} : { zetaris: this.zetaris }),
+      ...(this.localReason === undefined ? {} : { localReason: this.localReason }),
       maxQueries: this.config.MAX_QUERY_CALLS,
       queriesUsed: this.usage.query_calls,
     });

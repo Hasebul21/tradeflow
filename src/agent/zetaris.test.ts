@@ -271,6 +271,15 @@ describe("runQuery", () => {
     expect(lines[0].why).toBe("Zetaris not configured");
   });
 
+  it("runs locally with the caller's reason when localReason is set, even with Zetaris configured and sample mode off", async () => {
+    const fetchImpl = fetchOf(() => json(weekMovesReply()));
+    const { lines, call } = weekMoves({ localReason: "eval fixture evals/redteam/fixtures/x is not in Postgres: every query runs locally" });
+    const result = await call(clientOf(fetchImpl));
+    expect(result.source).toBe("local");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(lines[0].why).toBe("eval fixture evals/redteam/fixtures/x is not in Postgres: every query runs locally");
+  });
+
   it("never sends what_if to Zetaris, and the trace says why", async () => {
     const fetchImpl = fetchOf(() => json({ data: [] }));
     const { lines, tracer } = collector();

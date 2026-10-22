@@ -3,6 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { DISCLAIMER } from "./agents/writer";
 import { openMemory } from "./memory";
 import type { RunResult } from "./orchestrator";
 import { runRequest } from "./request";
@@ -81,6 +82,8 @@ describe("learning from a correction", () => {
   it("stores the feedback with no Planner: success and the memory ids added", () => {
     expect(feedback.status).toBe("success");
     expect(feedback.output?.memory_ids_added?.length).toBeGreaterThan(0);
+    // Every review ends with the disclaimer line, the feedback acknowledgement too.
+    expect(feedback.output?.review_markdown.trimEnd().split("\n").at(-1)).toBe(DISCLAIMER);
     const lines = traceOf("feedback-0924");
     expect(lines.some((line) => line.agent_name === "Planner")).toBe(false);
     // The miner's model call, and one Memory learn line per id added.

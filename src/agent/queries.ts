@@ -836,6 +836,8 @@ export type RunQueryArgs = {
   data?: QueryData;
   /** A client to use instead of the one built from config.zetaris. Null forces local. */
   zetaris?: ZetarisClient | null;
+  /** Set when every call must run locally (the eval's fixture data dir is not in Postgres): the reason the trace gives. */
+  localReason?: string;
   /** The run's query-call limit for guards.beforeQuery; defaults to config.MAX_QUERY_CALLS. A later step passes the run's value. */
   maxQueries?: number;
   /** Calls the run has already made; defaults to 0. A later step passes the run's count. */
@@ -874,8 +876,9 @@ export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
     throw error;
   }
   const { id, params } = prepared;
-  const zetaris = args.sampleMode ? null : args.zetaris === undefined ? createZetarisClient(config.zetaris) : args.zetaris;
-  const offReason = args.sampleMode ? "sample mode: every call runs locally" : "Zetaris not configured";
+  const localOnly = args.localReason !== undefined && args.localReason !== "";
+  const zetaris = args.sampleMode || localOnly ? null : args.zetaris === undefined ? createZetarisClient(config.zetaris) : args.zetaris;
+  const offReason = localOnly ? (args.localReason as string) : args.sampleMode ? "sample mode: every call runs locally" : "Zetaris not configured";
   let fetched: FetchedRows;
   try {
     fetched = await fetchRows(id, params, { data, zetaris, tracer, timeoutMs: config.QUERY_TIMEOUT_MS, offReason });

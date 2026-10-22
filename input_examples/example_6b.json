@@ -1,0 +1,12 @@
+{
+  "run_id": "example_6b",
+  "input": {
+    "task": "pre_trade",
+    "question": "What would this trade do to my rules?",
+    "plan_id": "p-03",
+    "as_of": "2026-10-01"
+  },
+  "options": {
+    "sample_mode": false
+  }
+}

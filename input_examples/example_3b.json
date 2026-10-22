@@ -1,0 +1,11 @@
+{
+  "run_id": "example_3b",
+  "input": {
+    "task": "explain_week",
+    "question": "How does this week compare with last week?",
+    "as_of": "2026-10-01"
+  },
+  "options": {
+    "sample_mode": false
+  }
+}

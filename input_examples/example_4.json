@@ -1,0 +1,11 @@
+{
+  "run_id": "example_4",
+  "input": {
+    "task": "explain_week",
+    "question": "Why did my bank shares move this week?",
+    "as_of": "2026-09-17"
+  },
+  "options": {
+    "sample_mode": false
+  }
+}

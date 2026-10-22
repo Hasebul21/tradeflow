@@ -1,0 +1,11 @@
+{
+  "run_id": "example_7b",
+  "input": {
+    "task": "explain_week",
+    "question": "Why did my portfolio move this week?",
+    "as_of": "2026-10-01"
+  },
+  "options": {
+    "sample_mode": false
+  }
+}
