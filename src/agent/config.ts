@@ -1,0 +1,204 @@
+// The one place that reads settings. Every key and setting comes from process.env (loaded from .env by
+// `node --env-file-if-exists=.env`, Next.js or docker --env-file); this module never opens .env itself.
+// Server only: no client component or edge route imports it.
+import { z } from "zod";
+
+/** What loadConfig reads: process.env, or a plain object in a test. */
+export type Env = Record<string, string | undefined>;
+
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigError";
+  }
+}
+
+export type Tier = "strong" | "main" | "fast";
+
+export type Config = {
+  readonly MAX_ROUNDS: number;
+  readonly MAX_QUERY_CALLS: number;
+  readonly MAX_MODEL_CALLS: number;
+  readonly MAX_PLAN_STEPS: number;
+  readonly MAX_TOOL_ROUNDS: number;
+  readonly MAX_TOKENS_PER_RUN: number;
+  readonly QUERY_TIMEOUT_MS: number;
+  readonly MODEL_TIMEOUT_MS: number;
+  readonly MODEL_TIMEOUT_STRONG_MS: number;
+  readonly ROUND_TIMEOUT_MS: number;
+  readonly RUN_TIMEOUT_MS: number;
+  readonly MAX_ROWS_PER_QUERY: number;
+  readonly MAX_MEMORIES: number;
+  readonly MAX_PROMPT_CHARS: number;
+  readonly TEMPERATURE: number;
+  readonly MAX_COMPLETION_TOKENS: number;
+  readonly PORT: number;
+  readonly LOG_LEVEL: LogLevel;
+  /** Normalised to end in /v1 with no trailing slash. No default in code. */
+  readonly METERLESS_BASE_URL: string | undefined;
+  /** The Nightshift runtime token. Never log it. */
+  readonly METERLESS_API_KEY: string | undefined;
+  readonly NEMOTRON_MODEL_STRONG: string | undefined;
+  readonly NEMOTRON_MODEL_MAIN: string | undefined;
+  readonly NEMOTRON_MODEL_FAST: string | undefined;
+  readonly models: { readonly strong: string | undefined; readonly main: string | undefined; readonly fast: string | undefined };
+  /** True when the sample model runs instead of Nightshift. */
+  readonly sampleMode: boolean;
+  /** Set only when ZETARIS_REST_URL, ZETARIS_ORG_ID and ZETARIS_API_KEY are all non-empty. */
+  readonly zetaris: {
+    readonly restUrl: string;
+    readonly orgId: string;
+    readonly apiKey: string;
+    readonly username: string | undefined;
+    readonly password: string | undefined;
+  } | null;
+};
+
+export type LogLevel = "debug" | "info" | "warn" | "error";
+const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
+
+/** The organisers' maximum for one model call (guide of 19 Oct). */
+const MODEL_TIMEOUT_CAP_MS = 180000;
+
+/** The Nightshift placeholder token; it is never a real credential. */
+const REJECTED_KEYS = new Set(["rt-local"]);
+
+const positiveInt = (fallback: number) => z.coerce.number().int().positive().default(fallback);
+
+const limitsSchema = z.object({
+  MAX_ROUNDS: positiveInt(3),
+  MAX_QUERY_CALLS: positiveInt(20),
+  MAX_MODEL_CALLS: positiveInt(12),
+  MAX_PLAN_STEPS: positiveInt(5),
+  MAX_TOOL_ROUNDS: positiveInt(2),
+  MAX_TOKENS_PER_RUN: positiveInt(150000),
+  QUERY_TIMEOUT_MS: positiveInt(20000),
+  MODEL_TIMEOUT_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
+  MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
+  ROUND_TIMEOUT_MS: positiveInt(300000),
+  RUN_TIMEOUT_MS: positiveInt(600000),
+  MAX_ROWS_PER_QUERY: positiveInt(50),
+  MAX_MEMORIES: positiveInt(5),
+  MAX_PROMPT_CHARS: positiveInt(40000),
+  TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
+  MAX_COMPLETION_TOKENS: positiveInt(4000),
+  PORT: z.coerce.number().int().min(1).max(65535).default(8000),
+});
+
+const LIMIT_NAMES = Object.keys(limitsSchema.shape);
+
+/** An empty or whitespace-only value counts as unset. */
+function read(env: Env, ...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/** https://host, https://host/, https://host/v1 and https://host/v1/ all become https://host/v1. */
+function normaliseBaseUrl(raw: string): string {
+  const trimmed = raw.replace(/\/+$/, "");
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+function readKey(env: Env): string | undefined {
+  // NVIDIA_API_KEY is deliberately absent: it lives in Nightshift's Providers tab, never here.
+  const key = read(env, "METERLESS_API_KEY", "METERLESS_RUNTIME_TOKEN", "MODEL_API_KEY");
+  return key !== undefined && REJECTED_KEYS.has(key) ? undefined : key;
+}
+
+function parseLimits(env: Env) {
+  const raw: Record<string, string> = {};
+  for (const name of LIMIT_NAMES) {
+    const value = read(env, name);
+    if (value !== undefined) raw[name] = value;
+  }
+  const parsed = limitsSchema.safeParse(raw);
+  if (!parsed.success) {
+    const names = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
+    throw new ConfigError(`Invalid value for ${names.join(", ")}: expected a number in range.`);
+  }
+  return parsed.data;
+}
+
+function parseLogLevel(env: Env): LogLevel {
+  const value = read(env, "LOG_LEVEL")?.toLowerCase();
+  return LOG_LEVELS.find((level) => level === value) ?? "info";
+}
+
+/**
+ * Builds the config from `env`. The sample-mode and Zetaris reasons are logged once per call, through `log`
+ * (console.warn by default), and only at LOG_LEVEL info or debug.
+ */
+export function loadConfig(env: Env = process.env, log: (message: string) => void = console.warn): Config {
+  const limits = parseLimits(env);
+  const logLevel = parseLogLevel(env);
+  const say = (message: string) => {
+    if (logLevel === "debug" || logLevel === "info") log(`[config] ${message}`);
+  };
+
+  const apiKey = readKey(env);
+  const baseUrlRaw = read(env, "METERLESS_BASE_URL", "MODEL_BASE_URL");
+  const baseUrl = baseUrlRaw === undefined ? undefined : normaliseBaseUrl(baseUrlRaw);
+  const strong = read(env, "NEMOTRON_MODEL_STRONG");
+  const main = read(env, "NEMOTRON_MODEL_MAIN", "METERLESS_MODEL", "NEMOTRON_MODEL", "MODEL_NAME");
+  const fast = read(env, "NEMOTRON_MODEL_FAST");
+
+  // A key counts only when the base URL and all three model ids are set too.
+  const missing: string[] = [];
+  if (apiKey === undefined) missing.push("METERLESS_API_KEY");
+  if (baseUrl === undefined) missing.push("METERLESS_BASE_URL");
+  if (strong === undefined) missing.push("NEMOTRON_MODEL_STRONG");
+  if (main === undefined) missing.push("NEMOTRON_MODEL_MAIN");
+  if (fast === undefined) missing.push("NEMOTRON_MODEL_FAST");
+
+  const mode = read(env, "SAMPLE_MODE")?.toLowerCase();
+  let sampleMode: boolean;
+  if (mode === "true") {
+    sampleMode = true;
+  } else if (mode === "false") {
+    if (missing.length > 0) {
+      throw new ConfigError(`SAMPLE_MODE=false needs the real model, but these are empty: ${missing.join(", ")}.`);
+    }
+    sampleMode = false;
+  } else if (mode === undefined) {
+    sampleMode = missing.length > 0;
+    if (sampleMode) {
+      // With no key the other names are beside the point; with a key, name each empty one.
+      const reason = missing[0] === "METERLESS_API_KEY" ? "no METERLESS_API_KEY" : `empty ${missing.join(", ")}`;
+      say(`Sample mode: ${reason}.`);
+    }
+  } else {
+    throw new ConfigError(`SAMPLE_MODE must be "true", "false" or empty.`);
+  }
+
+  const zetarisUrl = read(env, "ZETARIS_REST_URL");
+  const zetarisOrg = read(env, "ZETARIS_ORG_ID");
+  const zetarisKey = read(env, "ZETARIS_API_KEY");
+  const zetarisMissing = [
+    zetarisUrl === undefined ? "ZETARIS_REST_URL" : null,
+    zetarisOrg === undefined ? "ZETARIS_ORG_ID" : null,
+    zetarisKey === undefined ? "ZETARIS_API_KEY" : null,
+  ].filter((name): name is string => name !== null);
+  if (zetarisMissing.length > 0) say(`Queries run locally: empty ${zetarisMissing.join(", ")}.`);
+  const zetaris =
+    zetarisUrl !== undefined && zetarisOrg !== undefined && zetarisKey !== undefined
+      ? { restUrl: zetarisUrl, orgId: zetarisOrg, apiKey: zetarisKey, username: read(env, "ZETARIS_USERNAME"), password: read(env, "ZETARIS_PASSWORD") }
+      : null;
+
+  return {
+    ...limits,
+    MODEL_TIMEOUT_MS: Math.min(limits.MODEL_TIMEOUT_MS, MODEL_TIMEOUT_CAP_MS),
+    MODEL_TIMEOUT_STRONG_MS: Math.min(limits.MODEL_TIMEOUT_STRONG_MS, MODEL_TIMEOUT_CAP_MS),
+    LOG_LEVEL: logLevel,
+    METERLESS_BASE_URL: baseUrl,
+    METERLESS_API_KEY: apiKey,
+    NEMOTRON_MODEL_STRONG: strong,
+    NEMOTRON_MODEL_MAIN: main,
+    NEMOTRON_MODEL_FAST: fast,
+    models: { strong, main, fast },
+    sampleMode,
+    zetaris,
+  };
+}
