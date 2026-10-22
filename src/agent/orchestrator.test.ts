@@ -389,3 +389,66 @@ describe("a run whose scoring call returns no answer", () => {
     expect(end[0]).toMatchObject({ status: "ok", confidence: null });
   });
 });
+
+describe("a model that fails after the queries ran", () => {
+  const fail502 = (agent: AgentName) => async (options: CompleteOptions): Promise<CompleteResult | null> => {
+    if (options.agent !== agent) return null;
+    throw new ModelHttpError(`The ${agent} model call failed twice: 502 empty_response`, 502);
+  };
+
+  it("the Analyst's 502 returns needs_human with model_unavailable, a code-built review and the fallback line before run_end", async () => {
+    stubs.override = fail502("Analyst");
+    const result = await explainWeek("orch-model-unavailable-analyst");
+    expect(result.status).toBe("needs_human");
+    expect(result.error).toBeNull();
+    const output = result.output!;
+    expect(output).toMatchObject({ partial: true, stop_reason: "model_unavailable", needs_human: true, findings: [], scores: null });
+    expect(output.gaps.join(" ")).toContain("Analyst");
+    expect(output.review_markdown.trimEnd().split("\n").at(-1)).toBe(DISCLAIMER);
+    expect(output.review_markdown).toContain("Queries that ran:");
+    expect(output.summary).toContain("Draft built by code: the model was unavailable after the queries ran");
+    expect(output.review_markdown).toContain("Draft built by code: the model was unavailable after the queries ran");
+    expect(output.review_markdown).not.toMatch(/you should (buy|sell|hold)/i);
+    expect(result.usage.query_calls).toBeGreaterThan(0);
+    expect(result.usage.model_calls).toBeGreaterThanOrEqual(1);
+    const lines = trace(result);
+    const fallback = by(lines, "Orchestrator", "model_unavailable_fallback");
+    expect(fallback).toHaveLength(1);
+    expect(fallback[0]).toMatchObject({ status: "fallback", stop_reason: "model_unavailable" });
+    expect(fallback[0].why).toContain("ModelHttpError");
+    expect(fallback[0].why).toContain("Analyst");
+    expect(lines.indexOf(fallback[0])).toBeLessThan(lines.length - 1);
+    expect(lines.at(-1)).toMatchObject({ agent_name: "Orchestrator", action: "run_end", status: "needs_human", stop_reason: "model_unavailable" });
+    expect(lines.at(-1)?.usage?.query_calls).toBe(result.usage.query_calls);
+  });
+
+  it("the Writer's 502 after an accepted draft returns that draft's findings with their citations", async () => {
+    const ok = await explainWeek("orch-model-unavailable-baseline");
+    expect(ok.status).toBe("success");
+    stubs.override = fail502("Writer");
+    const result = await explainWeek("orch-model-unavailable-writer");
+    expect(result.status).toBe("needs_human");
+    const output = result.output!;
+    expect(output).toMatchObject({ partial: true, stop_reason: "model_unavailable" });
+    expect(output.findings.length).toBeGreaterThan(0);
+    // Run query ids differ between runs, so compare the findings by their text and check the cites against this run's citations.
+    expect(output.findings.map((finding) => finding.claim)).toEqual(ok.output!.findings.map((finding) => finding.claim));
+    const cited = new Set(output.citations.map((citation) => citation.run_query_id));
+    for (const finding of output.findings) for (const cite of finding.cites) expect(cited.has(cite)).toBe(true);
+    expect(output.citations.length).toBeGreaterThan(0);
+    expect(output.gaps.join(" ")).toContain("Writer");
+    expect(output.review_markdown.trimEnd().split("\n").at(-1)).toBe(DISCLAIMER);
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "model_unavailable_fallback")[0].why).toContain("Writer");
+    expect(lines.at(-1)).toMatchObject({ action: "run_end", stop_reason: "model_unavailable" });
+  });
+
+  it("the Planner's first 502, before any query ran, is still an error reply", async () => {
+    stubs.override = fail502("Planner");
+    const result = await explainWeek("orch-model-unavailable-planner");
+    expect(result.status).toBe("error");
+    expect(result.output).toBeNull();
+    expect(result.error).toMatchObject({ type: "ModelHttpError", recoverable: true });
+    expect(by(trace(result), "Orchestrator", "model_unavailable_fallback")).toHaveLength(0);
+  });
+});

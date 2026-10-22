@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scoresText, scoreUnavailable, selfCorrectionBanner } from "./badges";
+import { modelUnavailableLabel, scoresText, scoreUnavailable, selfCorrectionBanner } from "./badges";
 
 const unavailable = [{ agent_name: "Evaluator", action: "score_unavailable", why: "the model returned no answer; the code checks passed" }];
 
@@ -15,5 +15,14 @@ describe("the Explain page's score text", () => {
     expect(scoresText({ scores: null }, [])).toBe("not scored");
     const banner = selfCorrectionBanner({ rounds: 2, scores: null }, [{ agent_name: "Evaluator", action: "reject", why: "cite a row" }, ...unavailable]);
     expect(banner).toBe("Draft 1 rejected: cite a row. Draft 2 accepted, score unavailable.");
+  });
+});
+
+describe("the Explain page's model_unavailable label", () => {
+  it("labels a draft the code built after the model failed, and gives nothing for any other stop", () => {
+    expect(modelUnavailableLabel({ stop_reason: "model_unavailable" })).toBe("Draft built by code: the model was unavailable after the queries ran");
+    expect(modelUnavailableLabel({ stop_reason: "rounds" })).toBeNull();
+    expect(modelUnavailableLabel({ stop_reason: null })).toBeNull();
+    expect(modelUnavailableLabel(null)).toBeNull();
   });
 });

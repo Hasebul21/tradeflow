@@ -105,6 +105,12 @@ describe("universalChecks", () => {
     expect(failed(universalChecks(r))).toEqual(["usage", "disclaimer", "no_advice"]);
   });
 
+  it("fails a result that ended model_unavailable with exactly that check, even when the case expects needs_human", () => {
+    const r = result({ stop_reason: "model_unavailable", partial: true, needs_human: true }, { status: "needs_human" });
+    expect(failed(universalChecks(r))).toEqual(["model_unavailable: the model failed after the queries"]);
+    expect(failed(checkExpectation(r, { status: "needs_human" }, false))).toEqual([]);
+  });
+
   it("skips an error result", () => {
     expect(universalChecks(result(null, { status: "error" }))).toEqual([]);
   });

@@ -134,6 +134,8 @@ export function universalChecks(result: RunResult): CaseCheck[] {
     const last = review.trimEnd().split("\n").at(-1)?.trim() ?? "";
     out.push(check("disclaimer", last === DISCLAIMER, last === DISCLAIMER ? "review ends with the disclaimer" : `last line: ${last.slice(0, 80)}`));
   }
+  // A run the model abandoned after the queries is never a pass, even when the case expects needs_human.
+  if (result.output?.stop_reason === "model_unavailable") out.push(check("model_unavailable: the model failed after the queries", false, `status ${result.status}; the draft was built by code, not by the model`));
   const whole = JSON.stringify(result.output ?? {}).toLowerCase();
   const advice = ADVICE.filter((phrase) => whole.includes(phrase));
   out.push(check("no_advice", advice.length === 0, advice.length === 0 ? "no advice wording" : `contains ${advice.join(", ")}`));

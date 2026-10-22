@@ -15,6 +15,7 @@ import { DISCLAIMER, write } from "./agents/writer";
 import { ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
+import { MODEL_UNAVAILABLE_LABEL } from "./labels";
 import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, recall, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
@@ -30,6 +31,7 @@ import { readJson } from "@/lib/store";
 const AGENT = "Orchestrator";
 const GUARD = "Guard";
 const SUMMARY_CHARS = 200;
+
 
 /** The tasks this loop runs today; later steps add the others. */
 const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check", "pre_trade"];
@@ -70,7 +72,7 @@ export type RunOptions = {
   localReason?: string;
 };
 
-export type StopReason = "rounds" | "query_calls" | "model_calls" | "tokens" | "round_timeout" | "run_timeout" | "writer_rejected";
+export type StopReason = "rounds" | "query_calls" | "model_calls" | "tokens" | "round_timeout" | "run_timeout" | "writer_rejected" | "model_unavailable";
 export type RunStatus = "success" | "needs_human" | "error";
 
 /** One cited result: what the accepted findings rest on. `rows` (at most CITATION_ROWS) is for the Explain page's drawer; it is output only and never goes into a model's input. */
@@ -205,6 +207,8 @@ function stopText(reason: StopReason, config: Config, detail: string): string {
       return `The run stopped: it passed RUN_TIMEOUT_MS (${config.RUN_TIMEOUT_MS} ms). The findings below are the best draft, unreviewed.`;
     case "writer_rejected":
       return `The Writer's review failed its code check twice: ${detail}`;
+    case "model_unavailable":
+      return `The model did not answer, so no model wrote or checked this review: ${detail}`;
   }
 }
 
@@ -512,6 +516,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     let thesis: { prepared: PreparedTheses; focus: string; found: (Finding[] | null)[]; gapsBy: string[][] } | null = null;
     let stop: StopReason | null = null;
     let round = 0;
+    /** The agent whose model call is running, so a model failure can name it. */
+    let calling: AgentName = "Planner";
     const roundsRun = () => Math.min(round + 1, config.MAX_ROUNDS);
     const stopped = (reason: StopReason, detail = stopDetail(reason)): NeedsHuman => {
       const draft = accepted ?? best ?? latest;
@@ -526,6 +532,33 @@ export async function run(options: RunOptions): Promise<RunResult> {
         stop_reason: reason,
       });
       return { kind: "needs_human", stop: reason, detail, draft, rounds: roundsRun() };
+    };
+
+    /** A model failure after the queries ran: the best draft so far, a review built in code, one fallback line. */
+    const modelUnavailable = (error: ModelError): NeedsHuman => {
+      const type = errorOf(error).type;
+      const ran = Object.values(state.store).map((result) => result.query_id);
+      const detail = `${type} in the ${calling}'s call (${error.message}); ${ran.length} queries ran: ${ran.join(", ")}.`;
+      const base = accepted ?? best ?? latest;
+      const gap = `The ${calling}'s model call failed (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
+      const draft: Draft = { findings: base?.findings ?? [], gaps: [...(base?.gaps ?? []), gap], scores: base?.scores ?? null, total: base?.total ?? null, round: base?.round ?? round };
+      tracer.log({
+        agent_name: AGENT,
+        action: "model_unavailable_fallback",
+        input_summary: capped(`round ${roundsRun()} of ${config.MAX_ROUNDS}; ${calling} call failed: ${type}`),
+        output_summary: capped(`the run returns needs_human with ${draft.findings.length} findings from ${base === null ? "no draft" : "the best draft"} and the ${ran.length} cached query results`),
+        target_agent: null,
+        status: "fallback",
+        why: `${type} from the ${calling}'s model call after ${ran.length} queries ran: ${error.message}`,
+        retry_count: Math.min(round, config.MAX_ROUNDS - 1),
+        stop_reason: "model_unavailable",
+      });
+      const summary = `${MODEL_UNAVAILABLE_LABEL}. The model did not answer (${type}, in the ${calling}'s step), so this draft comes from ${ran.length} query results. Nothing was reviewed or scored.`;
+      const lines = [summary, "", `Queries that ran: ${ran.join(", ")}.`, ""];
+      if (draft.findings.length === 0) lines.push("No findings were drafted before the model stopped answering.");
+      for (const finding of draft.findings) lines.push(`- ${finding.claim} ${finding.cites.map((id) => `[q:${id}]`).join(" ")}`.trimEnd());
+      lines.push("", `Not covered: ${draft.gaps.join("; ")}`, "", DISCLAIMER);
+      return { kind: "needs_human", stop: "model_unavailable", detail, draft, rounds: roundsRun(), summary, review_markdown: lines.join("\n") };
     };
 
     try {
@@ -582,6 +615,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             stop = budgetStop(false);
             if (stop !== null) break;
             state.beforeModelCall();
+            calling = "Planner";
             const planned = await plan(
               { task, question, as_of: asOf, trade: null, memories, world, feedback },
               { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
@@ -623,6 +657,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             if (thesis.found[index] !== null && !rerun.has(index)) continue;
             stop = budgetStop(false);
             if (stop !== null) break rounds;
+            calling = "Analyst";
             const analysis = await analyse(
               { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
               { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
@@ -649,6 +684,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           // The steps come from the cache after round 0, and the Analyst is offered no tools.
           stop = budgetStop(fixed.some((step) => !state.isCached(step.query_id, step.params)));
           if (stop !== null) break;
+          calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
             { task, question, as_of: asOf, trade, focus: PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
             { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
@@ -667,6 +703,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           stop = budgetStop(false);
           if (stop !== null) break;
           state.beforeModelCall();
+          calling = "Planner";
           const planned = await plan(
             { task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback },
             { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
@@ -680,6 +717,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           const needsQueries = planned.steps.some((step) => !state.isCached(step.query_id, step.params));
           stop = budgetStop(needsQueries);
           if (stop !== null) break;
+          calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
             { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, world, previous_findings: previous, feedback },
             { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
@@ -706,6 +744,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         // Evaluator: code checks first, then the fast model.
         stop = budgetStop(false);
         if (stop !== null) break;
+        calling = "Evaluator";
         const verdict = await evaluate(
           { task, question, as_of: asOf, findings, gaps, memories, results: state.store },
           { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("fast"), round },
@@ -731,6 +770,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       // 5. The Writer, in the accepted round.
       stop = budgetStop(false);
       if (stop !== null) return stopped(stop);
+      calling = "Writer";
       const written = await write(
         {
           task,
@@ -761,6 +801,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
         if (runLeft() <= 0) return stopped("run_timeout");
         if (roundLeft() <= 0) return stopped("round_timeout");
       }
+      // A provider 5xx (the 502 empty_response included) or a timeout that is not the round's or the run's, after
+      // at least one query result is held: keep the evidence and return a code-built draft, never an error.
+      const failedModel = (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500) || error instanceof ModelTimeout;
+      if (failedModel && Object.keys(state.store).length > 0) return modelUnavailable(error as ModelError);
       throw error;
     }
   }

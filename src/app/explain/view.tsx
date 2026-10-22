@@ -9,7 +9,7 @@ import type { TraceLine } from "@/agent/trace";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
-import { adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner } from "./badges";
+import { adviceBadge, correctionChip, modelUnavailableLabel, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner } from "./badges";
 import { runPreTrade, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
 
@@ -265,7 +265,7 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
           description={`${out.escalation.rule}: ${out.escalation.message}`}
         />
       ) : result.status === "needs_human" ? (
-        <Alert type="warning" showIcon title="Needs your attention" description={out?.stop_reason ?? "The run needs a person to decide."} />
+        <Alert type="warning" showIcon title="Needs your attention" description={modelUnavailableLabel(out) ?? out?.stop_reason ?? "The run needs a person to decide."} />
       ) : null}
       {out ? (
         <>

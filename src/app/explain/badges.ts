@@ -1,4 +1,5 @@
 // Pure helpers for the Explain page's badges and banner. Each one reads the run's output or trace lines only.
+import { MODEL_UNAVAILABLE_LABEL } from "@/agent/labels";
 import type { RunResult } from "@/agent/orchestrator";
 
 type Line = { agent_name?: unknown; action?: unknown; why?: unknown; output_summary?: unknown };
@@ -58,4 +59,9 @@ export function selfCorrectionBanner(output: Pick<Output, "rounds" | "scores"> |
 /** The purple chip for a run that recalled an owner correction, or null. */
 export function correctionChip(output: Pick<Output, "applied_corrections"> | null | undefined): string | null {
   return (output?.applied_corrections.length ?? 0) > 0 ? "Applied your correction" : null;
+}
+
+/** The label for a draft the code built because the model failed after the queries ran, or null. It is never shown as a model answer. */
+export function modelUnavailableLabel(output: Pick<Output, "stop_reason"> | null | undefined): string | null {
+  return output?.stop_reason === "model_unavailable" ? MODEL_UNAVAILABLE_LABEL : null;
 }
