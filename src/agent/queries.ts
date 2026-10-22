@@ -2,6 +2,9 @@
 // function as its API route, so an answer matches what the page shows. Server only: loadQueryData reads data/.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { Config } from "./config";
+import type { Tracer } from "./trace";
+import { createZetarisClient, rowsFromArrays, type ZetarisClient } from "./zetaris";
 import { attributionAsOf, sectorMovesAsOf } from "@/lib/market-views";
 import { filterAnnouncements, loadAnnouncements, publishedYmd, sortAnnouncementsByLatest } from "@/lib/announcements";
 import { bonusTransactions, dividendsFor, sharesHeldOn } from "@/lib/corporate-actions";
@@ -49,6 +52,8 @@ export type QueryResult = {
   params: Record<string, unknown>;
   rows: Row[];
   source: QuerySource;
+  /** The first 120 characters of the Lightning SQL that ran, or was tried before a fallback; null when no SQL was sent. */
+  sql_head: string | null;
 };
 
 /** Everything the local queries read, loaded once per run. */
@@ -81,6 +86,17 @@ export type NamedQuery<P = unknown> = {
   description: string;
   params: z.ZodType<P>;
   local(p: P, d: QueryData): Row[];
+  /**
+   * One Lightning SQL statement for Zetaris: no trailing semicolon, qualified table names, aggregated in SQL.
+   * It returns only `sqlColumns`; `local()` supplies the rest through mergeRows. Takes the resolved params.
+   */
+  sql?(p: P, d: QueryData): string;
+  /** The SELECT list of sql(), in order. The reply is positional, so these names are the only column names. */
+  sqlColumns?: readonly string[];
+  sqlNumeric?: readonly string[];
+  sqlBooleans?: readonly string[];
+  /** Identifies a row in both the SQL rows and local() rows; null for a local row SQL never computes (the PORTFOLIO row). */
+  sqlKey?(row: Row): string | null;
 };
 
 const PORTFOLIO = "PORTFOLIO";
@@ -150,6 +166,45 @@ function findingRow(f: RuleFinding): Row {
   return { kind: f.kind, subject: f.planId, symbol: f.symbol, side: f.side, target_price: f.targetPrice, ltp: f.ltp, message: f.message };
 }
 
+// ---------------------------------------------------------------------------------------------- sql helpers
+
+const LEDGER = "tradeflow_ledger";
+const EXTERNAL = "tradeflow_external";
+
+/** A table as `SHOW DATASOURCE TABLES` lists it, qualified with its datasource (docs/zetaris-tables.txt). */
+export function table(datasource: typeof LEDGER | typeof EXTERNAL, name: string): string {
+  return `${datasource}.${name}`;
+}
+
+// The Dhaka day is a fixed +06:00 (no daylight saving), so a day is two absolute instants and the result
+// does not depend on the Zetaris session time zone.
+function ymdLiteral(s: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || parseYmd(s) === null) throw new QueryError("invalid_params", `${s} is not a date as yyyy-mm-dd.`);
+  return s;
+}
+const dateLiteral = (s: string) => `CAST('${ymdLiteral(s)}' AS DATE)`;
+const dayStart = (s: string) => `CAST('${ymdLiteral(s)}T00:00:00+06:00' AS TIMESTAMP)`;
+/** The first instant after the Dhaka day `s`, as an exclusive upper bound. */
+function dayEnd(s: string): string {
+  const [y, m, d] = ymdLiteral(s).split("-").map(Number);
+  return dayStart(new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10));
+}
+/** The Dhaka calendar day of a timestamp column, whatever the session time zone is. */
+const dhakaDay = (column: string) =>
+  `date_format(from_utc_timestamp(to_utc_timestamp(${column}, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd')`;
+
+function sessionsLiteral(n: number): number {
+  if (!Number.isInteger(n) || n < 1 || n > 120) throw new QueryError("invalid_params", "sessions must be a whole number from 1 to 120.");
+  return n;
+}
+
+/** A symbol that is in `instruments` and plain letters and digits; anything else never reaches SQL. */
+function symbolLiteral(d: QueryData, raw: string): string {
+  const symbol = normalizeSymbol(raw);
+  if (!/^[A-Z0-9]{1,20}$/.test(symbol) || !d.portfolio.instruments.has(symbol)) throw new QueryError("unknown_symbol", `Unknown symbol ${symbol}.`);
+  return `'${symbol}'`;
+}
+
 // ---------------------------------------------------------------------------------------------- queries
 
 const weekMoves: NamedQuery<z.output<typeof weekMovesParams>> = {
@@ -157,6 +212,36 @@ const weekMoves: NamedQuery<z.output<typeof weekMovesParams>> = {
   description:
     "Per holding, the move over the last sessions against its sector index and DSEX, with a PORTFOLIO row first (portfolio change against DSEX); use first for any question about what moved or why the week was good or bad.",
   params: weekMovesParams,
+  sqlColumns: ["symbol", "from_close", "to_close", "change_pct"],
+  sqlNumeric: ["from_close", "to_close", "change_pct"],
+  sqlKey: (row) => (row.symbol === PORTFOLIO ? null : String(row.symbol)),
+  // Held at the end of as_of: net bought shares above zero. Bonus shares are not in the SQL; a holding that
+  // exists only through a bonus issue would be missing, and parity would show it.
+  sql(p) {
+    const asOf = p.as_of;
+    const from = sessionsLiteral(p.sessions) + 1;
+    return `SELECT symbol, from_close, to_close, ROUND((to_close - from_close) / from_close * 100, 2) AS change_pct
+FROM (
+  SELECT symbol,
+         MAX(CASE WHEN rn = 1 THEN close END) AS to_close,
+         MAX(CASE WHEN rn = ${from} THEN close END) AS from_close
+  FROM (
+    SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_date DESC) AS rn
+    FROM ${table(LEDGER, "bars")}
+    WHERE bar_date <= ${dateLiteral(asOf)}
+      AND symbol IN (
+        SELECT symbol FROM ${table(LEDGER, "transactions")}
+        WHERE created_at < ${dayEnd(asOf)}
+        GROUP BY symbol
+        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0
+      )
+  ) ranked
+  WHERE rn IN (1, ${from})
+  GROUP BY symbol
+) w
+WHERE from_close IS NOT NULL AND to_close IS NOT NULL
+ORDER BY symbol`;
+  },
   local(p, d) {
     const asOf = resolveDate(d, p.as_of);
     const att = attributionAsOf(d.portfolio, d.sectorBars, asOf, p.sessions);
@@ -198,6 +283,27 @@ const sectorVsStock: NamedQuery<z.output<typeof sectorVsStockParams>> = {
   description:
     "Per sector, its index move against DSEX and what the portfolio's holdings in it added or took in taka and points; use to tell a sector-wide move from a company-specific one.",
   params: sectorVsStockParams,
+  sqlColumns: ["sector", "close", "change_pct"],
+  sqlNumeric: ["close", "change_pct"],
+  sqlKey: (row) => String(row.sector),
+  sql(p) {
+    const from = sessionsLiteral(p.sessions) + 1;
+    return `SELECT sector, close, ROUND((close - from_close) / from_close * 100, 2) AS change_pct
+FROM (
+  SELECT sector,
+         MAX(CASE WHEN rn = 1 THEN close END) AS close,
+         MAX(CASE WHEN rn = ${from} THEN close END) AS from_close
+  FROM (
+    SELECT sector, close, ROW_NUMBER() OVER (PARTITION BY sector ORDER BY bar_date DESC) AS rn
+    FROM ${table(LEDGER, "sector_index_bars")}
+    WHERE bar_date <= ${dateLiteral(p.as_of)}
+  ) ranked
+  WHERE rn IN (1, ${from})
+  GROUP BY sector
+) w
+WHERE from_close IS NOT NULL AND close IS NOT NULL
+ORDER BY change_pct, sector`;
+  },
   local(p, d) {
     const asOf = resolveDate(d, p.as_of);
     const moves = sectorMovesAsOf(d.portfolio, d.sectorBars, asOf, p.sessions);
@@ -225,6 +331,18 @@ const announcementsBetween: NamedQuery<z.output<typeof announcementsParams>> = {
   description:
     "Company announcements published between two dates, newest first, with category, price_sensitive flag, title and full body; use to find the news behind a move, a dividend or a result.",
   params: announcementsParams,
+  sqlColumns: ["id", "symbol", "published_on", "category", "price_sensitive", "title"],
+  sqlBooleans: ["price_sensitive"],
+  sqlKey: (row) => String(row.id),
+  // The body stays out of the statement: it is long, and mergeRows takes it from local().
+  sql(p, d) {
+    const symbol = p.symbol ? `\n  AND symbol = ${symbolLiteral(d, p.symbol)}` : "";
+    return `SELECT id, symbol, ${dhakaDay("published_at")} AS published_on, category, price_sensitive, title
+FROM ${table(EXTERNAL, "announcements")}
+WHERE published_at >= ${dayStart(p.from)}
+  AND published_at < ${dayEnd(p.to)}${symbol}
+ORDER BY published_at DESC, id DESC`;
+  },
   local(p, d) {
     const wanted = p.symbol ? [normalizeSymbol(p.symbol)] : [];
     return sortAnnouncementsByLatest(filterAnnouncements(d.announcements, { symbols: wanted, from: p.from, to: p.to })).map(
@@ -238,6 +356,17 @@ const fundamentalsLatest: NamedQuery<z.output<typeof fundamentalsParams>> = {
   description:
     "One company's quarters reported by a date, oldest first; the latest row adds the quarter-on-quarter EPS and profit change and the trailing P/E; use to check a thesis about earnings or valuation.",
   params: fundamentalsParams,
+  sqlColumns: ["symbol", "period_end", "reported_on", "eps_bdt", "nav_per_share_bdt", "revenue_mn_bdt", "net_profit_mn_bdt"],
+  sqlNumeric: ["eps_bdt", "nav_per_share_bdt", "revenue_mn_bdt", "net_profit_mn_bdt"],
+  sqlKey: (row) => `${row.symbol}|${row.period_end}`,
+  // The quarter-on-quarter changes and the trailing P/E come from local(), through src/lib.
+  sql(p, d) {
+    return `SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt
+FROM ${table(EXTERNAL, "fundamentals")}
+WHERE symbol = ${symbolLiteral(d, p.symbol)}
+  AND reported_on <= ${dateLiteral(p.as_of)}
+ORDER BY period_end`;
+  },
   local(p, d) {
     const asOf = resolveDate(d, p.as_of);
     const symbol = normalizeSymbol(p.symbol);
@@ -322,6 +451,20 @@ const journalForSymbolQuery: NamedQuery<z.output<typeof journalParams>> = {
   description:
     "The owner's own thesis, horizon and exit condition for each trade, newest first, up to a date, for one symbol or for every trade; use to check a thesis against what happened since.",
   params: journalParams,
+  sqlColumns: ["id", "transaction_id", "symbol", "side", "trade_date", "quantity", "price_per_share", "horizon", "thesis", "exit_condition"],
+  sqlNumeric: ["quantity", "price_per_share"],
+  sqlKey: (row) => String(row.id),
+  // The tags (text[]) stay with local(): array support in Lightning SQL is not confirmed.
+  sql(p, d) {
+    const symbol = p.symbol ? `\n  AND t.symbol = ${symbolLiteral(d, p.symbol)}` : "";
+    return `SELECT j.id, j.transaction_id, t.symbol, t.side, ${dhakaDay("t.created_at")} AS trade_date, t.quantity, t.price_per_share,
+       j.horizon, j.thesis, j.exit_condition
+FROM ${table(LEDGER, "journal")} j
+JOIN ${table(LEDGER, "transactions")} t ON t.id = j.transaction_id
+WHERE j.created_at < ${dayEnd(p.as_of)}
+  AND t.created_at < ${dayEnd(p.as_of)}${symbol}
+ORDER BY j.created_at DESC, j.id DESC`;
+  },
   local(p, d) {
     const asOf = resolveDate(d, p.as_of);
     const { transactions } = dataUpTo(d.portfolio, asOf);
@@ -562,13 +705,187 @@ export function parseParams(id: string, raw: unknown): { id: QueryId; params: Re
   return { id, params: parsed.data as Record<string, unknown> };
 }
 
+/** Checks the params and moves `as_of` to the trading day the query runs for. Throws a QueryError. */
+export function prepareQuery(id: string, raw: unknown, d: QueryData): { id: QueryId; params: Record<string, unknown> } {
+  const { id: queryId, params } = parseParams(id, raw);
+  return { id: queryId, params: typeof params.as_of === "string" ? { ...params, as_of: resolveDate(d, params.as_of) } : params };
+}
+
 /**
  * Runs one query on the local data. `as_of` in the echoed params is the trading day the query ran for,
  * so a Friday request reads as the Thursday it became. Throws QueryError; an empty answer is `rows: []`.
  */
 export function runLocal(id: string, raw: unknown, d: QueryData): QueryResult {
-  const { id: queryId, params } = parseParams(id, raw);
-  const resolved = typeof params.as_of === "string" ? { ...params, as_of: resolveDate(d, params.as_of) } : params;
-  const rows = QUERIES[queryId].local(resolved, d);
-  return { query_id: queryId, run_query_id: randomUUID(), params: resolved, rows, source: "local" };
+  const { id: queryId, params } = prepareQuery(id, raw, d);
+  const rows = QUERIES[queryId].local(params, d);
+  return { query_id: queryId, run_query_id: randomUUID(), params, rows, source: "local", sql_head: null };
+}
+
+// ---------------------------------------------------------------------------------------------- zetaris
+
+/** A guard blocked the call. Nothing throws it yet: the guards arrive in a later step, and runQuery will. */
+export class QueryBlockedError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "QueryBlockedError";
+  }
+}
+
+const SQL_HEAD_CHARS = 120;
+const PARAMS_SUMMARY_CHARS = 200;
+const capped = (text: string) => (text.length <= PARAMS_SUMMARY_CHARS ? text : `${text.slice(0, PARAMS_SUMMARY_CHARS)}...`);
+const sqlHeadOf = (sql: string) => sql.replace(/\s+/g, " ").trim().slice(0, SQL_HEAD_CHARS);
+
+/**
+ * The SQL rows laid over local(): each row keeps local()'s extra columns (labels, weights, the body) and takes
+ * the SQL's values for the SQL's columns. Zetaris decides which rows exist; local() decides their order. A local
+ * row with a null key (the PORTFOLIO row) stays where it is. No SQL rows means no rows at all.
+ */
+export function mergeRows(q: NamedQuery, local: Row[], sqlRows: Row[]): Row[] {
+  const key = q.sqlKey;
+  if (!key || sqlRows.length === 0) return sqlRows;
+  const bySql = new Map(sqlRows.map((row) => [key(row), row]));
+  const used = new Set<string | null>();
+  const merged: Row[] = [];
+  for (const row of local) {
+    const k = key(row);
+    if (k === null) {
+      merged.push(row);
+      continue;
+    }
+    const fromSql = bySql.get(k);
+    if (fromSql) {
+      merged.push({ ...row, ...fromSql });
+      used.add(k);
+    }
+  }
+  for (const [k, row] of bySql) if (!used.has(k)) merged.push(row);
+  return merged;
+}
+
+export type FetchDeps = {
+  data: QueryData;
+  zetaris: ZetarisClient | null;
+  tracer: Tracer;
+  timeoutMs: number;
+  /** Why there is no client, for the trace: "sample mode" or "Zetaris not configured". */
+  offReason?: string;
+};
+
+export type FetchedRows = { rows: Row[]; source: QuerySource; sqlHead: string | null; why: string | null };
+
+/**
+ * Rows for one validated query. Zetaris when there is a client and the query has sql(); otherwise local().
+ * A Zetaris failure (a timeout after its one retry, a 401, bad SQL, Postgres down behind it) gives local() with
+ * source "local-fallback". A QueryError from the params or local() is the caller's to handle, never a fallback.
+ */
+export async function fetchRows(id: QueryId, params: Record<string, unknown>, deps: FetchDeps): Promise<FetchedRows> {
+  const q = QUERIES[id];
+  const local = q.local(params, deps.data);
+  if (deps.zetaris === null || !q.sql || !q.sqlColumns) {
+    const why = id === "what_if" ? WHAT_IF_LOCAL : !q.sql ? "this query has no sql() yet" : (deps.offReason ?? "Zetaris is off for this call");
+    return { rows: local, source: "local", sqlHead: null, why };
+  }
+  let sql: string;
+  try {
+    sql = q.sql(params, deps.data);
+  } catch (error) {
+    // A symbol that is not in instruments never reaches SQL. local() then answers exactly as it does in sample
+    // mode (an empty list, or its own QueryError), so the two modes agree.
+    if (error instanceof QueryError) return { rows: local, source: "local", sqlHead: null, why: `no SQL sent: ${error.message}` };
+    throw error;
+  }
+  const sqlHead = sqlHeadOf(sql);
+  try {
+    const reply = await deps.zetaris.run(sql, {
+      timeoutMs: deps.timeoutMs,
+      onRetry: () =>
+        deps.tracer.log({
+          agent_name: "Query",
+          action: "retry",
+          input_summary: `${id} sql: ${sqlHead}`,
+          output_summary: "Zetaris timed out; retrying once",
+          status: "retry",
+          source: "zetaris",
+          why: "timeout",
+        }),
+    });
+    const sqlRows = rowsFromArrays(q.sqlColumns, reply.data, new Set(q.sqlNumeric), new Set(q.sqlBooleans));
+    return { rows: mergeRows(q, local, sqlRows), source: "zetaris", sqlHead, why: null };
+  } catch (error) {
+    const why = error instanceof Error ? `${(error as { type?: string }).type ?? error.name}: ${error.message}` : "unknown error";
+    return { rows: local, source: "local-fallback", sqlHead, why };
+  }
+}
+
+const WHAT_IF_LOCAL = "what_if has no sql(): it previews a trade that has not happened, so it always runs locally";
+
+export type RunQueryArgs = {
+  query_id: string;
+  params: unknown;
+  /** The run this call belongs to; the per-run cache and budget, added later, are keyed by it. */
+  runId: string;
+  tracer: Tracer;
+  config: Config;
+  /** True keeps every call local. Decided by the caller from SAMPLE_MODE and the request's options. */
+  sampleMode: boolean;
+  /** The loaded data; loaded here when the caller has none. */
+  data?: QueryData;
+  /** A client to use instead of the one built from config.zetaris. Null forces local. */
+  zetaris?: ZetarisClient | null;
+};
+
+/**
+ * The one way an agent runs a named query. Chooses the source (Zetaris when it is configured, the query has
+ * sql() and sample mode is off; otherwise local), writes one "Query" trace line and returns the rows.
+ * Throws QueryError for bad params; never throws for a Zetaris failure.
+ */
+export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
+  const started = Date.now();
+  const { tracer, config } = args;
+  const data = args.data ?? (await loadQueryData());
+  let prepared: ReturnType<typeof prepareQuery>;
+  try {
+    prepared = prepareQuery(args.query_id, args.params, data);
+  } catch (error) {
+    tracer.log({
+      agent_name: "Query",
+      action: "query",
+      input_summary: `${args.query_id} ${capped(JSON.stringify(args.params ?? {}))}`,
+      output_summary: error instanceof Error ? error.message : "The query was refused.",
+      status: "error",
+      duration_ms: Date.now() - started,
+    });
+    throw error;
+  }
+  const { id, params } = prepared;
+  const zetaris = args.sampleMode ? null : args.zetaris === undefined ? createZetarisClient(config.zetaris) : args.zetaris;
+  const offReason = args.sampleMode ? "sample mode: every call runs locally" : "Zetaris not configured";
+  let fetched: FetchedRows;
+  try {
+    fetched = await fetchRows(id, params, { data, zetaris, tracer, timeoutMs: config.QUERY_TIMEOUT_MS, offReason });
+  } catch (error) {
+    // local() refused the call (an unknown symbol, a date outside the data): trace it, then let the caller decide.
+    tracer.log({
+      agent_name: "Query",
+      action: "query",
+      input_summary: `${id} ${capped(JSON.stringify(params))}`,
+      output_summary: error instanceof Error ? error.message : "The query was refused.",
+      status: "error",
+      duration_ms: Date.now() - started,
+    });
+    throw error;
+  }
+  const { why } = fetched;
+  tracer.log({
+    agent_name: "Query",
+    action: "query",
+    input_summary: `${id} ${capped(JSON.stringify(params))} source=${fetched.source}${fetched.sqlHead === null ? "" : ` sql: ${fetched.sqlHead}`}`,
+    output_summary: `${fetched.rows.length} rows`,
+    status: fetched.source === "local-fallback" ? "fallback" : "ok",
+    source: fetched.source,
+    ...(why === null ? {} : { why }),
+    duration_ms: Date.now() - started,
+  });
+  return { query_id: id, run_query_id: randomUUID(), params, rows: fetched.rows, source: fetched.source, sql_head: fetched.sqlHead };
 }

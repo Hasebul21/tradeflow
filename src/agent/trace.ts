@@ -47,6 +47,8 @@ export type TraceLine = {
   /** The host name of METERLESS_BASE_URL, never the full URL. */
   provider_host?: string;
   fallback?: "strong->main";
+  /** Query lines: where the rows came from, "local", "zetaris" or "local-fallback". */
+  source?: "local" | "zetaris" | "local-fallback";
 };
 
 /** What a caller passes: the five fields that always differ, the rest default to null or 0. */
