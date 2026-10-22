@@ -2,16 +2,18 @@
 // Usage (from .claude/settings.json): node .claude/hooks/cursor-adapter.mjs read | shell | prompt
 // Reads Claude Code's hook JSON on stdin. Prints nothing to allow, so Claude Code's own permission prompts still apply.
 import { spawnSync } from "node:child_process";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const kind = process.argv[2];
 const guards = { read: "guard-read.mjs", shell: "guard-shell.mjs", prompt: "guard-prompt.mjs" };
 const root = process.env.CLAUDE_PROJECT_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-// Names a Grep glob must not be able to match; guard-read decides which of them are secret.
-const SAMPLE_NAMES = [".env", ".env.local", "id.pem", "id.key", "secrets/notes.txt"];
-// Each check spawns the guard; past this many the hook could run out of time, so it denies instead.
+// What guard-read treats as secret, plus what .cursorignore hides and the prep folder's env backup.
+const PROTECTED = /(^|\/)\.env(\.|$)|\.(pem|key)$|(^|\/)secrets\/|(^|\/)\.hackathon-prep\/|(^|\/)data\/memory\/|(^|\/)logs\/[^/]*\.jsonl$|env-backup/i;
+const SKIP_DIRS = new Set(["node_modules", ".git", ".next"]);
+// Past these limits the hook could run out of time, which would let the call through, so it denies instead.
+const MAX_FILES = 20000;
 const MAX_CHECKS = 12;
 
 // A Grep glob as a regular expression, matching dotfiles the way ripgrep does. Throws on a malformed glob.
@@ -28,8 +30,7 @@ function globToRegExp(glob) {
     else if (c === "[") {
       const end = glob.indexOf("]", i + 1);
       if (end < 0) throw new Error("unclosed [");
-      const set = glob.slice(i + 1, end).replace(/^!/, "^").replace(/\\/g, "\\\\");
-      re += `[${set}]`;
+      re += `[${glob.slice(i + 1, end).replace(/^!/, "^")}]`;
       i = end;
     } else if (c === "{") {
       braces++;
@@ -38,14 +39,64 @@ function globToRegExp(glob) {
       braces--;
       re += ")";
     } else if (c === "," && braces > 0) re += "|";
-    else re += c.replace(/[.+^$()|\\{}]/g, "\\$&");
+    else re += c.replace(/[.+^$()|{}]/g, "\\$&");
   }
   if (braces > 0) throw new Error("unclosed {");
   return new RegExp(`(^|/)${re}$`, "i");
 }
 
+const isFolder = (p) => {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+// Paths, relative to dir, of every protected file under it; throws when there are too many files to walk in time.
+function protectedFiles(dir) {
+  const found = [];
+  let seen = 0;
+  const walk = (rel) => {
+    for (const entry of readdirSync(join(dir, rel), { withFileTypes: true })) {
+      if (++seen > MAX_FILES) throw new Error("too many files");
+      const path = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) walk(path);
+      } else if (PROTECTED.test(path) && !/(^|\/)\.env\.example$/i.test(path)) found.push(path);
+    }
+  };
+  walk("");
+  return found;
+}
+
+// A glob overrides Grep's skipping of hidden and git-ignored files, so a glob such as "*" can reach .env.
+// Returns a reason to deny, or null when no protected file under the search folder matches the glob.
+function globProblem(event) {
+  const tool = event.tool_input ?? {};
+  const glob = tool.glob;
+  if (typeof glob !== "string" || glob === "") return null;
+  if (glob.includes("\\") || glob.startsWith("!")) return "The Grep glob uses \\ or a leading !, which this guard can't check. Use a plain glob, such as *.ts.";
+  let match;
+  try {
+    match = globToRegExp(glob);
+  } catch {
+    return "The Grep glob could not be read, so it could reach a secret file. Use a plain glob, such as *.ts.";
+  }
+  const scope = resolve(event.cwd ?? root, typeof tool.path === "string" && tool.path !== "" ? tool.path : ".");
+  if (!isFolder(scope)) return null;
+  let files;
+  try {
+    files = protectedFiles(scope);
+  } catch {
+    return "The search folder is too big to check against the glob. Set path to a smaller folder, such as src.";
+  }
+  const hit = files.find((file) => match.test(file));
+  return hit ? `The Grep glob also matches ${hit}, which holds secrets or is hidden from the agent. Narrow the glob, or set path to src.` : null;
+}
+
 // guard-read matches names, so every name a read could reach is checked: the path as given, where a symlink
-// really points (a folder with a trailing slash, so secrets/ is caught), and each sample name a Grep glob matches.
+// really points (a folder with a trailing slash, so secrets/ is caught), and the literal parts of a Grep glob.
 function readTargets(event) {
   const tool = event.tool_input ?? {};
   const paths = [tool.file_path, tool.notebook_path, tool.path].filter((p) => typeof p === "string" && p !== "");
@@ -58,28 +109,17 @@ function readTargets(event) {
     } catch {
       // An unreadable path can't be resolved; the path as given is still checked.
     }
-    let folder = false;
-    try {
-      folder = statSync(real).isDirectory();
-    } catch {
-      // Not there yet: check it as a file name.
-    }
-    targets.push(p, folder ? `${real}/` : real);
+    targets.push(p, isFolder(real) ? `${real}/` : real);
   }
   if (typeof tool.glob === "string" && tool.glob !== "") {
-    let match;
-    try {
-      match = globToRegExp(tool.glob);
-    } catch {
-      return null;
-    }
-    targets.push(...SAMPLE_NAMES.filter((name) => match.test(name)));
+    const plain = tool.glob.replace(/[*?[\]]/g, "");
+    targets.push(plain, ...plain.split(/[{},]/).filter(Boolean));
   }
   return targets.length > 0 ? targets : [""];
 }
 
 function cursorPayloads(event) {
-  if (kind === "read") return readTargets(event)?.map((file_path) => ({ file_path })) ?? null;
+  if (kind === "read") return readTargets(event).map((file_path) => ({ file_path }));
   if (kind === "shell") return [{ command: event.tool_input?.command ?? "", cwd: event.cwd ?? root }];
   return [{ prompt: event.prompt ?? "" }];
 }
@@ -120,8 +160,11 @@ process.stdin.on("end", () => {
   } catch {
     // Unreadable input: the guard gets empty fields, as in Cursor.
   }
+  if (kind === "read") {
+    const problem = globProblem(event);
+    if (problem) return deny(problem);
+  }
   const payloads = cursorPayloads(event);
-  if (!payloads) return deny("The Grep glob could not be read, so it could reach a secret file. Use a simpler glob, such as *.ts.");
   if (payloads.length > MAX_CHECKS) return deny(`Too many paths to check (${payloads.length}); split the request.`);
   let ask = null;
   for (const payload of payloads) {

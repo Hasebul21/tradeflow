@@ -79,12 +79,24 @@ describe("cursor-adapter.mjs", () => {
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", path: ".", glob: ".env*" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob: "{.env,README.md}" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "secrets/" } }))).toBe("deny");
-    for (const glob of ["?env", "*env", "**/*", ".e[n]v", "*.{pem,ts}"]) {
+    // At the repo root these globs can reach .env, because a glob overrides Grep's skipping of ignored files.
+    for (const glob of ["?env", "*env", "*", "**/*", ".e[n]v", ".env.production", "[env", "\\.env", "!*.md"]) {
       expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob } }))).toBe("deny");
     }
-    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob: "[env" } }))).toBe("deny");
-    for (const glob of ["*.ts", "**/*.test.ts", "*.{ts,tsx}", ".env.example"]) {
+    for (const glob of ["*", "*.ts", "**/*.test.ts", "*.{ts,tsx}", ".env.example"]) {
       expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "planner", path: "src", glob } }).out).toBeNull();
+    }
+  });
+
+  it("denies a Grep glob that matches a key file in the search folder", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
+    try {
+      writeFileSync(path.join(dir, "id.pem"), "made-up\n");
+      writeFileSync(path.join(dir, "notes.ts"), "made-up\n");
+      expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: dir, glob: "*.{pem,ts}" } }))).toBe("deny");
+      expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: dir, glob: "*.ts" } }).out).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
