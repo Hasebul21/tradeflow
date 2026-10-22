@@ -158,6 +158,11 @@ describe("cursor-adapter.mjs", () => {
     for (const file_path of [`${homedir()}/.config/tradeflow-kit/allow-push`, `${root}/.run/allow-push`]) {
       expect(decision(adapter("read", { tool_name: "Write", tool_input: { file_path } }))).toBe("deny");
     }
+    for (const file_path of [".git/config", ".git/hooks/pre-push", ".githooks/pre-commit", ".claude/hooks/cursor-adapter.mjs",
+      ".cursor/hooks/guard-shell.mjs", ".cursor/hooks.json", ".claude/settings.json", ".claude/settings.local.json"]) {
+      expect(decision(adapter("read", { tool_name: "Edit", tool_input: { file_path: `${root}/${file_path}` } }))).toBe("deny");
+    }
+    expect(adapter("read", { tool_name: "Edit", tool_input: { file_path: `${root}/src/agent/guards.ts` } }).out).toBeNull();
   });
 
   it("denies a Grep over a folder named secrets", () => {

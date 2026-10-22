@@ -19,7 +19,8 @@ const MAX_CHECKS = 12;
 // The owner can let an unattended run push without a question. The switch lives outside the repo, holds the exact
 // push URL of origin, and the agent may not read, write or touch it (below), so the agent can't approve itself.
 // Only the plain push to origin main, from the repo, to that URL, with no mirror setting, is let through.
-const PUSH_SWITCH = process.env.CLAUDE_KIT_ALLOW_PUSH_FILE || join(homedir(), ".config", "tradeflow-kit", "allow-push");
+// The path override exists only for the kit tests (vitest sets VITEST); a real session always uses the home path.
+const PUSH_SWITCH = (process.env.VITEST && process.env.CLAUDE_KIT_ALLOW_PUSH_FILE) || join(homedir(), ".config", "tradeflow-kit", "allow-push");
 const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", timeout: 3000 }).stdout?.trim() ?? "";
 function pushAllowed(command, cwd) {
   if (!/^\s*git push origin main\s*$/.test(command ?? "") || !existsSync(PUSH_SWITCH)) return false;
@@ -30,7 +31,13 @@ function pushAllowed(command, cwd) {
   } catch {
     return false;
   }
-  return pinned !== "" && pinned === git("remote", "get-url", "--push", "origin") && git("config", "--get", "remote.origin.mirror") === "";
+  // Any setting that changes where or how a push goes (a refspec, push URL, receive-pack, mirror, an included config file,
+  // an ssh command, a hooks folder other than the kit's, or a pre-push hook) means the owner didn't approve this push.
+  const redirects = git("config", "--get-regexp", "^remote\\.origin\\.(push|pushurl|receivepack|mirror)$|^include(if)?\\.|^core\\.sshcommand$");
+  const hooksPath = git("config", "--get", "core.hooksPath");
+  const prePush = [join(root, ".githooks", "pre-push"), join(root, ".git", "hooks", "pre-push")].some((p) => existsSync(p));
+  return pinned !== "" && pinned === git("remote", "get-url", "--push", "origin") && redirects === "" &&
+    (hooksPath === "" || hooksPath === ".githooks") && !prePush;
 }
 // Shell commands that could fake the owner's consent or move where a push goes.
 const CONSENT_TAMPER = /allow-push|tradeflow-kit|\bgit\s+remote\s+(add|set-url|rename|remove|rm)\b|\bgit\s+config\b[^\n]*\b(remote\.|url\.|core\.hookspath|pushurl)/i;
@@ -228,6 +235,11 @@ process.stdin.on("end", () => {
     const touchesSwitch = [tool.file_path, tool.notebook_path, tool.path, tool.glob].some(
       (p) => typeof p === "string" && /allow-push|tradeflow-kit/i.test(p));
     if (touchesSwitch) return deny("The push switch is the owner's consent; only the owner may create or change it.");
+    // The agent may not rewrite git's config or hooks, or its own guards and settings, with a file tool.
+    const writes = /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(event.tool_name ?? "");
+    const guarded = [tool.file_path, tool.notebook_path].some((p) => typeof p === "string" &&
+      fromRoot(resolve(event.cwd ?? root, p)).some((rel) => /^(\.git\/|\.githooks\/|\.claude\/hooks\/|\.cursor\/hooks\/|\.claude\/settings[^/]*\.json$|\.cursor\/hooks\.json$)/.test(rel)));
+    if (writes && guarded) return deny("Git's config and hooks, and the kit's guards and settings, are the owner's to change.");
     const problem = pathProblem(event) ?? globProblem(event);
     if (problem) return deny(problem);
   }
