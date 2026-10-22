@@ -16,14 +16,15 @@ import { ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
-import { recall, seedOwnerContext, type RecalledMemory } from "./memory";
+import { learnCorrection, recall, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource } from "./queries";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
 import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
+import { about as worldAbout, recordRun, type WorldAbout } from "./world";
 import type { Rules } from "@/lib/data-types";
-import { resolveAsOf } from "@/lib/portfolio-view";
+import { buildPortfolioView, resolveAsOf } from "@/lib/portfolio-view";
 import { readJson } from "@/lib/store";
 
 const AGENT = "Orchestrator";
@@ -32,6 +33,8 @@ const SUMMARY_CHARS = 200;
 
 /** The tasks this loop runs today; later steps add the others. */
 const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check", "pre_trade"];
+/** The owner's correction to a review: stored in H-MEM by code, with no Planner and no loop. */
+const FEEDBACK = "feedback";
 
 // ---------------------------------------------------------------------------------------------------------------
 // The request and the reply.
@@ -46,6 +49,8 @@ export type RunInput = {
   plan_id?: string;
   review_run_id?: string;
   text?: string;
+  /** feedback only: the ids of recalled memories the owner says were wrong; each gets hmem.feedback(id, "wrong"). */
+  wrong_memory_ids?: string[];
   issue_id?: string;
 };
 
@@ -95,6 +100,8 @@ export type RunOutput = {
   new_findings?: string[];
   /** pre_trade only: the first new rule finding, decided in code; null when the trade breaks no rule. */
   escalation?: PreTradeEscalation | null;
+  /** feedback only: the ids of the memories the correction added. */
+  memory_ids_added?: string[];
 };
 
 export type ThesisVerdict = { journal_id: string; symbol: string; verdict: string; cites: string[] };
@@ -286,6 +293,8 @@ type Outcome =
   /** pre_trade: the trade would newly break a rule. A finished review for the owner to decide on, not a stopped run. */
   | { kind: "escalated"; summary: string; review_markdown: string; draft: Draft; rounds: number }
   | NeedsHuman
+  /** feedback: the correction was stored; no draft, no Writer. */
+  | { kind: "feedback"; summary: string; memory_ids_added: string[] }
   | { kind: "error"; error: RunError };
 
 /**
@@ -326,6 +335,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
   let run: RunState | undefined;
   let asOf: string | null = null;
   let memories: RecalledMemory[] = [];
+  /** World Model facts about the holdings involved, given to the Planner and the Analyst. */
+  let world: WorldAbout[] = [];
+  /** feedback: the miner's model usage; the other tasks count in the RunState. */
+  let feedbackUsage: Usage | null = null;
   /** From the last Evaluator call: null when it rejected in code, or never ran. */
   let lastScores: RunScores | null = null;
   let lastConfidence: number | null = null;
@@ -355,7 +368,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
     outcome = { kind: "error", error: errorOf(error) };
   }
 
-  const usage: RunUsage = { ...(run?.usage ?? { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0 }), duration_ms: Date.now() - started };
+  // An accepted run is recorded in the World Model from its query results, never from model text.
+  if ((outcome.kind === "success" || outcome.kind === "escalated") && run !== undefined && asOf !== null) await recordWorld(run, asOf, outcome.draft.findings);
+
+  const usage: RunUsage = { ...(run?.usage ?? feedbackUsage ?? { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0 }), duration_ms: Date.now() - started };
   const result = reply(outcome, usage);
   tracer.log({
     agent_name: AGENT,
@@ -379,11 +395,15 @@ export async function run(options: RunOptions): Promise<RunResult> {
   // The run, start to finish. Throws only what the catch above turns into an error reply.
   async function execute(): Promise<Outcome> {
     const invalid = (message: string): Outcome => ({ kind: "error", error: { type: "InvalidInput", message, recoverable: false } });
+    if (taskName === FEEDBACK) {
+      if (input === null || typeof input !== "object") return invalid("The input must be an object.");
+      return feedbackRun();
+    }
     if (typeof taskName !== "string" || !TASKS.includes(taskName as Task)) {
-      return invalid(`Unknown task ${JSON.stringify(taskName)}; the tasks are ${TASKS.join(", ")}.`);
+      return invalid(`Unknown task ${JSON.stringify(taskName)}; the tasks are ${[...TASKS, FEEDBACK].join(", ")}.`);
     }
     const task = taskName as Task;
-    if (!SUPPORTED.includes(task)) return invalid(`Task ${JSON.stringify(task)} is not supported yet; this loop runs ${SUPPORTED.join(", ")}.`);
+    if (!SUPPORTED.includes(task)) return invalid(`Task ${JSON.stringify(task)} is not supported yet; this loop runs ${[...SUPPORTED, FEEDBACK].join(", ")}.`);
     if (input === null || typeof input !== "object") return invalid("The input must be an object.");
     if (input.question !== undefined && input.question !== null && typeof input.question !== "string") return invalid("The question must be a string.");
     if (input.as_of !== undefined && input.as_of !== null && typeof input.as_of !== "string") return invalid("as_of must be a date as YYYY-MM-DD.");
@@ -438,6 +458,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     if (scrubbed.flagged > 0) flags.injection = true;
     if ((await flaggedTradePlans(tracer)) > 0) flags.injection = true;
     if (asksForAdvice(question)) declineAdvice("matched in code");
+    world = worldFor(buildPortfolioView(data.portfolio, asOf).holdings.map((holding) => holding.symbol), trade?.symbol);
 
     // 3. Time and budget.
     const runDeadline = started + config.RUN_TIMEOUT_MS;
@@ -551,7 +572,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             if (stop !== null) break;
             state.beforeModelCall();
             const planned = await plan(
-              { task, question, as_of: asOf, trade: null, memories, feedback },
+              { task, question, as_of: asOf, trade: null, memories, world, feedback },
               { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
             );
             state.afterModelCall(planned.model);
@@ -592,7 +613,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             stop = budgetStop(false);
             if (stop !== null) break rounds;
             const analysis = await analyse(
-              { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
+              { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
               { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
             );
             modelIds.add(analysis.model.model_id);
@@ -618,7 +639,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           stop = budgetStop(fixed.some((step) => !state.isCached(step.query_id, step.params)));
           if (stop !== null) break;
           const analysis: AnalysisOutcome = await analyse(
-            { task, question, as_of: asOf, trade, focus: PRE_TRADE_FOCUS, steps: fixed, memories, previous_findings: previous, feedback, noTools: true },
+            { task, question, as_of: asOf, trade, focus: PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
             { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
           );
           modelIds.add(analysis.model.model_id);
@@ -636,7 +657,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           if (stop !== null) break;
           state.beforeModelCall();
           const planned = await plan(
-            { task, question, as_of: asOf, trade: input.trade ?? null, memories, feedback },
+            { task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback },
             { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
           );
           state.afterModelCall(planned.model);
@@ -649,7 +670,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           stop = budgetStop(needsQueries);
           if (stop !== null) break;
           const analysis: AnalysisOutcome = await analyse(
-            { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, previous_findings: previous, feedback },
+            { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, world, previous_findings: previous, feedback },
             { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
           );
           modelIds.add(analysis.model.model_id);
@@ -725,6 +746,85 @@ export async function run(options: RunOptions): Promise<RunResult> {
     }
   }
 
+  /**
+   * feedback (A5): the owner's correction goes straight to H-MEM, with no Planner and no loop. The miner's model call
+   * runs inside withMiner, so its model_call line and its usage belong to this run.
+   */
+  async function feedbackRun(): Promise<Outcome> {
+    const fail = (message: string): Outcome => ({ kind: "error", error: { type: "InvalidInput", message, recoverable: false } });
+    if (typeof input.review_run_id !== "string" || input.review_run_id.trim() === "") return fail("review_run_id is required for feedback: the run id of the review this corrects.");
+    if (typeof input.text !== "string" || input.text.trim() === "") return fail("text is required for feedback: the correction in the owner's words.");
+    const wrongIds = input.wrong_memory_ids ?? [];
+    if (!Array.isArray(wrongIds) || wrongIds.some((id) => typeof id !== "string")) return fail("wrong_memory_ids must be a list of memory ids.");
+    tracer.log({
+      agent_name: AGENT,
+      action: "run_start",
+      input_summary: capped(`task=feedback review_run_id=${input.review_run_id} text ${input.text.length} chars, ${wrongIds.length} wrong memory ids`),
+      output_summary: "no Planner and no loop: the correction goes straight to H-MEM",
+      target_agent: "Memory",
+      status: "ok",
+    });
+    const usage: Usage = { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0 };
+    feedbackUsage = usage;
+    const learned = await withMiner({ tracer, usage, sampleMode, config }, () =>
+      learnCorrection({ review_run_id: input.review_run_id as string, text: input.text as string, wrong_memory_ids: wrongIds, tracer }),
+    );
+    if (!learned.ok) return { kind: "error", error: learned.error };
+    asOf = learned.as_of;
+    return {
+      kind: "feedback",
+      summary: `Stored your correction to the review of ${learned.as_of} as ${learned.memory_ids_added.join(", ")}; later reviews recall it by tag.`,
+      memory_ids_added: learned.memory_ids_added,
+    };
+  }
+
+  /** World Model facts about the holdings and the trade's symbol. A failure is traced and gives an empty list. */
+  function worldFor(holdings: readonly string[], tradeSymbol: string | undefined): WorldAbout[] {
+    const symbols = [...new Set([...holdings, ...(tradeSymbol === undefined ? [] : [tradeSymbol])])];
+    try {
+      const found = worldAbout(symbols);
+      tracer.log({
+        agent_name: "World",
+        action: "about",
+        input_summary: capped(`${symbols.length} symbols: ${symbols.join(",")}`),
+        output_summary: capped(`${found.length} symbols known; facts=${found.reduce((n, w) => n + w.facts.length, 0)}; announcements=${found.reduce((n, w) => n + w.announcements.length, 0)}`),
+        target_agent: "Planner",
+        status: "ok",
+      });
+      return found;
+    } catch (error) {
+      tracer.log({ agent_name: "World", action: "about", input_summary: `${symbols.length} symbols`, output_summary: "the World Model could not be read; the agents get no world facts", status: "error", why: error instanceof Error ? error.message : String(error) });
+      return [];
+    }
+  }
+
+  /** Records an accepted run in the World Model; traced as World "record" before run_end. A failure never fails the run. */
+  async function recordWorld(state: RunState, asOfDate: string, findings: readonly Finding[]): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      const written = await recordRun({ run_id: runId, as_of: asOfDate, results: state.store, findings });
+      tracer.log({
+        agent_name: "World",
+        action: "record",
+        input_summary: capped(`run ${runId} as_of ${asOfDate}: ${Object.keys(state.store).length} query results; context review_week ${asOfDate}`),
+        output_summary: `entities=${written.entities}; facts=${written.facts}; relations=${written.relations}; run_query_ids=${written.run_query_ids.join(",") || "none"}`,
+        status: "ok",
+        why: "an accepted run is recorded from its query results, never from model text",
+        duration_ms: Date.now() - startedAt,
+      });
+    } catch (error) {
+      tracer.log({
+        agent_name: "World",
+        action: "record",
+        input_summary: `run ${runId} as_of ${asOfDate}`,
+        output_summary: "nothing recorded: the World Model write failed",
+        status: "error",
+        why: error instanceof Error ? error.message : String(error),
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+  }
+
   /** Traced once per rejected round: what the next round's Planner and Analyst get. */
   function revise(round: number, fix: string, previousFindings: number): void {
     tracer.log({
@@ -750,6 +850,27 @@ export async function run(options: RunOptions): Promise<RunResult> {
   function reply(outcome: Outcome, usage: RunUsage): RunResult {
     const base = { run_id: runId, task: taskName, agents, usage, trace_id: runId, log_file: logFile, execution_time_seconds: seconds() };
     if (outcome.kind === "error") return { ...base, status: "error", output: null, error: outcome.error };
+    if (outcome.kind === "feedback") {
+      const output: RunOutput = {
+        summary: outcome.summary,
+        review_markdown: outcome.summary,
+        findings: [],
+        gaps: [],
+        citations: [],
+        needs_human: false,
+        declined_advice: false,
+        injection_seen: false,
+        memories_recalled: [],
+        applied_corrections: [],
+        rounds: 0,
+        scores: null,
+        model_source: [...modelIds].join(", ") || (sampleMode ? "sample-model" : config.models.fast ?? "none"),
+        partial: false,
+        stop_reason: null,
+        memory_ids_added: outcome.memory_ids_added,
+      };
+      return { ...base, status: "success", output, error: null };
+    }
 
     const store = run?.store ?? {};
     const draft = outcome.draft;

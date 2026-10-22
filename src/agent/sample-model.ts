@@ -321,6 +321,16 @@ function analyst(input: Obj): Obj {
     }
   }
 
+  // A recalled correction: the sector findings come first, and the first says the correction was applied.
+  if (corrections.length > 0) {
+    const sectorFindings = findings.filter((f) => f.kind === "sector");
+    if (sectorFindings.length > 0) {
+      const rest = findings.filter((f) => f.kind !== "sector");
+      sectorFindings[0] = { ...sectorFindings[0], claim: `Applying your correction, the sector index comes before DSEX: ${str(sectorFindings[0].claim)}`, memory_ids: corrections };
+      findings.splice(0, findings.length, ...sectorFindings, ...rest);
+    }
+  }
+
   // announcement: each price-sensitive announcement of a holding (every one when the results show no holdings).
   const announcements = byQuery("announcements_between");
   if (announcements !== undefined) {

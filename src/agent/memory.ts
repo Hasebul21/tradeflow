@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { HMEM } from "../../vendor/hmem/src/index";
 import type { MemoryRecord, MemoryType } from "../../vendor/hmem/src/types";
-import { loadConfig } from "./config";
+import { loadConfig, type Config } from "./config";
 import { beforeRemember } from "./guards";
 import { complete } from "./llm";
 import type { Tracer } from "./trace";
@@ -30,22 +30,25 @@ const DATE_TAG = /^\d{4}-\d{2}-\d{2}$/;
 // The miner: H-MEM calls minerFn(prompt) for hmem.mine(). The tracer and the usage belong to the run that asks, so
 // they travel in an AsyncLocalStorage store instead of a module-level variable.
 
-const minerStore = new AsyncLocalStorage<{ tracer: Tracer; usage: MinerUsage }>();
+/** The run that asks H-MEM to mine: its tracer and usage, and optionally its sample mode and config. */
+export type MinerRun = { tracer: Tracer; usage: MinerUsage; sampleMode?: boolean; config?: Config };
+
+const minerStore = new AsyncLocalStorage<MinerRun>();
 
 /** Runs `fn` with the run's tracer and usage, so every model call H-MEM makes inside it is traced and counted. */
-export function withMiner<T>(run: { tracer: Tracer; usage: MinerUsage }, fn: () => Promise<T>): Promise<T> {
+export function withMiner<T>(run: MinerRun, fn: () => Promise<T>): Promise<T> {
   return minerStore.run(run, fn);
 }
 
 async function minerFn(prompt: string): Promise<string> {
   const run = minerStore.getStore();
   if (run === undefined) throw new Error("The memory miner needs a run: call it inside withMiner({ tracer, usage }, ...).");
-  const config = loadConfig(process.env, () => {});
+  const config = run.config ?? loadConfig(process.env, () => {});
   if (run.usage.model_calls >= config.MAX_MODEL_CALLS) {
     throw new Error(`The memory miner would pass MAX_MODEL_CALLS (${config.MAX_MODEL_CALLS}).`);
   }
   run.usage.model_calls += 1;
-  const result = await complete({ system: "", user: prompt, model: "fast", agent: "Memory", tracer: run.tracer, config });
+  const result = await complete({ system: "", user: prompt, model: "fast", agent: "Memory", tracer: run.tracer, config, ...(run.sampleMode === undefined ? {} : { sampleMode: run.sampleMode }) });
   run.usage.tokens_in += result.usage?.tokens_in ?? 0;
   run.usage.tokens_out += result.usage?.tokens_out ?? 0;
   return result.text ?? "";
@@ -309,4 +312,95 @@ export async function seedOwnerContext(tracer?: Tracer): Promise<{ added: number
     duration_ms: Date.now() - started,
   });
   return { added, already_present: alreadyPresent };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// learnCorrection
+
+export type LearnResult =
+  | { ok: true; as_of: string; memory_ids_added: string[]; wrong_memory_ids: string[] }
+  | { ok: false; error: { type: "InvalidInput"; message: string; recoverable: false } };
+
+const refused = (message: string): LearnResult => ({ ok: false, error: { type: "InvalidInput", message, recoverable: false } });
+
+/**
+ * Learns from the owner's correction to a review. The review is the memory tagged "review" and "run:<review_run_id>";
+ * its date tag (remember writes exactly one) becomes the correction's. The owner's text goes through
+ * guards.beforeRemember (kind "correction") before anything is written, then through hmem.mine("user_correction"),
+ * whose model call runs inside the caller's withMiner. Each mined record is checked again and tagged "correction" and
+ * the date with hmem.store.update; one the guard refuses is deleted. When mining keeps nothing, the text is added
+ * as a "preference" memory from "owner:correction". Each id in wrong_memory_ids gets hmem.feedback(id, "wrong").
+ * Traces one Memory "learn" line per memory written and one Memory "feedback" line per wrong id. The text is
+ * stored as the owner's words, never as an instruction to the agents.
+ */
+export async function learnCorrection(a: { review_run_id: string; text: string; wrong_memory_ids?: readonly string[]; tracer: Tracer }): Promise<LearnResult> {
+  const hmem = openMemory();
+  const reviewRunId = typeof a.review_run_id === "string" ? a.review_run_id.trim() : "";
+  const text = typeof a.text === "string" ? a.text.trim() : "";
+  if (reviewRunId === "") return refused("review_run_id is required: the run id of the review this corrects.");
+  if (text === "") return refused("text is required: the correction in the owner's words.");
+
+  const review = hmem.store.all().find((memory) => memory.tags.includes("review") && memory.tags.includes(`run:${reviewRunId}`));
+  const asOf = review === undefined ? undefined : dateTagOf(review.tags);
+  if (review === undefined || asOf === undefined) {
+    return refused(`No remembered review has review_run_id ${JSON.stringify(reviewRunId)}: only a review that passed the Evaluator is remembered.`);
+  }
+  const wrong = [...new Set(a.wrong_memory_ids ?? [])];
+  const unknown = wrong.filter((id) => typeof id !== "string" || hmem.store.get(id) === undefined);
+  if (unknown.length > 0) return refused(`wrong_memory_ids holds ids no memory has: ${unknown.map((id) => JSON.stringify(id)).join(", ")}.`);
+
+  const guard = beforeRemember({ kind: "correction", text }, a.tracer);
+  if (!guard.ok) return refused(guard.reason);
+
+  const learned = (id: string, how: string, tags: string[], started: number) =>
+    a.tracer.log({
+      agent_name: "Memory",
+      action: "learn",
+      input_summary: `correction to ${reviewRunId} (${asOf}), ${text.length} chars`,
+      output_summary: `memoryId=${id}; ${how}; tags=${tags.join(",")}`,
+      status: "ok",
+      duration_ms: Date.now() - started,
+    });
+
+  const added: string[] = [];
+  let started = Date.now();
+  const mined = await hmem.mine("user_correction", text);
+  for (const record of mined) {
+    const check = beforeRemember({ kind: "correction", text: record.content }, a.tracer);
+    if (!check.ok) {
+      hmem.store.delete(record.id, `guards.beforeRemember: ${check.reason}`);
+      a.tracer.log({
+        agent_name: "Memory",
+        action: "learn",
+        input_summary: `correction to ${reviewRunId} (${asOf}), mined record ${record.id}`,
+        output_summary: `memoryId=${record.id}; deleted: the guard refused it`,
+        status: "blocked",
+        why: check.reason,
+      });
+      continue;
+    }
+    const tags = [...record.tags, "correction", asOf];
+    hmem.store.update(record.id, { tags });
+    added.push(record.id);
+    learned(record.id, "mined", tags, started);
+    started = Date.now();
+  }
+  if (added.length === 0) {
+    const tags = ["correction", asOf];
+    const record = hmem.add({ content: text, type: "preference", source: "owner:correction", tags });
+    added.push(record.id);
+    learned(record.id, "added as the owner's words (mining kept nothing)", tags, started);
+  }
+
+  for (const id of wrong) {
+    hmem.feedback(id, "wrong");
+    a.tracer.log({
+      agent_name: "Memory",
+      action: "feedback",
+      input_summary: `correction to ${reviewRunId} marks ${id} wrong`,
+      output_summary: `hmem.feedback(${id}, "wrong")`,
+      status: "ok",
+    });
+  }
+  return { ok: true, as_of: asOf, memory_ids_added: added, wrong_memory_ids: wrong };
 }

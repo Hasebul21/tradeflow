@@ -55,6 +55,10 @@ export async function runRequest(body: unknown): Promise<RunResult> {
       if (value !== undefined && value !== null && typeof value !== "string") return invalid(runId, task ?? "explain_week", `${field} must be a string.`);
     }
     if (rawInput.trade !== undefined && rawInput.trade !== null && !isObject(rawInput.trade)) return invalid(runId, task ?? "explain_week", "trade must be an object.");
+    const wrong = rawInput.wrong_memory_ids;
+    if (wrong !== undefined && wrong !== null && (!Array.isArray(wrong) || wrong.some((id) => typeof id !== "string"))) {
+      return invalid(runId, task ?? "explain_week", "wrong_memory_ids must be a list of memory ids.");
+    }
 
     const options = body.options === undefined || body.options === null ? {} : body.options;
     if (!isObject(options)) return invalid(runId, task ?? "explain_week", "options must be an object.");
