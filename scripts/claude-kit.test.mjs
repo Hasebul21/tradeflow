@@ -27,6 +27,8 @@ function adapter(kind, event, extraEnv = {}) {
   return { status: run.status, out: run.stdout.trim() ? JSON.parse(run.stdout) : null };
 }
 const decision = (result) => result.out?.hookSpecificOutput?.permissionDecision ?? null;
+// Each adapter() call starts a node process, so a test that makes two dozen of them needs well over vitest's 5 s default.
+const SPAWN_TIMEOUT_MS = 30_000;
 
 describe("Claude Code kit mirrors the Cursor kit", () => {
   it("has every skill, word for word", () => {
@@ -70,7 +72,7 @@ describe("Claude Code kit mirrors the Cursor kit", () => {
   });
 });
 
-describe("cursor-adapter.mjs", () => {
+describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
   it("denies reading .env and allows .env.example", () => {
     expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/.env` } }))).toBe("deny");
     expect(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/.env.example` } }).out).toBeNull();
