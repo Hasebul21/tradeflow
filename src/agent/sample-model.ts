@@ -432,8 +432,9 @@ function analyst(input: Obj): Obj {
 // ---------------------------------------------------------------------------------------------------------------
 // Analyst for thesis_check: one finding of kind "thesis" per thesis, from its evidence table only.
 //   confirmed     the thesis mentions a dividend and a dividend row for the symbol is paid
-//   contradicted  the thesis mentions earnings, profit or growth and EPS is lower than the quarter before in each of
-//                 the last two reported quarters
+//   contradicted  the thesis does not mention a dividend, mentions earnings, profit or growth, and EPS is lower than
+//                 the quarter before in each of the last two reported quarters; a dividend thesis is settled by its
+//                 dividend rows, so it is confirmed or open, never contradicted by EPS
 //   open          otherwise
 // When the exit condition mentions "two quarters" and EPS fell two quarters in a row, the claim adds that the owner's
 // exit condition is met, in the owner's words.
@@ -472,7 +473,7 @@ function thesisFinding(thesis: Obj): Obj {
         : `Confirmed: ${symbol} paid a cash dividend of Tk ${cash} a share, Tk ${num(paid.amount_bdt) ?? 0} in total, on ${str(paid.paid_on)}`;
     numbers = cash === null || str(paid.kind) === "stock_dividend" ? [{ value: num(paid.bonus_shares) ?? 0, label: "bonus shares" }] : [{ value: cash, label: "cash per share bdt" }, { value: num(paid.amount_bdt) ?? 0, label: "amount bdt" }];
     cites = [str(paid.run_query_id)];
-  } else if (fellTwice && MENTIONS_EARNINGS.test(text)) {
+  } else if (fellTwice && MENTIONS_EARNINGS.test(text) && !MENTIONS_DIVIDEND.test(text)) {
     verdict = "contradicted";
     claim = `Contradicted: ${epsText}`;
     numbers = epsNumbers;

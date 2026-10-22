@@ -70,4 +70,17 @@ describe("thesis_check, sample model", () => {
     expect(calls.list.length).toBeGreaterThan(0);
     for (const call of calls.list) expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
   });
+
+  it("settles each thesis by its rules: j-001 open, j-005 confirmed, j-013 contradicted, j-014 open", () => {
+    const verdicts = Object.fromEntries((withQuestion.output?.verdicts ?? []).map((v) => [v.journal_id, v.verdict]));
+    expect(verdicts["j-001"]).toBe("open");
+    expect(verdicts["j-005"]).toBe("confirmed");
+    expect(verdicts["j-013"]).toBe("contradicted");
+    expect(verdicts["j-014"]).toBe("open");
+  });
+
+  it("says in the j-001 claim that the dividend is owed, not paid", () => {
+    const claim = withQuestion.output?.findings.find((f) => f.subject === "j-001")?.claim ?? "";
+    expect(claim).toMatch(/owed, not paid/);
+  });
 });
