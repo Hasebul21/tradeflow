@@ -6,7 +6,7 @@ import type { AgentName, CompleteOptions, CompleteResult } from "./llm";
 type Obj = Record<string, unknown>;
 
 const SOURCE = "sample-model";
-const MAX_FINDINGS = 12;
+const MAX_FINDINGS = 16;
 const MAX_NUMBERS_PER_FINDING = 4;
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -32,7 +32,8 @@ function minusDays(ymd: string, days: number): string {
   return Number.isNaN(time) ? ymd : new Date(time - days * 86_400_000).toISOString().slice(0, 10);
 }
 
-const round1 = (value: number): number => Math.round(value * 10) / 10;
+/** One decimal place, rounding the magnitude, as guards.checkCitations does: -2.25 is -2.3, not -2.2. */
+const round1 = (value: number): number => Math.sign(value) * (Math.round(Math.abs(value) * 10) / 10);
 
 /** "change_pct" becomes "change pct": the label of a number, as the row names it. */
 const labelOf = (field: string): string => field.replace(/_/g, " ");
@@ -126,7 +127,20 @@ function planner(input: Obj): Obj {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Analyst: one finding per fact, each citing the run_query_id of the result it came from.
+// Analyst: findings from the results only, each citing the run_query_id of the row it used and listing the row's
+// numbers. A result with no rows is a gap, never a guess. The rules, in the order the findings come out:
+//   move        the PORTFOLIO row, then the three holdings with the largest absolute contribution
+//   move        "Last week ..." when a memory tagged "review" was recalled, from this run's PORTFOLIO row
+//   (feedback)  on a retry, a finding for each symbol or topic the feedback names
+//   sector      the sector that moved most against DSEX
+//   announcement  each price-sensitive announcement of a holding, "after", never "because of"
+//   dividend    each dividend row, paid or owed
+//   rule        each rule finding, plus the sector furthest from its target
+//   fundamentals  one per symbol with quarters
+//   thesis, pre_trade, reconciliation  one per row, refined by the steps that build those tasks
+
+type Num = { value: number; label: string };
+type Result = { id: string; query_id: string; params: Obj; rows: Obj[] };
 
 const KIND_BY_QUERY: Record<string, string> = {
   week_moves: "move",
@@ -140,80 +154,307 @@ const KIND_BY_QUERY: Record<string, string> = {
   reconciliation: "reconciliation",
 };
 
-function subjectOf(row: Obj): string | null {
-  for (const field of ["symbol", "sector", "id", "issue_id", "action_id", "rule_id"]) {
+const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
+/** The row's numbers for the given fields, labelled as the row names them, at most MAX_NUMBERS_PER_FINDING. */
+function numbersOf(row: Obj, fields: readonly string[]): Num[] {
+  const out: Num[] = [];
+  for (const field of fields) {
+    const value = num(row[field]);
+    if (value !== null && out.length < MAX_NUMBERS_PER_FINDING) out.push({ value: round1(value), label: labelOf(field) });
+  }
+  return out;
+}
+
+const roseFell = (value: number): string => `${value >= 0 ? "rose" : "fell"} ${Math.abs(round1(value))}%`;
+const signed = (value: number): string => String(round1(value));
+const aheadBehind = (value: number): string => (value >= 0 ? "ahead of" : "behind");
+const overUnder = (value: number): string => (value >= 0 ? "over" : "under");
+
+function finding(kind: string, subject: string, claim: string, numbers: Num[], cites: string[], extra: Obj = {}): Obj {
+  return { kind, subject, claim, numbers, cites, verdict: null, proposed_fix: null, memory_ids: [], ...extra };
+}
+
+function subjectOf(row: Obj, fallback: string): string {
+  for (const field of ["symbol", "sector", "subject", "id", "issue_id", "action_id", "rule_id"]) {
     const value = str(row[field]);
     if (value !== "") return value;
   }
-  return null;
+  return fallback;
 }
 
-/** The number and short text cells of a row, which are all a finding may quote. */
-function factsOf(row: Obj): { numbers: { value: number; label: string }[]; words: string[] } {
-  const numbers: { value: number; label: string }[] = [];
+/** The number and short text cells of a row, which are all a generic finding may quote. */
+function factsOf(row: Obj): { numbers: Num[]; words: string[] } {
+  const numbers: Num[] = [];
   const words: string[] = [];
   for (const [field, cell] of Object.entries(row)) {
     if (typeof cell === "number" && Number.isFinite(cell) && numbers.length < MAX_NUMBERS_PER_FINDING) {
       numbers.push({ value: round1(cell), label: labelOf(field) });
-    } else if (typeof cell === "string" && (field === "comparison" || field === "category" || field === "side")) {
+    } else if (typeof cell === "string" && (field === "comparison" || field === "category" || field === "side" || field === "kind")) {
       words.push(cell);
     }
   }
   return { numbers, words };
 }
 
-const contribution = (row: Obj): number => (typeof row.contribution_bdt === "number" ? Math.abs(row.contribution_bdt) : 0);
+const contribution = (row: Obj): number => Math.abs(num(row.contribution_bdt) ?? 0);
+
+/** The content of a memory, cut on a space before `limit` characters so no figure is cut in half. */
+function excerpt(text: string, limit: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= limit) return trimmed;
+  const cut = trimmed.lastIndexOf(" ", limit);
+  return `${trimmed.slice(0, cut > 0 ? cut : limit).trimEnd()}...`;
+}
+
+// Words that show the question is about what the portfolio data covers.
+const PORTFOLIO_TOPIC = /\b(portfolio|week|weekly|mov(e|es|ed|ing)|rules?|sectors?|holdings?|dividends?|thes[ie]s|trad(e|es|ing)|limit|target|announcements?|earnings|profit|results?)\b/i;
+// A topic the question or the feedback names, and the queries whose result covers it.
+const TOPICS: readonly { pattern: RegExp; label: string; queries: readonly string[] }[] = [
+  { pattern: /\bdividends?\b|\bbonus\b|\bex-date\b/i, label: "dividends", queries: ["dividends_between"] },
+  { pattern: /\bannouncements?\b|\bnews\b/i, label: "announcements", queries: ["announcements_between"] },
+  { pattern: /\brules?\b|\blimit\b|\btarget\b/i, label: "rules", queries: ["rule_findings"] },
+  { pattern: /\bthes[ie]s\b|\bjournal\b/i, label: "theses", queries: ["journal_for_symbol"] },
+  { pattern: /\bearnings\b|\bprofit\b|\beps\b|\bfundamentals\b|\bvaluation\b/i, label: "earnings", queries: ["fundamentals_latest", "announcements_between"] },
+  { pattern: /\bsectors?\b/i, label: "sectors", queries: ["sector_vs_stock", "week_moves"] },
+];
 
 function analyst(input: Obj): Obj {
+  const task = str(input.task) || "explain_week";
+  const question = str(input.question);
+  const feedback = str(input.feedback);
   const memories = objs(input.memories);
   const corrections = memories.filter((memory) => arr(memory.tags).includes("correction")).map((memory) => str(memory.id));
-  const findings: Obj[] = [];
+  const results: Result[] = objs(input.results).map((result) => ({ id: str(result.run_query_id), query_id: str(result.query_id), params: isObj(result.params) ? result.params : {}, rows: objs(result.rows) }));
+  const byQuery = (queryId: string): Result | undefined => results.find((result) => result.query_id === queryId && result.rows.length > 0);
+  const has = (queryId: string): boolean => results.some((result) => result.query_id === queryId);
 
-  for (const result of objs(input.results)) {
-    const runQueryId = str(result.run_query_id);
-    const queryId = str(result.query_id);
-    const kind = KIND_BY_QUERY[queryId] ?? "move";
-    let rows = objs(result.rows);
-    if (queryId === "week_moves") {
-      // The PORTFOLIO row first, then the holdings by size of contribution, largest first.
-      rows = [...rows.filter((row) => row.symbol === "PORTFOLIO"), ...rows.filter((row) => row.symbol !== "PORTFOLIO").sort((a, b) => contribution(b) - contribution(a))];
+  const findings: Obj[] = [];
+  const gaps: string[] = [];
+  const hasFinding = (kind: string, subject: string) => findings.some((f) => f.kind === kind && f.subject === subject);
+
+  // The holdings: every symbol the results show as held.
+  const held = new Set<string>();
+  for (const result of results) {
+    for (const row of result.rows) {
+      const symbol = str(row.symbol);
+      if (symbol === "" || symbol === "PORTFOLIO") continue;
+      if (result.query_id === "week_moves" || row.row_type === "position" || row.row_type === "holding") held.add(symbol);
     }
-    if (rows.length === 0) {
-      findings.push({
-        kind,
-        subject: null,
-        claim: `The data shows no rows for ${queryId}.`,
-        numbers: [],
-        cites: [runQueryId],
-        verdict: null,
-        proposed_fix: null,
-        memory_ids: [],
-      });
-      continue;
+  }
+
+  // move: the PORTFOLIO row, then the three largest contributions.
+  const moves = byQuery("week_moves");
+  const portfolioRow = moves?.rows.find((row) => row.symbol === "PORTFOLIO");
+  const holdingRows = (moves?.rows ?? []).filter((row) => row.symbol !== "PORTFOLIO").sort((a, b) => contribution(b) - contribution(a));
+  const moveFinding = (row: Obj): Obj | null => {
+    const change = num(row.change_pct);
+    const vsSector = num(row.vs_sector_pts);
+    if (moves === undefined || change === null) return null;
+    const label = str(row.comparison);
+    const against = vsSector === null ? "" : `, ${signed(vsSector)} points against its sector index${label === "" ? "" : ` (${label})`}`;
+    return finding("move", str(row.symbol), `${str(row.symbol)} ${roseFell(change)} over the week${against}.`, numbersOf(row, ["change_pct", "vs_sector_pts", "sector_change_pct", "contribution_bdt"]), [moves.id], {
+      memory_ids: corrections,
+    });
+  };
+  if (moves !== undefined && portfolioRow !== undefined) {
+    const change = num(portfolioRow.change_pct) ?? 0;
+    const vsIndex = num(portfolioRow.vs_index_pts);
+    const index = num(portfolioRow.index_change_pct);
+    const against = vsIndex === null ? "" : `, ${Math.abs(round1(vsIndex))} points ${aheadBehind(vsIndex)} DSEX`;
+    const dsex = index === null ? "" : ` (DSEX ${roseFell(index)})`;
+    findings.push(
+      finding("move", "PORTFOLIO", `The data shows the portfolio ${roseFell(change)} over the week${against}${dsex}.`, numbersOf(portfolioRow, ["change_pct", "vs_index_pts", "index_change_pct", "change_bdt"]), [moves.id], {
+        memory_ids: corrections,
+      }),
+    );
+    // Last week: compare this week with the review that memory recalled, using this run's numbers and the memory's own figures.
+    const review = memories.find((memory) => arr(memory.tags).includes("review"));
+    if (review !== undefined) {
+      findings.push(
+        finding(
+          "move",
+          "PORTFOLIO",
+          `Last week's review said: "${excerpt(str(review.content), 200)}" This week the portfolio ${roseFell(change)}${against}.`,
+          numbersOf(portfolioRow, ["change_pct", "vs_index_pts"]),
+          [moves.id],
+          { memory_ids: [str(review.id)] },
+        ),
+      );
     }
-    for (const row of rows) {
-      const subject = subjectOf(row);
+  }
+  const topMoves = holdingRows.slice(0, 3).map(moveFinding).filter((f): f is Obj => f !== null);
+
+  // feedback: on a retry, a finding for each symbol or topic the feedback names, before the rest so it is never cut.
+  if (feedback !== "") {
+    const named = (feedback.match(/\b[A-Z][A-Z0-9]+\b/g) ?? []).filter((token) => held.has(token) || results.some((result) => result.rows.some((row) => row.symbol === token)));
+    for (const symbol of [...new Set(named)]) {
+      const fundamentals = byQuery("fundamentals_latest");
+      const quarters = fundamentals?.rows.filter((row) => row.symbol === symbol) ?? [];
+      const moveRow = holdingRows.find((row) => row.symbol === symbol);
+      const announcements = byQuery("announcements_between");
+      const announcement = announcements?.rows.find((row) => row.symbol === symbol);
+      if (fundamentals !== undefined && quarters.length > 0) findings.push(fundamentalsFinding(fundamentals, symbol, quarters));
+      else if (moveRow !== undefined && !topMoves.some((f) => f.subject === symbol)) findings.push(moveFinding(moveRow) as Obj);
+      else if (announcements !== undefined && announcement !== undefined) findings.push(announcementFinding(announcements, announcement, moves, moveRow));
+      else if (moveRow === undefined) gaps.push(`The feedback names ${symbol}, but no result in this run covers it.`);
+    }
+    for (const topic of TOPICS) {
+      if (topic.pattern.test(feedback) && !topic.queries.some(has)) gaps.push(`The feedback asks about ${topic.label}, but no ${topic.queries.join(" or ")} result is in this run.`);
+    }
+  }
+  findings.push(...topMoves);
+
+  // sector: the sector that moved most against DSEX.
+  const sectors = byQuery("sector_vs_stock");
+  if (sectors !== undefined) {
+    const most = [...sectors.rows].sort((a, b) => Math.abs(num(b.vs_index_pts) ?? 0) - Math.abs(num(a.vs_index_pts) ?? 0))[0];
+    const change = num(most.change_pct);
+    const vsIndex = num(most.vs_index_pts);
+    const index = num(most.index_change_pct);
+    if (change !== null) {
+      const against = vsIndex === null ? "" : `, ${signed(vsIndex)} points against DSEX`;
+      const dsex = index === null ? "" : ` (DSEX ${roseFell(index)})`;
+      findings.push(finding("sector", str(most.sector), `The data shows the ${str(most.sector)} index ${roseFell(change)} over the week${against}${dsex}.`, numbersOf(most, ["change_pct", "vs_index_pts", "index_change_pct"]), [sectors.id]));
+    }
+  }
+
+  // announcement: each price-sensitive announcement of a holding (every one when the results show no holdings).
+  const announcements = byQuery("announcements_between");
+  if (announcements !== undefined) {
+    for (const row of announcements.rows) {
+      const symbol = str(row.symbol);
+      if (row.price_sensitive !== true || (held.size > 0 && !held.has(symbol))) continue;
+      findings.push(
+        announcementFinding(
+          announcements,
+          row,
+          moves,
+          holdingRows.find((r) => r.symbol === symbol),
+        ),
+      );
+    }
+  }
+
+  // dividend: each row, paid or owed.
+  const dividends = byQuery("dividends_between");
+  if (dividends !== undefined) {
+    for (const row of dividends.rows) {
+      const symbol = str(row.symbol);
+      const paid = row.paid === true;
+      const moveRow = holdingRows.find((r) => r.symbol === symbol);
+      const change = moveRow === undefined ? null : num(moveRow.change_pct);
+      const tail = change === null || moves === undefined ? "" : ` ${symbol} ${roseFell(change)} over the week; the ex-date was ${str(row.ex_date)}.`;
+      const cites = change === null || moves === undefined ? [dividends.id] : [dividends.id, moves.id];
+      if (row.kind === "stock_dividend") {
+        const claim = `The data shows ${symbol}'s bonus issue of ${num(row.bonus_shares) ?? 0} shares on ${num(row.shares) ?? 0} held (record date ${str(row.record_date)}) is ${paid ? "credited" : "not yet credited"}.${tail}`;
+        findings.push(finding("dividend", symbol, claim, [...numbersOf(row, ["bonus_shares", "shares"]), ...(moveRow === undefined ? [] : numbersOf(moveRow, ["change_pct"]))], cites));
+      } else {
+        const claim = `The data shows ${symbol}'s cash dividend of Tk ${num(row.cash_per_share_bdt) ?? 0} a share on ${num(row.shares) ?? 0} shares, Tk ${num(row.amount_bdt) ?? 0} in total (record date ${str(row.record_date)}), is ${paid ? `paid, on ${str(row.paid_on)}` : `owed and not yet paid, due ${str(row.paid_on)}`}.${tail}`;
+        findings.push(finding("dividend", symbol, claim, [...numbersOf(row, ["cash_per_share_bdt", "shares", "amount_bdt"]), ...(moveRow === undefined ? [] : numbersOf(moveRow, ["change_pct"]))], cites));
+      }
+    }
+  }
+
+  // rule: each rule finding, plus the sector furthest from its target.
+  const rules = byQuery("rule_findings");
+  if (rules !== undefined) {
+    for (const row of rules.rows.filter((r) => r.row_type === "finding")) {
+      const subject = str(row.subject) || str(row.symbol) || "rule";
+      const actual = num(row.actual_pct);
+      const delta = num(row.delta_pct);
+      if (row.kind === "max_position_weight" && actual !== null && delta !== null) {
+        findings.push(finding("rule", subject, `The data shows ${subject} is ${round1(actual)}% of the portfolio, ${Math.abs(round1(delta))} points ${overUnder(delta)} the ${num(row.limit_pct) ?? 0}% position limit.`, numbersOf(row, ["actual_pct", "limit_pct", "delta_pct"]), [rules.id]));
+      } else if (row.kind === "sector_target" && actual !== null && delta !== null) {
+        findings.push(finding("rule", subject, `The data shows ${subject} is ${round1(actual)}% of the portfolio against a ${num(row.target_pct) ?? 0}% target, ${Math.abs(round1(delta))} points ${overUnder(delta)}.`, numbersOf(row, ["actual_pct", "target_pct", "delta_pct"]), [rules.id]));
+      } else {
+        findings.push(finding("rule", subject, `The data shows a ${str(row.kind).replace(/_/g, " ")} finding for ${subject}: ${str(row.message)}`, numbersOf(row, ["target_price", "ltp", "actual_pct", "delta_pct"]), [rules.id]));
+      }
+    }
+    const furthest = rules.rows
+      .filter((r) => r.row_type === "sector" && num(r.target_pct) !== null && num(r.delta_pct) !== null)
+      .sort((a, b) => Math.abs(num(b.delta_pct) ?? 0) - Math.abs(num(a.delta_pct) ?? 0))[0];
+    if (furthest !== undefined) {
+      const sector = str(furthest.sector);
+      const delta = num(furthest.delta_pct) ?? 0;
+      findings.push(
+        finding("rule", sector, `The data shows ${sector} is the sector furthest from its target: ${round1(num(furthest.weight_pct) ?? 0)}% of the portfolio against a ${num(furthest.target_pct) ?? 0}% target, ${Math.abs(round1(delta))} points ${overUnder(delta)}.`, numbersOf(furthest, ["weight_pct", "target_pct", "delta_pct"]), [rules.id]),
+      );
+    }
+  }
+
+  // fundamentals: one finding per symbol with quarters, unless the feedback already asked for it.
+  for (const result of results.filter((r) => r.query_id === "fundamentals_latest" && r.rows.length > 0)) {
+    for (const symbol of [...new Set(result.rows.map((row) => str(row.symbol)))]) {
+      if (!hasFinding("fundamentals", symbol)) findings.push(fundamentalsFinding(result, symbol, result.rows.filter((row) => row.symbol === symbol)));
+    }
+  }
+
+  // thesis, pre_trade, reconciliation, and anything else: one generic finding per row, refined by later steps.
+  for (const result of results) {
+    if (["week_moves", "sector_vs_stock", "announcements_between", "dividends_between", "rule_findings", "fundamentals_latest"].includes(result.query_id)) continue;
+    const kind = KIND_BY_QUERY[result.query_id] ?? "move";
+    for (const row of result.rows) {
+      const subject = subjectOf(row, result.query_id);
       const { numbers, words } = factsOf(row);
       const figures = numbers.map((n) => `${n.label} ${n.value}`).join(", ");
       const extra = words.length === 0 ? "" : ` (${words.join(", ")})`;
-      findings.push({
-        kind,
-        subject,
-        claim: `The data shows ${subject ?? queryId}${extra}${figures === "" ? "" : `: ${figures}`}.`,
-        numbers,
-        cites: [runQueryId],
-        verdict: kind === "thesis" ? "open" : null,
-        proposed_fix: kind === "reconciliation" ? "Update the ledger to match the source row, awaiting your approval." : null,
-        memory_ids: queryId === "week_moves" ? corrections : [],
-      });
+      findings.push(
+        finding(kind, subject, `The data shows ${subject}${extra}${figures === "" ? "" : `: ${figures}`}.`, numbers, [result.id], {
+          verdict: kind === "thesis" ? "open" : null,
+          proposed_fix: kind === "reconciliation" ? "Update the ledger to match the source row, awaiting your approval." : null,
+        }),
+      );
     }
   }
 
-  const gaps: string[] = [];
-  if (/\b(next week|will it|predict|forecast|tomorrow)\b/i.test(str(input.question))) {
+  // gaps: a result with no rows, what the question asks that no result covers, a prediction, an off-topic question.
+  // Worded as analyst.ts's codeGaps words it, so the two read as one gap.
+  for (const result of results) {
+    if (result.rows.length === 0) gaps.push(`${result.query_id} ${JSON.stringify(result.params)} returned no rows, so this review says nothing it would have shown.`);
+  }
+  for (const topic of TOPICS) {
+    if (topic.pattern.test(question) && !topic.queries.some(has)) gaps.push(`The question asks about ${topic.label}, but no ${topic.queries.join(" or ")} result is in this run.`);
+  }
+  if (/\b(next week|will it|predict|forecast|tomorrow)\b/i.test(question)) {
     gaps.push("What the portfolio will do next: the data can't predict prices.");
   }
-  return { findings: findings.slice(0, MAX_FINDINGS), gaps };
+  const namesSymbol = (question.match(/\b[A-Z][A-Z0-9]+\b/g) ?? []).some((token) => held.has(token) || results.some((result) => result.rows.some((row) => row.symbol === token)));
+  if (task === "explain_week" && question.trim() !== "" && !ADVICE_QUESTION.test(question) && !PORTFOLIO_TOPIC.test(question) && !namesSymbol) {
+    gaps.push(`The question "${question.trim()}" asks for nothing the portfolio data covers; this review reports only what the week's records show.`);
+  }
+
+  return { findings: findings.slice(0, MAX_FINDINGS), gaps: [...new Set(gaps)] };
+}
+
+/** "<SYMBOL> fell <x>% over the week, after its <category> announcement on <date>: '<title>'": after, never because of. */
+function announcementFinding(announcements: Result, row: Obj, moves: Result | undefined, moveRow: Obj | undefined): Obj {
+  const symbol = str(row.symbol);
+  const category = str(row.category).replace(/_/g, " ");
+  const change = moveRow === undefined ? null : num(moveRow.change_pct);
+  const when = `${category === "" ? "" : `${category} `}announcement on ${str(row.published_on) || str(row.published_at).slice(0, 10)}: "${str(row.title)}"`;
+  if (change !== null && moves !== undefined && moveRow !== undefined) {
+    return finding("announcement", symbol, `${symbol} ${roseFell(change)} over the week, after its ${when}.`, numbersOf(moveRow, ["change_pct"]), [moves.id, announcements.id]);
+  }
+  return finding("announcement", symbol, `The data shows a price-sensitive ${when} for ${symbol}.`, [], [announcements.id]);
+}
+
+const COUNT_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+const listOf = (values: readonly number[]): string => (values.length <= 1 ? values.join("") : `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`);
+
+/** "<SYMBOL> reported EPS of 2.3, 2.05 and 1.62 over its last three reported quarters, falling": the EPS as reported, from the rows oldest first. */
+function fundamentalsFinding(result: Result, symbol: string, quarters: Obj[]): Obj {
+  const ordered = [...quarters].sort((a, b) => str(a.period_end).localeCompare(str(b.period_end)));
+  const eps = ordered.map((row) => num(row.eps_bdt)).filter((value): value is number => value !== null);
+  const numbers: Num[] = eps.slice(-MAX_NUMBERS_PER_FINDING).map((value) => ({ value, label: "eps bdt" }));
+  const latest = ordered[ordered.length - 1];
+  const pe = num(latest?.trailing_pe);
+  if (pe !== null && numbers.length < MAX_NUMBERS_PER_FINDING) numbers.push({ value: pe, label: "trailing pe" });
+  const trend = eps.length < 2 ? "" : eps[eps.length - 1] < eps[eps.length - 2] ? ", falling" : eps[eps.length - 1] > eps[eps.length - 2] ? ", rising" : ", flat";
+  const list = eps.length === 0 ? "no EPS figure" : `EPS of ${listOf(eps)}`;
+  const count = COUNT_WORDS[ordered.length] ?? "";
+  const peText = pe === null ? "" : `; its trailing P/E is ${pe}`;
+  return finding("fundamentals", symbol, `The data shows ${symbol} reported ${list} over its last ${count === "" ? "" : `${count} `}reported quarter${ordered.length === 1 ? "" : "s"}${trend}${peText}.`, numbers, [result.id]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

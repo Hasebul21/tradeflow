@@ -87,6 +87,12 @@ describe("complete with the openai client mocked", () => {
     expect(mocks.create).toHaveBeenCalledTimes(0);
   });
 
+  it("counts the history (tool results) toward MAX_PROMPT_CHARS", async () => {
+    const history = [{ role: "tool" as const, tool_call_id: "c1", content: "y".repeat(config.MAX_PROMPT_CHARS) }];
+    await expect(complete({ ...base, history })).rejects.toThrow(/system, user and history/);
+    expect(mocks.create).toHaveBeenCalledTimes(0);
+  });
+
   it("falls back from strong to main with the same messages when strong answers 404", async () => {
     mocks.create.mockRejectedValueOnce(httpError(404, "model not found")).mockResolvedValueOnce(reply("fine"));
     const result = await complete({ ...base, model: "strong" });

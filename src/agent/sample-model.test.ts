@@ -60,30 +60,38 @@ describe("the sample model", () => {
     expect((result.json as { injection_seen: boolean }).injection_seen).toBe(false);
   });
 
-  it("writes one Analyst finding per row, each citing its own query, the PORTFOLIO row first", async () => {
+  it("writes Analyst move findings for the PORTFOLIO row first, then the largest moves, each citing its query; an empty result is a gap", async () => {
     const result = await ask(
       "Analyst",
       JSON.stringify({
         task: "explain_week",
-        question: "Why?",
+        question: "Why did my portfolio move?",
         as_of: "2026-10-01",
         results: [
           {
             run_query_id: "q-1",
             query_id: "week_moves",
+            params: { as_of: "2026-10-01" },
             rows: [
-              { symbol: "AAA", change_pct: -9.84, contribution_bdt: -4200, comparison: "stock-specific" },
-              { symbol: "PORTFOLIO", change_pct: -2.1, vs_index_pts: -1.7 },
+              { symbol: "AAA", change_pct: -9.84, vs_sector_pts: -8.7, contribution_bdt: -4200, comparison: "stock-specific" },
+              { symbol: "PORTFOLIO", change_pct: -2.1, vs_index_pts: -1.7, index_change_pct: -0.4 },
+              { symbol: "BBB", change_pct: 1.2, vs_sector_pts: 0.3, contribution_bdt: 300, comparison: "in line with sector" },
             ],
           },
-          { run_query_id: "q-3", query_id: "rule_findings", rows: [] },
+          { run_query_id: "q-3", query_id: "rule_findings", params: { as_of: "2026-10-01" }, rows: [] },
         ],
       }),
     );
-    const { findings } = result.json as { findings: { subject: string | null; cites: string[]; numbers: { value: number }[]; claim: string }[] };
-    expect(findings.map((f) => [f.subject, f.cites[0]])).toEqual([["PORTFOLIO", "q-1"], ["AAA", "q-1"], [null, "q-3"]]);
+    const { findings, gaps } = result.json as { findings: { kind: string; subject: string; cites: string[]; numbers: { value: number }[]; claim: string }[]; gaps: string[] };
+    expect(findings.map((f) => [f.kind, f.subject, f.cites[0]])).toEqual([
+      ["move", "PORTFOLIO", "q-1"],
+      ["move", "AAA", "q-1"],
+      ["move", "BBB", "q-1"],
+    ]);
+    expect(findings[0].claim).toBe("The data shows the portfolio fell 2.1% over the week, 1.7 points behind DSEX (DSEX fell 0.4%).");
+    expect(findings[1].claim).toBe("AAA fell 9.8% over the week, -8.7 points against its sector index (stock-specific).");
     expect(findings[1].numbers.map((n) => n.value)).toContain(-9.8);
-    expect(findings[1].claim).toContain("stock-specific");
+    expect(gaps).toEqual(['rule_findings {"as_of":"2026-10-01"} returned no rows, so this review says nothing it would have shown.']);
   });
 
   it("scores from simple checks: a cited, cause-free draft passes and one that claims a cause does not", async () => {

@@ -195,7 +195,9 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
   const cfg = options.config ?? loadConfig();
   const sampleMode = options.sampleMode ?? cfg.sampleMode;
   const started = Date.now();
-  const promptChars = options.system.length + options.user.length;
+  // The history (earlier tool calls and their results) is part of the prompt, so it counts toward the limit.
+  const historyChars = (options.history ?? []).reduce((n, message) => n + (JSON.stringify(message)?.length ?? 0), 0);
+  const promptChars = options.system.length + options.user.length + historyChars;
   const baseLine = (): Pick<TraceInput, "agent_name" | "action" | "input_summary"> => ({
     agent_name: options.agent,
     action: "model_call",
@@ -203,7 +205,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
   });
 
   if (promptChars > cfg.MAX_PROMPT_CHARS) {
-    const message = `The prompt is ${promptChars} characters, over MAX_PROMPT_CHARS (${cfg.MAX_PROMPT_CHARS}). It is never cut silently.`;
+    const message = `The prompt is ${promptChars} characters (system, user and history), over MAX_PROMPT_CHARS (${cfg.MAX_PROMPT_CHARS}). It is never cut silently.`;
     options.tracer?.log({
       ...baseLine(),
       output_summary: "refused: prompt too large",
