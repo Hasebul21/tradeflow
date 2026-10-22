@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+logs/*.jsonl
+data/memory/
+.hackathon-prep/

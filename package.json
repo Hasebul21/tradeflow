@@ -10,7 +10,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "seed": "node scripts/seed.mjs",
-    "db:load": "node scripts/load-postgres.mjs"
+    "db:load": "node scripts/load-postgres.mjs",
+    "check": "npm run lint && tsc --noEmit && npm test"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",

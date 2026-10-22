@@ -1,0 +1,38 @@
+#!/bin/sh
+# Blocks a commit that stages a secret file or a key-like value, then runs the quick checks.
+# Install once: git config core.hooksPath .githooks
+set -e
+
+if git diff --cached --name-only | grep -E '(^|/)\.env($|\.)|\.pem$|\.key$|(^|/)secrets/' | grep -v '\.env\.example$'; then
+  echo "pre-commit: a secret file is staged (above). Unstage it." >&2
+  exit 1
+fi
+
+pattern='(nvapi-[A-Za-z0-9_-]{20,}|(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|postgres(ql)?://[^:/ ]+:[^@ <>]+@|BEGIN (RSA|OPENSSH) PRIVATE KEY)'
+leaks=$(git diff --cached --name-only -G "$pattern")
+if [ -n "$leaks" ]; then
+  # Names only: printing the matching line would put the secret in the terminal.
+  echo "pre-commit: a key or a connection string with a password is staged in: $leaks" >&2
+  exit 1
+fi
+
+# Meterless and Zetaris keys have no published prefix, so look for their values from .env; print names only.
+if [ -f .env ]; then
+  for name in METERLESS_API_KEY METERLESS_RUNTIME_TOKEN NVIDIA_API_KEY MODEL_API_KEY ZETARIS_API_KEY ZETARIS_PASSWORD ZETARIS_DB_PASSWORD PGPASS; do
+    value=$(sed -n "s/^$name=//p" .env | head -1)
+    [ -n "$value" ] || continue
+    # A value shorter than 12 characters would match ordinary text, so it is skipped, with a warning that names the variable.
+    if [ "${#value}" -lt 12 ]; then
+      echo "pre-commit: $name in .env is shorter than 12 characters, so its value is not checked." >&2
+      continue
+    fi
+    if git diff --cached | grep -qF -- "$value"; then
+      echo "pre-commit: the value of $name from .env is staged. Unstage it." >&2
+      exit 1
+    fi
+  done
+fi
+
+npm run --silent lint
+npx --no-install tsc --noEmit
+npm test --silent
