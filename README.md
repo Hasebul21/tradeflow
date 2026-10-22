@@ -152,6 +152,8 @@ npm run build       # production build
 
 To see which model answers, run `npm run try-model` (add `-- --strong` or `-- --fast` for another tier). It sends one short Planner input and prints the source, the requested `meterless/*` id, the model the reply reports, the receipt's `routed_model` and `cost_usd`, whether the reply parsed, the usage and the time. With no key set, or with `SAMPLE_MODE=true`, it uses `src/agent/sample-model.ts`: deterministic code that builds each reply from the input, with no network and no stored answers, and reports usage as an estimate of characters divided by four.
 
+The owner's memory lives in `<data dir>/memory` (`state.json` and `ledger.jsonl`, git-ignored) and is kept by Meterless H-MEM. `vendor/hmem/src` is a copy of `engines/hmem/reference/src` from the Meterless repository, with its `LICENSE` (Apache-2.0); it is never edited. `src/agent/memory.ts` wraps it with `seedOwnerContext` (rules, profile and journal theses), `recall` (corrections and the latest earlier review by tag, then the H-MEM query at top 5 and threshold 0.35) and `remember` (an accepted review, with a `ledger` trace line). H-MEM's reference embedder is a hash and its store is a JSON file, so recall is lexical and tag-based, not semantic search.
+
 ### 9. Troubleshooting
 
 | Problem | What to do |

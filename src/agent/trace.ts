@@ -49,6 +49,9 @@ export type TraceLine = {
   fallback?: "strong->main";
   /** Query lines: where the rows came from, "local", "zetaris" or "local-fallback". */
   source?: "local" | "zetaris" | "local-fallback";
+  /** Memory recall lines: the H-MEM query's trace.retrievalReason and trace.strategy. */
+  retrievalReason?: string;
+  strategy?: string;
 };
 
 /** What a caller passes: the five fields that always differ, the rest default to null or 0. */
