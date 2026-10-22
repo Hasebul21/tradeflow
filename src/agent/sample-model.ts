@@ -503,7 +503,6 @@ function thesisFinding(thesis: Obj): Obj {
   return finding("thesis", id, `${claim}.`, numbers, [...new Set(cites.filter((cite) => cite !== ""))], { verdict });
 }
 
-/** "<SYMBOL> fell <x>% over the week, after its <category> announcement on <date>: '<title>'": after, never because of. */
 // ---------------------------------------------------------------------------------------------------------------
 // Analyst for pre_trade: from the what_if and journal_for_symbol results only (code ran every query; no tools).
 //   pre_trade  one finding: the trade's cost, the symbol's weight and the most-changed sector's weight before and
@@ -578,6 +577,7 @@ function preTradeAnalyst(input: Obj): Obj {
   return { findings, gaps: [] };
 }
 
+/** "<SYMBOL> fell <x>% over the week, after its <category> announcement on <date>: '<title>'": after, never because of. */
 function announcementFinding(announcements: Result, row: Obj, moves: Result | undefined, moveRow: Obj | undefined): Obj {
   const symbol = str(row.symbol);
   const category = str(row.category).replace(/_/g, " ");
