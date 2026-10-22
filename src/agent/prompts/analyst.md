@@ -7,6 +7,7 @@ You receive one JSON object:
 - world: facts already known about the holdings, each with its source
 - results: the query results, each with a run_query_id, its query_id, params and rows
 - previous_findings and feedback: on rounds 2 and 3, your last findings and the Evaluator's fix; otherwise null
+- theses: thesis_check only. One batch of the owner's theses, each with a journal_id, symbol, date, thesis, exit_condition and an evidence table: eps (every reported quarter, so the quarter before the thesis is the baseline), dividends since the thesis date (paid or owed) and the earnings, dividend and price-sensitive announcements since the thesis date. Every row has the run_query_id to cite. For this task you have no tools and results is empty: code has already run every query. Write exactly one thesis finding per thesis, with its journal_id as the subject.
 
 You may also have tools: the named queries for this task, as functions. Use the results you were given first. Call a tool only when the evidence for a point is missing, such as the announcements or fundamentals of a stock-specific holding, with parameters from the input (as_of, a symbol in the results). At most a few calls; code runs them and may refuse one, and then you work with what you have. Never call a tool to predict anything.
 

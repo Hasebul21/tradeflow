@@ -8,7 +8,7 @@
 // trace line of every run is the Orchestrator's run_end line with the run's total usage. Server only (node:fs
 // through trace.ts, memory.ts and queries.ts).
 import path from "node:path";
-import { analyse } from "./agents/analyst";
+import { analyse, type AnalysisOutcome } from "./agents/analyst";
 import { evaluate, type Scores } from "./agents/evaluator";
 import { PlanBlockedError, plan, type PlannerTrade } from "./agents/planner";
 import { DISCLAIMER, write } from "./agents/writer";
@@ -19,6 +19,7 @@ import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName }
 import { recall, seedOwnerContext, type RecalledMemory } from "./memory";
 import type { QueryId, QueryResult, QuerySource } from "./queries";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
+import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
 import type { Rules } from "@/lib/data-types";
 import { resolveAsOf } from "@/lib/portfolio-view";
@@ -29,7 +30,7 @@ const GUARD = "Guard";
 const SUMMARY_CHARS = 200;
 
 /** The tasks this loop runs today; later steps add the others. */
-const SUPPORTED: readonly Task[] = ["explain_week"];
+const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check"];
 
 // ---------------------------------------------------------------------------------------------------------------
 // The request and the reply.
@@ -87,7 +88,11 @@ export type RunOutput = {
   model_source: string;
   partial: boolean;
   stop_reason: StopReason | null;
+  /** thesis_check only: one entry per thesis that has a finding, in journal order. */
+  verdicts?: ThesisVerdict[];
 };
+
+export type ThesisVerdict = { journal_id: string; symbol: string; verdict: string; cites: string[] };
 
 export type RunError = { type: string; message: string; recoverable: boolean };
 export type AgentInfo = { name: AgentName; role: string; model: string };
@@ -135,6 +140,14 @@ export function asksForAdvice(question: string): boolean {
 
 const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
 const REMOVED = "[removed: text that reads like an instruction to the agents]";
+
+/** thesis_check: one entry per thesis that has a thesis finding, in journal order. */
+export function verdictsOf(findings: readonly Finding[], theses: readonly { journal_id: string; symbol: string }[]): ThesisVerdict[] {
+  return theses.flatMap(({ journal_id, symbol }) => {
+    const found = findings.find((finding) => finding.kind === "thesis" && finding.subject === journal_id);
+    return found === undefined || found.verdict === null ? [] : [{ journal_id, symbol, verdict: found.verdict, cites: [...found.cites] }];
+  });
+}
 
 /** The cited results of the findings, each once, in the order first cited. */
 export function citationsOf(findings: readonly Finding[], store: Record<string, QueryResult>): Citation[] {
@@ -304,6 +317,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
   /** From the last Evaluator call: null when it rejected in code, or never ran. */
   let lastScores: RunScores | null = null;
   let lastConfidence: number | null = null;
+  /** thesis_check: the journal ids and symbols of the theses checked, in journal order. */
+  let thesisIds: { journal_id: string; symbol: string }[] = [];
   const modelIds = new Set<string>();
 
   const declineAdvice = (by: string) => {
@@ -438,6 +453,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     let accepted: Draft | null = null;
     let feedback: string | null = null;
     let previous: Finding[] | null = null;
+    /** thesis_check: the evidence, the plan's focus and each batch's findings and gaps, kept across rounds. */
+    let thesis: { prepared: PreparedTheses; focus: string; found: (Finding[] | null)[]; gapsBy: string[][] } | null = null;
     let stop: StopReason | null = null;
     let round = 0;
     const roundsRun = () => Math.min(round + 1, config.MAX_ROUNDS);
@@ -458,44 +475,118 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
     try {
       // 4. The loop.
-      for (round = 0; round < config.MAX_ROUNDS; round += 1) {
+      rounds: for (round = 0; round < config.MAX_ROUNDS; round += 1) {
         roundStarted = Date.now();
 
-        // Planner. plan() has no run of its own, so its call is counted here.
-        stop = budgetStop(false);
-        if (stop !== null) break;
-        state.beforeModelCall();
-        const planned = await plan(
-          { task, question, as_of: asOf, trade: input.trade ?? null, memories, feedback },
-          { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
-        );
-        state.afterModelCall(planned.model);
-        modelIds.add(planned.model.model_id);
-        if (planned.injection_seen) flags.injection = true;
-        if (planned.declined_advice) declineAdvice("flagged by the Planner");
+        let findings: Finding[];
+        let gaps: string[];
+        if (task === "thesis_check") {
+          // The plan is made once: code runs the per-symbol queries, so a later round reuses it and the evidence.
+          if (thesis === null) {
+            stop = budgetStop(false);
+            if (stop !== null) break;
+            state.beforeModelCall();
+            const planned = await plan(
+              { task, question, as_of: asOf, trade: null, memories, feedback },
+              { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
+            );
+            state.afterModelCall(planned.model);
+            modelIds.add(planned.model.model_id);
+            if (planned.injection_seen) flags.injection = true;
+            if (planned.declined_advice) declineAdvice("flagged by the Planner");
+            stop = budgetStop(true);
+            if (stop !== null) break;
+            const prepared = await prepareThesisEvidence({ state, tracer, asOf, steps: keepThesisSteps(planned.steps, tracer, round), round });
+            thesisIds = prepared.theses.map(({ journal_id, symbol }) => ({ journal_id, symbol }));
+            thesis = { prepared, focus: planned.focus, found: prepared.batches.map(() => null), gapsBy: prepared.batches.map(() => []) };
+            tracer.log({
+              agent_name: AGENT,
+              action: "evidence_built",
+              input_summary: `${prepared.theses.length} theses, ${prepared.batches.length} batches of at most 15`,
+              output_summary: capped(`${state.usage.query_calls} query calls so far; ${prepared.gaps.length} queries did not run`),
+              target_agent: "Analyst",
+              status: "ok",
+              retry_count: round,
+            });
+          } else {
+            tracer.log({
+              agent_name: AGENT,
+              action: "plan_reused",
+              input_summary: `round ${round + 1} of ${config.MAX_ROUNDS}`,
+              output_summary: "the plan and the evidence tables are reused; only the batches that hold a journal id the fix names go back to the Analyst",
+              target_agent: "Analyst",
+              status: "ok",
+              retry_count: round,
+            });
+          }
 
-        // Analyst. The query budget matters only when a planned step is not already in the cache.
-        const needsQueries = planned.steps.some((step) => !state.isCached(step.query_id, step.params));
-        stop = budgetStop(needsQueries);
-        if (stop !== null) break;
-        const analysis = await analyse(
-          { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, previous_findings: previous, feedback },
-          { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
-        );
-        modelIds.add(analysis.model.model_id);
-        if (!analysis.ok) {
-          feedback = `The Analyst's reply was unusable (${analysis.error.type}): ${analysis.error.message} Reply with the JSON object the prompt defines, findings and gaps only.`;
-          revise(round, feedback, previous?.length ?? 0);
-          continue;
+          // The Analyst, once per batch of at most 15 theses; on a retry only the batches the fix names, the rest keep their findings.
+          const rerun: Set<number> = round === 0 || feedback === null ? new Set(thesis.prepared.batches.map((_, index) => index)) : batchesToRerun(feedback, thesis.prepared.batches);
+          let unusable: string | null = null;
+          for (const [index, batch] of thesis.prepared.batches.entries()) {
+            if (thesis.found[index] !== null && !rerun.has(index)) continue;
+            stop = budgetStop(false);
+            if (stop !== null) break rounds;
+            const analysis = await analyse(
+              { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
+              { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+            );
+            modelIds.add(analysis.model.model_id);
+            if (!analysis.ok) {
+              thesis.found[index] = null;
+              unusable = `The Analyst's reply for batch ${index + 1} was unusable (${analysis.error.type}): ${analysis.error.message} Reply with the JSON object the prompt defines, findings and gaps only.`;
+              continue;
+            }
+            if (analysis.injection_seen) flags.injection = true;
+            thesis.found[index] = analysis.findings;
+            thesis.gapsBy[index] = analysis.gaps;
+          }
+          findings = thesis.found.flatMap((batchFindings) => batchFindings ?? []);
+          gaps = [...new Set([...thesis.prepared.gaps, ...thesis.gapsBy.flat()])];
+          if (unusable !== null) {
+            feedback = unusable;
+            revise(round, feedback, findings.length);
+            continue;
+          }
+        } else {
+          // Planner. plan() has no run of its own, so its call is counted here.
+          stop = budgetStop(false);
+          if (stop !== null) break;
+          state.beforeModelCall();
+          const planned = await plan(
+            { task, question, as_of: asOf, trade: input.trade ?? null, memories, feedback },
+            { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
+          );
+          state.afterModelCall(planned.model);
+          modelIds.add(planned.model.model_id);
+          if (planned.injection_seen) flags.injection = true;
+          if (planned.declined_advice) declineAdvice("flagged by the Planner");
+
+          // Analyst. The query budget matters only when a planned step is not already in the cache.
+          const needsQueries = planned.steps.some((step) => !state.isCached(step.query_id, step.params));
+          stop = budgetStop(needsQueries);
+          if (stop !== null) break;
+          const analysis: AnalysisOutcome = await analyse(
+            { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, previous_findings: previous, feedback },
+            { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+          );
+          modelIds.add(analysis.model.model_id);
+          if (!analysis.ok) {
+            feedback = `The Analyst's reply was unusable (${analysis.error.type}): ${analysis.error.message} Reply with the JSON object the prompt defines, findings and gaps only.`;
+            revise(round, feedback, previous?.length ?? 0);
+            continue;
+          }
+          if (analysis.injection_seen) flags.injection = true;
+          findings = analysis.findings;
+          gaps = analysis.gaps;
         }
-        if (analysis.injection_seen) flags.injection = true;
-        latest = { findings: analysis.findings, gaps: analysis.gaps, scores: null, total: 0, round };
+        latest = { findings, gaps, scores: null, total: 0, round };
 
         // Evaluator: code checks first, then the fast model.
         stop = budgetStop(false);
         if (stop !== null) break;
         const verdict = await evaluate(
-          { task, question, as_of: asOf, findings: analysis.findings, gaps: analysis.gaps, memories, results: state.store },
+          { task, question, as_of: asOf, findings, gaps, memories, results: state.store },
           { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("fast"), round },
         );
         if (verdict.model !== null) modelIds.add(verdict.model.model_id);
@@ -509,7 +600,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           break;
         }
         feedback = verdict.fix !== "" ? verdict.fix : verdict.error === undefined ? "Revise the draft." : `The Evaluator could not score the draft (${verdict.error.type}): ${verdict.error.message}`;
-        previous = analysis.findings;
+        previous = findings;
         revise(round, feedback, previous.length);
       }
       if (stop !== null) return stopped(stop);
@@ -559,10 +650,12 @@ export async function run(options: RunOptions): Promise<RunResult> {
       input_summary: `round ${round + 1} of ${config.MAX_ROUNDS} rejected`,
       output_summary: capped(
         round + 1 < config.MAX_ROUNDS
-          ? `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix`
+          ? taskName === "thesis_check"
+            ? `round ${round + 2}: the plan is reused; the Analyst reruns only the batches that hold a journal id the fix names, with their previous findings and the fix, and the other batches keep their ${previousFindings} findings`
+            : `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix`
           : `no round left; the run returns needs_human with the best draft`,
       ),
-      target_agent: round + 1 < config.MAX_ROUNDS ? "Planner" : null,
+      target_agent: round + 1 < config.MAX_ROUNDS ? (taskName === "thesis_check" ? "Analyst" : "Planner") : null,
       status: "retry",
       why: fix,
       retry_count: round,
@@ -596,6 +689,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       model_source: [...modelIds].join(", ") || (sampleMode ? "sample-model" : "none"),
       partial: outcome.kind === "needs_human",
       stop_reason: stopReason,
+      ...(taskName === "thesis_check" ? { verdicts: verdictsOf(findings, thesisIds) } : {}),
     };
     return { ...base, status: outcome.kind === "success" ? "success" : "needs_human", output, error: null };
   }

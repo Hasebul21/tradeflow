@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
-import { citedResults, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
+import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, checkCitations, type Finding } from "../guards";
 import { complete as completeModel, type CompleteOptions, type CompleteResult } from "../llm";
 import type { RecalledMemory } from "../memory";
@@ -173,10 +173,20 @@ export function coverage(task: Task, findings: readonly Finding[], store: Result
         return { ok: false, reason: "no journal_for_symbol result is in this run", fix: `Plan journal_for_symbol for ${asOf}: no result in this run lists the theses.` };
       }
       const ids = [...new Set(journals.flatMap((result) => result.rows.map((row) => str(row.id))).filter((id) => id !== ""))];
-      const missing = ids.filter((id) => !findings.some((finding) => finding.kind === "thesis" && finding.subject === id && finding.verdict !== null));
-      if (missing.length > 0) {
-        const more = missing.length > 1 ? ` (and ${missing.length - 1} more)` : "";
-        return { ok: false, reason: `thesis ${missing[0]} has no verdict${more}`, fix: `Give thesis ${missing[0]} a verdict of confirmed, contradicted or open: it has no thesis finding${more}.` };
+      // Every thesis has exactly one finding with a verdict; the fix names each journal id that failed.
+      const forId = (id: string) => findings.filter((finding) => finding.kind === "thesis" && finding.subject === id);
+      const problems = ids.flatMap((id) => {
+        const own = forId(id);
+        if (own.length === 0) return [`${id}: no thesis finding`];
+        if (own.length > 1) return [`${id}: ${own.length} findings, one is needed`];
+        return own[0].verdict === null ? [`${id}: no verdict`] : [];
+      });
+      if (problems.length > 0) {
+        return {
+          ok: false,
+          reason: `${problems.length} ${problems.length === 1 ? "thesis fails" : "theses fail"} the coverage check (${problems.join("; ")})`,
+          fix: `Give each of these theses exactly one finding with a verdict of confirmed, contradicted or open: ${problems.join("; ")}.`,
+        };
       }
       return { ok: true, reason: ids.length === 0 ? "the journal has no thesis to cover" : `every thesis (${ids.join(", ")}) has a verdict` };
     }
@@ -333,7 +343,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     memories: memoriesForModel(memories, cfg.MAX_MEMORIES),
     findings,
     gaps,
-    results: citedResults(findings, input.results, cfg.MAX_ROWS_PER_QUERY),
+    results: input.task === "thesis_check" ? citedResultsForSubjects(findings, input.results, cfg.MAX_ROWS_PER_QUERY) : citedResults(findings, input.results, cfg.MAX_ROWS_PER_QUERY),
   };
   run?.beforeModelCall();
   const result = await call({

@@ -141,7 +141,7 @@ describe("the Evaluator's code checks", () => {
     const ids = journal.rows.map((row) => String(row.id));
     expect(ids.length).toBeGreaterThan(0);
     const missing = coverage("thesis_check", [], run.store, AS_OF);
-    expect(missing).toMatchObject({ ok: false, fix: `Give thesis ${ids[0]} a verdict of confirmed, contradicted or open: it has no thesis finding${ids.length > 1 ? ` (and ${ids.length - 1} more)` : ""}.` });
+    expect(missing).toMatchObject({ ok: false, fix: `Give each of these theses exactly one finding with a verdict of confirmed, contradicted or open: ${ids.map((id) => `${id}: no thesis finding`).join("; ")}.` });
     const theses = ids.map((id) => ({ ...finding(id, [journal.run_query_id]), kind: "thesis", verdict: "open" }));
     expect(coverage("thesis_check", theses, run.store, AS_OF)).toMatchObject({ ok: true });
     expect(coverage("thesis_check", theses.map((t) => ({ ...t, verdict: null })), run.store, AS_OF)).toMatchObject({ ok: false });

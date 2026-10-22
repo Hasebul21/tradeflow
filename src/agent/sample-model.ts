@@ -219,6 +219,8 @@ const TOPICS: readonly { pattern: RegExp; label: string; queries: readonly strin
 ];
 
 function analyst(input: Obj): Obj {
+  // thesis_check: the input carries the theses with their evidence tables; the rules are in thesisFinding.
+  if (Array.isArray(input.theses)) return { findings: objs(input.theses).map(thesisFinding), gaps: [] };
   const task = str(input.task) || "explain_week";
   const question = str(input.question);
   const feedback = str(input.feedback);
@@ -426,6 +428,79 @@ function analyst(input: Obj): Obj {
   return { findings: findings.slice(0, MAX_FINDINGS), gaps: [...new Set(gaps)] };
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Analyst for thesis_check: one finding of kind "thesis" per thesis, from its evidence table only.
+//   confirmed     the thesis mentions a dividend and a dividend row for the symbol is paid
+//   contradicted  the thesis mentions earnings, profit or growth and EPS is lower than the quarter before in each of
+//                 the last two reported quarters
+//   open          otherwise
+// When the exit condition mentions "two quarters" and EPS fell two quarters in a row, the claim adds that the owner's
+// exit condition is met, in the owner's words.
+
+const MENTIONS_DIVIDEND = /\bdividends?\b/i;
+const MENTIONS_EARNINGS = /\b(earnings|profit|growth)\b/i;
+
+function thesisFinding(thesis: Obj): Obj {
+  const id = str(thesis.journal_id);
+  const symbol = str(thesis.symbol);
+  const text = str(thesis.thesis);
+  const exit = str(thesis.exit_condition);
+  const quarters = objs(thesis.eps)
+    .filter((row) => num(row.eps_bdt) !== null)
+    .sort((a, b) => str(a.period_end).localeCompare(str(b.period_end)));
+  const last3 = quarters.slice(-3);
+  const eps = last3.map((row) => num(row.eps_bdt) as number);
+  const fellTwice = eps.length === 3 && eps[1] < eps[0] && eps[2] < eps[1];
+  const dividends = objs(thesis.dividends);
+  const paid = dividends.find((row) => row.paid === true);
+  const owed = dividends.find((row) => row.paid !== true);
+  const epsCites = last3.map((row) => str(row.run_query_id));
+  const epsNumbers: Num[] = eps.map((value) => ({ value, label: "eps bdt" }));
+  const epsText = `EPS fell from ${eps[0]} to ${eps[1]} to ${eps[2]} over the last three reported quarters`;
+
+  let verdict = "open";
+  let claim: string;
+  let numbers: Num[] = [];
+  let cites: string[] = [];
+  if (paid !== undefined && MENTIONS_DIVIDEND.test(text)) {
+    verdict = "confirmed";
+    const cash = num(paid.cash_per_share_bdt);
+    claim =
+      cash === null || str(paid.kind) === "stock_dividend"
+        ? `Confirmed: ${symbol} credited a bonus issue of ${num(paid.bonus_shares) ?? 0} shares, paid on ${str(paid.paid_on)}`
+        : `Confirmed: ${symbol} paid a cash dividend of Tk ${cash} a share, Tk ${num(paid.amount_bdt) ?? 0} in total, on ${str(paid.paid_on)}`;
+    numbers = cash === null || str(paid.kind) === "stock_dividend" ? [{ value: num(paid.bonus_shares) ?? 0, label: "bonus shares" }] : [{ value: cash, label: "cash per share bdt" }, { value: num(paid.amount_bdt) ?? 0, label: "amount bdt" }];
+    cites = [str(paid.run_query_id)];
+  } else if (fellTwice && MENTIONS_EARNINGS.test(text)) {
+    verdict = "contradicted";
+    claim = `Contradicted: ${epsText}`;
+    numbers = epsNumbers;
+    cites = epsCites;
+  } else {
+    const latest = quarters.at(-1);
+    if (owed !== undefined && num(owed.cash_per_share_bdt) !== null) {
+      claim = `Open: no row settles this thesis; the dividend of Tk ${num(owed.cash_per_share_bdt)} a share is owed, not paid, and is due ${str(owed.paid_on)}`;
+      numbers = [{ value: num(owed.cash_per_share_bdt) as number, label: "cash per share bdt" }];
+      cites = [str(owed.run_query_id)];
+    } else if (latest !== undefined) {
+      claim = `Open: no row settles this thesis; the latest reported EPS is ${num(latest.eps_bdt)}`;
+      numbers = [{ value: num(latest.eps_bdt) as number, label: "eps bdt" }];
+      cites = [str(latest.run_query_id)];
+    } else {
+      claim = "Open: no EPS, dividend or announcement row since the thesis date settles it";
+      cites = [str(thesis.fundamentals_run_query_id)];
+    }
+  }
+  if (/two quarters/i.test(exit) && fellTwice) {
+    claim += verdict === "contradicted" ? `, so your exit condition "${exit}" is met` : `; ${epsText}, so your exit condition "${exit}" is met`;
+    if (verdict !== "contradicted") {
+      numbers = [...numbers, ...epsNumbers];
+      cites = [...cites, ...epsCites];
+    }
+  }
+  return finding("thesis", id, `${claim}.`, numbers, [...new Set(cites.filter((cite) => cite !== ""))], { verdict });
+}
+
 /** "<SYMBOL> fell <x>% over the week, after its <category> announcement on <date>: '<title>'": after, never because of. */
 function announcementFinding(announcements: Result, row: Obj, moves: Result | undefined, moveRow: Obj | undefined): Obj {
   const symbol = str(row.symbol);
@@ -504,6 +579,11 @@ function evaluator(input: Obj): Obj {
 
 const DISCLAIMER = "This is a review of your own records, not financial advice.";
 const MEMORY_NOTE_CHARS = 590;
+
+const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+/** 0 to 99 in words ("twenty-seven"); a larger count stays in digits. */
+const wordsOf = (n: number): string => (n < 20 ? ONES[n] : n < 100 ? `${TENS[Math.floor(n / 10)]}${n % 10 === 0 ? "" : `-${ONES[n % 10]}`}` : String(n));
 
 const citeTags = (findings: readonly Obj[]): string =>
   [...new Set(findings.flatMap((finding) => arr(finding.cites).map(str)).filter((id) => id !== ""))].map((id) => `[q:${id}]`).join(" ");
@@ -600,8 +680,8 @@ function memoryNote(task: string, asOf: string, findings: Obj[], escalation: Obj
     const move = largest === undefined ? null : moveText(largest);
     if (move !== null) note = `${note.replace(/\.$/, "")}; ${move}, the largest move.`;
   } else if (task === "thesis_check") {
-    const verdicts = findings.filter((f) => f.kind === "thesis").map((f) => `${str(f.subject)} ${str(f.verdict) || "open"}`);
-    note = `Theses to ${asOf}: ${verdicts.length === 0 ? "no thesis was checked" : verdicts.join(", ")}.`;
+    const settled = findings.filter((f) => f.kind === "thesis" && str(f.verdict) !== "open").map((f) => `${str(f.subject)} ${str(f.verdict)}`);
+    note = `Theses to ${asOf}: ${findings.length === 0 ? "no thesis was checked" : `${settled.length === 0 ? "none settled" : settled.join(", ")}; the rest open`}.`;
   } else if (task === "pre_trade") {
     note = `Pre-trade check on ${asOf}: ${escalation ? `the trade would break ${str(escalation.rule)}: ${str(escalation.message)}` : lead}`;
   } else if (task === "reconcile") {
@@ -621,13 +701,22 @@ function writer(input: Obj): Obj {
   const memories = objs(input.memories);
   const escalation = isObj(input.escalation) ? input.escalation : null;
 
-  const bullets = task === "explain_week" ? weekBullets(findings) : findings.map((f): Bullet => ({ text: str(f.claim), sources: [f] }));
+  const bullets =
+    task === "explain_week"
+      ? weekBullets(findings)
+      : task === "thesis_check"
+        ? findings.map((f): Bullet => ({ text: `${str(f.subject)}: ${str(f.claim)}`, sources: [f] }))
+        : findings.map((f): Bullet => ({ text: str(f.claim), sources: [f] }));
   const lead = findings[0] === undefined ? `No findings were accepted for ${task === "explain_week" ? "the week to" : "the review as of"} ${asOf}.` : str(findings[0].claim);
 
   // The summary: the PORTFOLIO move against DSEX and the largest holding move, from the findings' own figures.
   let summary = lead;
   if (escalation) {
     summary = `This trade would break ${str(escalation.rule)}: ${str(escalation.message)} Nothing has been saved; the decision is yours.`;
+  } else if (task === "thesis_check" && findings.length > 0) {
+    // The counts are written as words: a count is not a figure of any finding, and the code check allows only those.
+    const count = (verdict: string) => findings.filter((f) => str(f.verdict) === verdict).length;
+    summary = `Of ${wordsOf(findings.length)} theses to ${asOf}: ${wordsOf(count("confirmed"))} confirmed, ${wordsOf(count("contradicted"))} contradicted, ${wordsOf(count("open"))} open.`;
   } else if (task === "explain_week") {
     const portfolio = findings.find((f) => isMove(f) && f.subject === "PORTFOLIO" && !isLastWeek(f));
     const largest = findings.filter((f) => isMove(f) && f.subject !== "PORTFOLIO" && !isLastWeek(f)).sort((a, b) => contributionOf(b) - contributionOf(a))[0];
@@ -659,7 +748,9 @@ function writer(input: Obj): Obj {
   });
   if (remembered.length > 0) lines.push("", "**What I remembered**", ...remembered);
 
-  const next = findings
+  // thesis_check: the settled theses first, the contradicted ones before the rest.
+  const rank = (finding: Obj) => (str(finding.verdict) === "contradicted" ? 0 : str(finding.verdict) === "open" ? 2 : 1);
+  const next = (task === "thesis_check" ? [...findings].sort((a, b) => rank(a) - rank(b)) : findings)
     .map((finding) => str(finding.subject))
     .filter((subject, index, all) => subject !== "" && subject !== "PORTFOLIO" && all.indexOf(subject) === index)
     .slice(0, 2);

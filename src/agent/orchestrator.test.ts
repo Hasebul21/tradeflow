@@ -348,7 +348,7 @@ describe("a plain run", () => {
     expect(badId).toMatchObject({ status: "error", output: null, error: { type: "InvalidInput", recoverable: false }, log_file: null });
     expect(badId.usage).toMatchObject({ model_calls: 0, query_calls: 0 });
 
-    const task = await run({ runId: "orch-task", task: "thesis_check", input: { question: QUESTION }, sampleMode: true, config });
+    const task = await run({ runId: "orch-task", task: "pre_trade", input: { question: QUESTION }, sampleMode: true, config });
     expect(task).toMatchObject({ status: "error", error: { type: "InvalidInput", recoverable: false } });
     expect(trace(task).at(-1)).toMatchObject({ action: "run_end", status: "error" });
 

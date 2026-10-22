@@ -16,6 +16,7 @@ import { QueryBlockedError, QueryError, isQueryId, type QueryResult } from "../q
 import type { RunState } from "../run-state";
 import type { TraceStatus } from "../trace";
 import type { PlannedStep, PlannerTrade } from "./planner";
+import type { ThesisEvidence } from "../thesis";
 
 const AGENT = "Analyst";
 const TARGET = "Evaluator";
@@ -61,6 +62,11 @@ export type AnalysisRequest = {
   previous_findings?: readonly Finding[] | null;
   /** On a retry: the Evaluator's fix. Null in round 1. */
   feedback?: string | null;
+  /**
+   * thesis_check: one batch of theses with their evidence tables. Code has run every query, so the Analyst gets these
+   * instead of results and offers the model no tools.
+   */
+  theses?: readonly ThesisEvidence[];
 };
 
 /** The user message, exactly as the model sees it. */
@@ -75,6 +81,8 @@ export type AnalystInput = {
   results: ResultForModel[];
   previous_findings: Finding[] | null;
   feedback: string | null;
+  /** Only for thesis_check: the batch's theses, each with its evidence table. */
+  theses?: ThesisEvidence[];
 };
 
 export type AnalyseDeps = {
@@ -206,13 +214,15 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     results,
     previous_findings: request.previous_findings === undefined || request.previous_findings === null ? null : [...request.previous_findings],
     feedback: request.feedback ?? null,
+    ...(request.theses === undefined ? {} : { theses: [...request.theses] }),
   };
   const inputSummary = capped(
-    `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${results.length} results (${results.reduce((n, r) => n + r.row_count, 0)} rows), ${skipped.length} skipped, ${input.memories.length} memories, ${input.world.length} world facts, previous_findings=${input.previous_findings === null ? "none" : input.previous_findings.length}, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
+    `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${results.length} results (${results.reduce((n, r) => n + r.row_count, 0)} rows), ${request.theses === undefined ? "" : `${request.theses.length} theses, `}${skipped.length} skipped, ${input.memories.length} memories, ${input.world.length} world facts, previous_findings=${input.previous_findings === null ? "none" : input.previous_findings.length}, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
   );
 
   // 2. The model, with the task's queries as tools; each tool call runs through the same cache and guard.
-  const tools = toolsFor(request.task);
+  // thesis_check: code has run every query, so the model is offered no tools.
+  const tools = request.theses === undefined ? toolsFor(request.task) : [];
   const allowed = new Set<string>(catalogueFor(request.task).map((entry) => entry.id));
   const history: HistoryMessage[] = [];
   const model: AnalysisBase["model"] = { model_id: "", source: "sample-model", usage: null, calls: 0, duration_ms: 0 };
@@ -220,7 +230,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   let toolCalls = 0;
   let result: CompleteResult;
   for (;;) {
-    const withTools = toolRounds < cfg.MAX_TOOL_ROUNDS;
+    const withTools = tools.length > 0 && toolRounds < cfg.MAX_TOOL_ROUNDS;
     run.beforeModelCall();
     result = await call({
       system: analystPrompt(),

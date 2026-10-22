@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
-import { forModel, type ResultStore, type Task } from "../context";
+import { citedResultsForSubjects, forModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, numbersIn, type Finding } from "../guards";
 import { complete as completeModel, type CompleteOptions, type CompleteResult } from "../llm";
 import { MemoryBlockedError, remember, type RecalledMemory } from "../memory";
@@ -69,6 +69,8 @@ export type WriterInput = {
   memories: MemoryForWriter[];
   applied_corrections: MemoryForWriter[];
   retry_reason: string | null;
+  /** Only for thesis_check: each cited result once per run_query_id, with the rows that match the findings' subjects. */
+  results?: ResultForModel[];
 };
 
 export type WriteDeps = {
@@ -157,17 +159,20 @@ const forWriter = ({ id, tags, content }: RecalledMemory): MemoryForWriter => ({
 /** Builds the user message: the findings with their cited rows, the memories as id, tags and content, the corrections among them. */
 export function writerInput(input: WriteInput, config?: Config, retryReason: string | null = null): WriterInput {
   const memories = (input.memories ?? []).map(forWriter);
+  const thesis = input.task === "thesis_check";
   return {
     task: input.task,
     question: input.question,
     as_of: input.as_of,
-    findings: input.findings.map((finding) => ({ ...finding, cited_rows: citedRowsFor(finding, input.results, config?.MAX_ROWS_PER_QUERY) })),
+    // thesis_check: the rows go once per run_query_id in `results`, never again under each finding.
+    findings: input.findings.map((finding) => ({ ...finding, cited_rows: thesis ? [] : citedRowsFor(finding, input.results, config?.MAX_ROWS_PER_QUERY) })),
     gaps: [...(input.gaps ?? [])],
     declined_advice: input.declined_advice === true,
     escalation: input.escalation ?? null,
     memories,
     applied_corrections: memories.filter((memory) => memory.tags.includes("correction")),
     retry_reason: retryReason,
+    ...(thesis ? { results: citedResultsForSubjects(input.findings, input.results, config?.MAX_ROWS_PER_QUERY) } : {}),
   };
 }
 

@@ -103,3 +103,36 @@ export function citedResults(findings: readonly Pick<Finding, "cites">[], store:
   }
   return out;
 }
+
+/** The symbol a thesis finding's subject stands for: a journal id in this run's journal rows gives its symbol, else the subject itself. */
+function symbolOfSubject(subject: string, store: ResultStore): string {
+  for (const result of Object.values(store)) {
+    if (result.query_id !== "journal_for_symbol") continue;
+    const row = result.rows.find((candidate) => candidate.id === subject);
+    if (row !== undefined && typeof row.symbol === "string") return row.symbol;
+  }
+  return subject;
+}
+
+/**
+ * thesis_check: the results the findings cite, each once per run_query_id, with only the rows that match a finding
+ * that cites it: a row with a cell equal to the finding's subject (a symbol) or to the symbol of the journal id that
+ * is its subject. A cited result with no matching row comes back with no rows. This is what the Evaluator and the
+ * Writer see for this task, so a 30-thesis run does not send every symbol's rows with every finding.
+ */
+export function citedResultsForSubjects(findings: readonly Pick<Finding, "cites" | "subject">[], store: ResultStore, maxRows?: number): ResultForModel[] {
+  const keys = new Map<string, Set<string>>();
+  for (const finding of findings) {
+    const wanted = new Set([finding.subject, symbolOfSubject(finding.subject, store)]);
+    for (const cite of finding.cites) {
+      if (!Object.prototype.hasOwnProperty.call(store, cite)) continue;
+      const set = keys.get(cite) ?? new Set<string>();
+      for (const key of wanted) set.add(key);
+      keys.set(cite, set);
+    }
+  }
+  return [...keys].map(([cite, wanted]) => {
+    const result = store[cite];
+    return forModel({ ...result, rows: result.rows.filter((row) => Object.values(row).some((cell) => typeof cell === "string" && wanted.has(cell))) }, maxRows);
+  });
+}
