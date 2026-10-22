@@ -66,7 +66,11 @@ describe("the Planner with the sample model", () => {
     expect(summary).toHaveLength(1);
     expect(summary[0]).toMatchObject({ target_agent: "Analyst", status: "ok", model: "sample-model", retry_count: 1 });
     expect(summary[0].output_summary).toContain("week_moves");
-    expect(summary[0].usage).toBeDefined();
+    // The tokens are on the model_call line, once; the plan line repeats nothing, so a run's lines add up.
+    expect(summary[0].usage).toBeUndefined();
+    const modelCall = lines.filter((line) => line.agent_name === "Planner" && line.action === "model_call");
+    expect(modelCall).toHaveLength(1);
+    expect(modelCall[0].usage).toMatchObject({ model_calls: 1, tokens_in: outcome.model.usage?.tokens_in, tokens_out: outcome.model.usage?.tokens_out });
     expect(lines.indexOf(summary[0])).toBeGreaterThan(lines.indexOf(steps.at(-1)!));
   });
 

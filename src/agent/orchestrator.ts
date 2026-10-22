@@ -1,0 +1,584 @@
+// The bounded loop: one run of one task. Code resolves as_of once, seeds and recalls memory, then runs the Planner,
+// the Analyst and the Evaluator up to MAX_ROUNDS times, branching in code: a draft that passes the code checks and
+// scores 7 or more of 9 goes to the Writer; a rejected draft goes back to the Planner with the fix as feedback and
+// to the Analyst with its previous findings and the fix. Every budget in config.ts (rounds, query calls, model
+// calls, tokens, round and run time) is checked before each call; when one runs out the run returns needs_human
+// with the best draft, output.partial and output.stop_reason. run() never throws: a typed error from llm.ts or an
+// agent becomes { status: "error", error, usage }. Every result that is not an error carries usage, and the last
+// trace line of every run is the Orchestrator's run_end line with the run's total usage. Server only (node:fs
+// through trace.ts, memory.ts and queries.ts).
+import path from "node:path";
+import { analyse } from "./agents/analyst";
+import { evaluate, type Scores } from "./agents/evaluator";
+import { PlanBlockedError, plan, type PlannerTrade } from "./agents/planner";
+import { DISCLAIMER, write } from "./agents/writer";
+import { ConfigError, loadConfig, type Config, type Tier } from "./config";
+import type { Task } from "./context";
+import { injectionIn, type Finding } from "./guards";
+import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
+import { recall, seedOwnerContext, type RecalledMemory } from "./memory";
+import type { QueryId, QueryResult, QuerySource } from "./queries";
+import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
+import { isRunId, startRun, type Tracer } from "./trace";
+import type { Rules } from "@/lib/data-types";
+import { resolveAsOf } from "@/lib/portfolio-view";
+import { readJson } from "@/lib/store";
+
+const AGENT = "Orchestrator";
+const GUARD = "Guard";
+const SUMMARY_CHARS = 200;
+
+/** The tasks this loop runs today; later steps add the others. */
+const SUPPORTED: readonly Task[] = ["explain_week"];
+
+// ---------------------------------------------------------------------------------------------------------------
+// The request and the reply.
+
+export type RunInput = {
+  question: string;
+  /** A yyyy-mm-dd date, resolved to a session with resolveAsOf; the latest session when absent. */
+  as_of?: string | null;
+  trade?: PlannerTrade | null;
+};
+
+export type RunOptions = {
+  runId: string;
+  task: Task;
+  input: RunInput;
+  /** Default config.sampleMode. */
+  sampleMode?: boolean;
+  /** Default loadConfig(). Passed to every agent and so to every complete() call. */
+  config?: Config;
+};
+
+export type StopReason = "rounds" | "query_calls" | "model_calls" | "tokens" | "round_timeout" | "run_timeout" | "writer_rejected";
+export type RunStatus = "success" | "needs_human" | "error";
+
+/** One cited result: what the accepted findings rest on. The rows stay in the trace and the result store. */
+export type Citation = { run_query_id: string; query_id: QueryId; params: Record<string, unknown>; source: QuerySource; row_count: number };
+export type RunScores = Scores & { total: number };
+
+export type RunOutput = {
+  summary: string;
+  review_markdown: string;
+  findings: Finding[];
+  gaps: string[];
+  citations: Citation[];
+  needs_human: boolean;
+  declined_advice: boolean;
+  injection_seen: boolean;
+  memories_recalled: { id: string; tags: string[] }[];
+  applied_corrections: { id: string; content: string }[];
+  /** The round the draft was accepted in, or the rounds run. */
+  rounds: number;
+  /** From the last Evaluator call; null when it rejected the draft in code or never ran. */
+  scores: RunScores | null;
+  /** "sample-model", or the model ids the replies reported; never a key or a URL. */
+  model_source: string;
+  partial: boolean;
+  stop_reason: StopReason | null;
+};
+
+export type RunError = { type: string; message: string; recoverable: boolean };
+export type AgentInfo = { name: AgentName; role: string; model: string };
+export type RunUsage = Usage & { duration_ms: number };
+
+export type RunResult = {
+  run_id: string;
+  task: Task;
+  status: RunStatus;
+  output: RunOutput | null;
+  error: RunError | null;
+  agents: AgentInfo[];
+  usage: RunUsage;
+  trace_id: string;
+  /** logs/trace-<run_id>.jsonl, relative to the project; null when the run id was refused before a file existed. */
+  log_file: string | null;
+  execution_time_seconds: number;
+};
+
+const AGENTS: readonly { name: AgentName; role: string; tier: Tier }[] = [
+  { name: "Planner", role: "picks at most MAX_PLAN_STEPS named queries for the task, with a why for each", tier: "strong" },
+  { name: "Analyst", role: "turns the plan's query results into findings that cite a run_query_id for every number", tier: "main" },
+  { name: "Evaluator", role: "checks citations, the guard and coverage in code, then scores the draft out of 9", tier: "fast" },
+  { name: "Writer", role: "writes the owner's review from the accepted findings; code checks every number", tier: "strong" },
+];
+
+/** The agents as the reply lists them: in sample mode every model is "sample-model", else the tier's routing id. */
+export function agentsOf(config: Config, sampleMode: boolean): AgentInfo[] {
+  return AGENTS.map(({ name, role, tier }) => ({ name, role, model: sampleMode ? "sample-model" : (config.models[tier] ?? "unset") }));
+}
+
+// A question that asks whether to trade, decided in code so the flag holds in sample mode too.
+const ADVICE_QUESTION = [
+  /\b(should|shall|could|can|do|would|must|ought to) i (just |also |now |still |rather )?(buy|sell|hold|trim|dump|exit|add)\b/i,
+  /\bgo ahead and (buy|sell)\b/i,
+  /\b(buy|sell|hold) (now|more|it|them|everything|all|out)\b/i,
+  /\btime to (buy|sell)\b/i,
+  /\bbuy or sell\b/i,
+];
+
+/** True when the question asks whether to buy, sell or hold ("should I sell", "go ahead and buy"). */
+export function asksForAdvice(question: string): boolean {
+  return ADVICE_QUESTION.some((pattern) => pattern.test(question));
+}
+
+const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
+const REMOVED = "[removed: text that reads like an instruction to the agents]";
+
+/** The cited results of the findings, each once, in the order first cited. */
+export function citationsOf(findings: readonly Finding[], store: Record<string, QueryResult>): Citation[] {
+  const seen = new Set<string>();
+  const out: Citation[] = [];
+  for (const finding of findings) {
+    for (const cite of finding.cites) {
+      const result = store[cite];
+      if (result === undefined || seen.has(cite)) continue;
+      seen.add(cite);
+      out.push({ run_query_id: cite, query_id: result.query_id, params: result.params, source: result.source, row_count: result.rows.length });
+    }
+  }
+  return out;
+}
+
+/** A review written by code, never a model, for a run that stopped before the Writer: the draft and why it stopped. */
+export function draftReview(findings: readonly Finding[], gaps: readonly string[], reason: string): string {
+  const lines = [reason, ""];
+  if (findings.length === 0) lines.push("No findings were drafted before the run stopped.");
+  for (const finding of findings) lines.push(`- ${finding.claim} ${finding.cites.map((id) => `[q:${id}]`).join(" ")}`.trimEnd());
+  if (gaps.length > 0) lines.push("", `Not covered: ${gaps.join("; ")}`);
+  lines.push("", DISCLAIMER);
+  return lines.join("\n");
+}
+
+function stopText(reason: StopReason, config: Config, detail: string): string {
+  switch (reason) {
+    case "rounds":
+      return `The draft was not accepted after ${config.MAX_ROUNDS} rounds; the last fix asked: ${detail} The findings below are the best draft, unreviewed; the decision is yours.`;
+    case "query_calls":
+      return `The run stopped: its query budget (${config.MAX_QUERY_CALLS} calls) was spent. The findings below are the best draft, unreviewed.`;
+    case "model_calls":
+      return `The run stopped: its model budget (${config.MAX_MODEL_CALLS} calls) was spent. The findings below are the best draft, unreviewed.`;
+    case "tokens":
+      return `The run stopped: its token budget (${config.MAX_TOKENS_PER_RUN} tokens) was spent. The findings below are the best draft, unreviewed.`;
+    case "round_timeout":
+      return `The run stopped: a round passed ROUND_TIMEOUT_MS (${config.ROUND_TIMEOUT_MS} ms). The findings below are the best draft, unreviewed.`;
+    case "run_timeout":
+      return `The run stopped: it passed RUN_TIMEOUT_MS (${config.RUN_TIMEOUT_MS} ms). The findings below are the best draft, unreviewed.`;
+    case "writer_rejected":
+      return `The Writer's review failed its code check twice: ${detail}`;
+  }
+}
+
+/** The error reply for a typed error from llm.ts or an agent. Recoverable: a timeout, a 429 or a 5xx; nothing else. */
+export function errorOf(error: unknown): RunError {
+  if (error instanceof ModelTimeout) return { type: "ModelTimeout", message: error.message, recoverable: true };
+  if (error instanceof RateLimited) return { type: "RateLimited", message: error.message, recoverable: true };
+  if (error instanceof ModelHttpError) return { type: "ModelHttpError", message: error.message, recoverable: error.status !== undefined && error.status >= 500 };
+  if (error instanceof ModelError || error instanceof ConfigError) return { type: error.name, message: error.message, recoverable: false };
+  if (error instanceof PlanBlockedError) return { type: "PlanBlocked", message: error.message, recoverable: false };
+  if (error instanceof Error) return { type: "Internal", message: error.message, recoverable: false };
+  return { type: "Internal", message: String(error), recoverable: false };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Injection: rows, memories and trade-plan notes are data, scanned in code; a match is traced and its text removed.
+
+function flagInjection(tracer: Tracer, what: string, pattern: string): void {
+  tracer.log({
+    agent_name: GUARD,
+    action: "injection_flagged",
+    input_summary: capped(what),
+    output_summary: `reads like an instruction to the agents (matched ${pattern}); its text is removed from what every model and the Writer see`,
+    status: "blocked",
+    why: "injection wording in data",
+  });
+}
+
+/** Every string cell that reads like an instruction is replaced; the row's numbers stay. Returns the flagged count. */
+function scrubResult(result: QueryResult, tracer: Tracer, onFlag: () => void): QueryResult {
+  let changed = false;
+  const rows = result.rows.map((row, index) => {
+    let out: QueryResult["rows"][number] | null = null;
+    for (const [field, cell] of Object.entries(row)) {
+      if (typeof cell !== "string") continue;
+      const pattern = injectionIn(cell);
+      if (pattern === null) continue;
+      out ??= { ...row };
+      out[field] = REMOVED;
+      changed = true;
+      onFlag();
+      flagInjection(tracer, `${result.query_id} row ${index + 1}, field ${field}`, pattern);
+    }
+    return out ?? row;
+  });
+  return changed ? { ...result, rows } : result;
+}
+
+/** The memories whose content reads like an instruction are left out of every model input and of the reply. */
+function scrubMemories(memories: readonly RecalledMemory[], tracer: Tracer): { kept: RecalledMemory[]; flagged: number } {
+  const kept: RecalledMemory[] = [];
+  let flagged = 0;
+  for (const memory of memories) {
+    const pattern = injectionIn(memory.content);
+    if (pattern === null) {
+      kept.push(memory);
+      continue;
+    }
+    flagged += 1;
+    flagInjection(tracer, `memory ${memory.id} (tags ${memory.tags.join(",")})`, pattern);
+  }
+  return { kept, flagged };
+}
+
+/** The trade-plan notes in rules.json of the data dir: a note that reads like an instruction sets the flag. */
+async function flaggedTradePlans(tracer: Tracer): Promise<number> {
+  const rules = await readJson<Rules | null>("rules", null);
+  let flagged = 0;
+  for (const tradePlan of rules?.trade_plans ?? []) {
+    const pattern = tradePlan.note === null ? null : injectionIn(tradePlan.note);
+    if (pattern === null) continue;
+    flagged += 1;
+    flagInjection(tracer, `trade plan ${tradePlan.id} note (rules.json)`, pattern);
+  }
+  return flagged;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// run
+
+type Draft = { findings: Finding[]; gaps: string[]; scores: Scores | null; total: number; round: number };
+
+/** What the loop ends with, before the reply is built. `rounds` is the round accepted in, or the rounds run. */
+type NeedsHuman = { kind: "needs_human"; stop: StopReason; detail: string; draft: Draft | null; rounds: number; summary?: string; review_markdown?: string };
+type Outcome = { kind: "success"; summary: string; review_markdown: string; draft: Draft; rounds: number } | NeedsHuman | { kind: "error"; error: RunError };
+
+/**
+ * Runs one task to a reply. The budgets are checked before every call, each model call gets the time left as its
+ * timeout, and a budget that runs out ends the run as needs_human with the best draft (the highest total so far, or
+ * the last draft when no round reached the model). The run's usage adds up every model call and every real query
+ * call; the Orchestrator's run_end line, the last line of the run, repeats the total.
+ */
+export async function run(options: RunOptions): Promise<RunResult> {
+  const started = Date.now();
+  const { runId, task, input } = options;
+  const config = options.config ?? loadConfig();
+  const sampleMode = options.sampleMode ?? config.sampleMode;
+  const agents = agentsOf(config, sampleMode);
+  const seconds = () => Math.round(Date.now() - started) / 1000;
+
+  if (!isRunId(runId)) {
+    const usage: RunUsage = { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: Date.now() - started };
+    return {
+      run_id: String(runId),
+      task,
+      status: "error",
+      output: null,
+      error: { type: "InvalidInput", message: `Invalid run id: ${JSON.stringify(String(runId))}.`, recoverable: false },
+      agents,
+      usage,
+      trace_id: String(runId),
+      log_file: null,
+      execution_time_seconds: seconds(),
+    };
+  }
+
+  const tracer = startRun(runId);
+  tracer.setTask(task);
+  const logFile = path.relative(process.cwd(), tracer.file);
+  const flags = { declined: false, injection: false };
+  let run: RunState | undefined;
+  let asOf: string | null = null;
+  let memories: RecalledMemory[] = [];
+  /** From the last Evaluator call: null when it rejected in code, or never ran. */
+  let lastScores: RunScores | null = null;
+  let lastConfidence: number | null = null;
+  const modelIds = new Set<string>();
+
+  const declineAdvice = (by: string) => {
+    if (flags.declined) return;
+    flags.declined = true;
+    tracer.log({
+      agent_name: GUARD,
+      action: "advice_declined",
+      input_summary: capped(`question of ${input.question.length} chars`),
+      output_summary: `the question asks whether to buy, sell or hold (${by}); the review explains the records and declines the advice`,
+      status: "ok",
+      why: "no output tells the owner to buy, sell or hold",
+    });
+  };
+
+  let outcome: Outcome;
+  try {
+    outcome = await execute();
+  } catch (error) {
+    outcome = { kind: "error", error: errorOf(error) };
+  }
+
+  const usage: RunUsage = { ...(run?.usage ?? { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0 }), duration_ms: Date.now() - started };
+  const result = reply(outcome, usage);
+  tracer.log({
+    agent_name: AGENT,
+    action: "run_end",
+    input_summary: capped(`task=${task} as_of=${asOf ?? "unresolved"} sample_mode=${sampleMode}`),
+    output_summary: capped(
+      result.status === "error"
+        ? `status=error type=${result.error?.type}: ${result.error?.message}`
+        : `status=${result.status}${result.output?.stop_reason ? ` stop_reason=${result.output.stop_reason}` : ""} rounds=${result.output?.rounds} findings=${result.output?.findings.length} citations=${result.output?.citations.length} declined_advice=${result.output?.declined_advice} injection_seen=${result.output?.injection_seen}`,
+    ),
+    status: result.status === "success" ? "ok" : result.status,
+    ...(result.status === "error" ? { why: result.error?.message } : result.output?.stop_reason ? { why: result.output.stop_reason } : {}),
+    confidence: lastConfidence,
+    retry_count: Math.max(0, (result.output?.rounds ?? 1) - 1),
+    duration_ms: usage.duration_ms,
+    ...(result.output?.stop_reason ? { stop_reason: result.output.stop_reason } : {}),
+    usage,
+  });
+  return result;
+
+  // The run, start to finish. Throws only what the catch above turns into an error reply.
+  async function execute(): Promise<Outcome> {
+    if (!SUPPORTED.includes(task)) {
+      return { kind: "error", error: { type: "InvalidInput", message: `Task ${JSON.stringify(task)} is not supported yet; this loop runs ${SUPPORTED.join(", ")}.`, recoverable: false } };
+    }
+    const question = typeof input.question === "string" ? input.question.trim() : "";
+    if (question === "") return { kind: "error", error: { type: "InvalidInput", message: "The question is empty.", recoverable: false } };
+
+    const flagRow = () => {
+      flags.injection = true;
+    };
+    run = new RunState({ runId, tracer, config, sampleMode, onResult: (fresh) => scrubResult(fresh, tracer, flagRow) });
+    const state = run;
+
+    // 1. as_of, once. Every input, trace line and memory tag uses the resolved date.
+    const data = await state.queryData();
+    const resolved = resolveAsOf(data.portfolio.bars, input.as_of ?? null);
+    if (!resolved.ok) return { kind: "error", error: { type: "InvalidInput", message: resolved.error, recoverable: false } };
+    asOf = resolved.asOf;
+    if (input.as_of && input.as_of !== asOf) {
+      tracer.log({
+        agent_name: GUARD,
+        action: "as_of_moved",
+        input_summary: `as_of ${input.as_of}`,
+        output_summary: `as_of moved from ${input.as_of} to ${asOf}`,
+        status: "ok",
+        why: "as_of is not a session: the Thursday before a Friday or Saturday, or the last session on or before the date",
+      });
+    }
+    tracer.log({
+      agent_name: AGENT,
+      action: "run_start",
+      input_summary: capped(`task=${task} question ${question.length} chars as_of=${asOf}${input.trade ? ` trade=${input.trade.side} ${input.trade.quantity} ${input.trade.symbol}` : ""}`),
+      output_summary: `sample_mode=${sampleMode}; limits: ${config.MAX_ROUNDS} rounds, ${config.MAX_QUERY_CALLS} query calls, ${config.MAX_MODEL_CALLS} model calls, ${config.MAX_TOKENS_PER_RUN} tokens, ${config.ROUND_TIMEOUT_MS} ms a round, ${config.RUN_TIMEOUT_MS} ms a run`,
+      status: "ok",
+    });
+
+    // 2. Memory: the owner's context once, then what this question recalls, scanned in code.
+    await seedOwnerContext(tracer);
+    const recalled = await recall(question, asOf, tracer);
+    const scrubbed = scrubMemories(recalled, tracer);
+    memories = scrubbed.kept;
+    if (scrubbed.flagged > 0) flags.injection = true;
+    if ((await flaggedTradePlans(tracer)) > 0) flags.injection = true;
+    if (asksForAdvice(question)) declineAdvice("matched in code");
+
+    // 3. Time and budget.
+    const runDeadline = started + config.RUN_TIMEOUT_MS;
+    let roundStarted = started;
+    const runLeft = () => runDeadline - Date.now();
+    const roundLeft = () => roundStarted + config.ROUND_TIMEOUT_MS - Date.now();
+    const timeLeft = (tier: Tier) => Math.max(0, Math.min(tier === "strong" ? config.MODEL_TIMEOUT_STRONG_MS : config.MODEL_TIMEOUT_MS, roundLeft(), runLeft()));
+    const budgetStop = (needsQueries: boolean): StopReason | null => {
+      if (runLeft() <= 0) return "run_timeout";
+      if (roundLeft() <= 0) return "round_timeout";
+      if (state.usage.model_calls >= config.MAX_MODEL_CALLS) return "model_calls";
+      if (state.tokens() >= config.MAX_TOKENS_PER_RUN) return "tokens";
+      if (needsQueries && state.usage.query_calls >= config.MAX_QUERY_CALLS) return "query_calls";
+      return null;
+    };
+    const stopDetail = (reason: StopReason): string => {
+      switch (reason) {
+        case "model_calls":
+          return `${state.usage.model_calls} of ${config.MAX_MODEL_CALLS} model calls used`;
+        case "tokens":
+          return `${state.tokens()} of ${config.MAX_TOKENS_PER_RUN} tokens used`;
+        case "query_calls":
+          return `${state.usage.query_calls} of ${config.MAX_QUERY_CALLS} query calls used`;
+        case "round_timeout":
+          return `${Date.now() - roundStarted} ms into the round, limit ${config.ROUND_TIMEOUT_MS} ms`;
+        case "run_timeout":
+          return `${Date.now() - started} ms into the run, limit ${config.RUN_TIMEOUT_MS} ms`;
+        default:
+          return reason;
+      }
+    };
+
+    /** The highest total so far; among drafts no model scored, the latest. */
+    let best: Draft | null = null;
+    /** The last Analyst reply, scored or not: what a stop before the Evaluator returns. */
+    let latest: Draft | null = null;
+    let accepted: Draft | null = null;
+    let feedback: string | null = null;
+    let previous: Finding[] | null = null;
+    let stop: StopReason | null = null;
+    let round = 0;
+    const roundsRun = () => Math.min(round + 1, config.MAX_ROUNDS);
+    const stopped = (reason: StopReason, detail = stopDetail(reason)): NeedsHuman => {
+      const draft = accepted ?? best ?? latest;
+      tracer.log({
+        agent_name: AGENT,
+        action: "stop",
+        input_summary: `round ${roundsRun()} of ${config.MAX_ROUNDS}`,
+        output_summary: capped(`${reason}: ${detail}; the run returns needs_human with ${draft === null ? "no draft" : `the best draft (${draft.findings.length} findings, total ${draft.total})`}`),
+        status: "needs_human",
+        why: reason,
+        retry_count: Math.min(round, config.MAX_ROUNDS - 1),
+        stop_reason: reason,
+      });
+      return { kind: "needs_human", stop: reason, detail, draft, rounds: roundsRun() };
+    };
+
+    try {
+      // 4. The loop.
+      for (round = 0; round < config.MAX_ROUNDS; round += 1) {
+        roundStarted = Date.now();
+
+        // Planner. plan() has no run of its own, so its call is counted here.
+        stop = budgetStop(false);
+        if (stop !== null) break;
+        state.beforeModelCall();
+        const planned = await plan(
+          { task, question, as_of: asOf, trade: input.trade ?? null, memories, feedback },
+          { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
+        );
+        state.afterModelCall(planned.model);
+        modelIds.add(planned.model.model_id);
+        if (planned.injection_seen) flags.injection = true;
+        if (planned.declined_advice) declineAdvice("flagged by the Planner");
+
+        // Analyst. The query budget matters only when a planned step is not already in the cache.
+        const needsQueries = planned.steps.some((step) => !state.isCached(step.query_id, step.params));
+        stop = budgetStop(needsQueries);
+        if (stop !== null) break;
+        const analysis = await analyse(
+          { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, previous_findings: previous, feedback },
+          { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+        );
+        modelIds.add(analysis.model.model_id);
+        if (!analysis.ok) {
+          feedback = `The Analyst's reply was unusable (${analysis.error.type}): ${analysis.error.message} Reply with the JSON object the prompt defines, findings and gaps only.`;
+          revise(round, feedback, previous?.length ?? 0);
+          continue;
+        }
+        if (analysis.injection_seen) flags.injection = true;
+        latest = { findings: analysis.findings, gaps: analysis.gaps, scores: null, total: 0, round };
+
+        // Evaluator: code checks first, then the fast model.
+        stop = budgetStop(false);
+        if (stop !== null) break;
+        const verdict = await evaluate(
+          { task, question, as_of: asOf, findings: analysis.findings, gaps: analysis.gaps, memories, results: state.store },
+          { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("fast"), round },
+        );
+        if (verdict.model !== null) modelIds.add(verdict.model.model_id);
+        lastConfidence = verdict.model === null ? null : verdict.confidence;
+        lastScores = verdict.scores === null ? null : { ...verdict.scores, total: verdict.total };
+        const draft: Draft = { ...latest, scores: verdict.scores, total: verdict.total };
+        latest = draft;
+        if (best === null || draft.total > best.total || (draft.scores === null && best.scores === null)) best = draft;
+        if (verdict.accepted) {
+          accepted = draft;
+          break;
+        }
+        feedback = verdict.fix !== "" ? verdict.fix : verdict.error === undefined ? "Revise the draft." : `The Evaluator could not score the draft (${verdict.error.type}): ${verdict.error.message}`;
+        previous = analysis.findings;
+        revise(round, feedback, previous.length);
+      }
+      if (stop !== null) return stopped(stop);
+      if (accepted === null) return stopped("rounds", feedback ?? "no fix was recorded");
+
+      // 5. The Writer, in the accepted round.
+      stop = budgetStop(false);
+      if (stop !== null) return stopped(stop);
+      const written = await write(
+        {
+          task,
+          question,
+          as_of: asOf,
+          findings: accepted.findings,
+          results: state.store,
+          gaps: accepted.gaps,
+          declined_advice: flags.declined,
+          escalation: null,
+          memories,
+          runId,
+        },
+        { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("strong"), round: accepted.round },
+      );
+      modelIds.add(written.model.model_id);
+      if (written.injection_seen) flags.injection = true;
+      if (!written.ok) {
+        const detail = written.reason ?? "the review failed its code check";
+        return { ...stopped("writer_rejected", detail), summary: written.summary, review_markdown: written.review_markdown };
+      }
+      return { kind: "success", summary: written.summary, review_markdown: written.review_markdown, draft: accepted, rounds: accepted.round + 1 };
+    } catch (error) {
+      // A budget an agent found spent, or a timeout that was the round's or the run's, ends as needs_human.
+      if (error instanceof BudgetExhaustedError) return stopped(error.stop_reason === "max_tokens" ? "tokens" : "model_calls", error.message);
+      if (error instanceof ModelTimeout) {
+        if (runLeft() <= 0) return stopped("run_timeout");
+        if (roundLeft() <= 0) return stopped("round_timeout");
+      }
+      throw error;
+    }
+  }
+
+  /** Traced once per rejected round: what the next round's Planner and Analyst get. */
+  function revise(round: number, fix: string, previousFindings: number): void {
+    tracer.log({
+      agent_name: AGENT,
+      action: "revise",
+      input_summary: `round ${round + 1} of ${config.MAX_ROUNDS} rejected`,
+      output_summary: capped(
+        round + 1 < config.MAX_ROUNDS
+          ? `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix`
+          : `no round left; the run returns needs_human with the best draft`,
+      ),
+      target_agent: round + 1 < config.MAX_ROUNDS ? "Planner" : null,
+      status: "retry",
+      why: fix,
+      retry_count: round,
+    });
+  }
+
+  function reply(outcome: Outcome, usage: RunUsage): RunResult {
+    const base = { run_id: runId, task, agents, usage, trace_id: runId, log_file: logFile, execution_time_seconds: seconds() };
+    if (outcome.kind === "error") return { ...base, status: "error", output: null, error: outcome.error };
+
+    const store = run?.store ?? {};
+    const draft = outcome.draft;
+    const findings = draft?.findings ?? [];
+    const gaps = draft?.gaps ?? [];
+    const stopReason = outcome.kind === "needs_human" ? outcome.stop : null;
+    const text = outcome.kind === "success" ? outcome : outcome.summary !== undefined && outcome.review_markdown !== undefined ? { summary: outcome.summary, review_markdown: outcome.review_markdown } : null;
+    const explanation = outcome.kind === "needs_human" ? stopText(outcome.stop, config, outcome.detail) : "";
+    const output: RunOutput = {
+      summary: text?.summary ?? explanation,
+      review_markdown: text?.review_markdown ?? draftReview(findings, gaps, explanation),
+      findings,
+      gaps,
+      citations: citationsOf(findings, store),
+      needs_human: outcome.kind === "needs_human",
+      declined_advice: flags.declined,
+      injection_seen: flags.injection,
+      memories_recalled: memories.map(({ id, tags }) => ({ id, tags: [...tags] })),
+      applied_corrections: memories.filter((memory) => memory.tags.includes("correction")).map(({ id, content }) => ({ id, content })),
+      rounds: outcome.rounds,
+      scores: lastScores,
+      model_source: [...modelIds].join(", ") || (sampleMode ? "sample-model" : "none"),
+      partial: outcome.kind === "needs_human",
+      stop_reason: stopReason,
+    };
+    return { ...base, status: outcome.kind === "success" ? "success" : "needs_human", output, error: null };
+  }
+}

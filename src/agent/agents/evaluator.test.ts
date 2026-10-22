@@ -187,9 +187,11 @@ describe("the Evaluator with the sample model", () => {
     expect(verdict[0]).toMatchObject({ target_agent: "Writer", status: "accepted", model: "sample-model", retry_count: 1 });
     expect(verdict[0].confidence).toBe(Math.round((outcome.total / 9) * 100) / 100);
     expect(verdict[0].output_summary).toContain(`accuracy=${outcome.scores!.accuracy} appropriateness=${outcome.scores!.appropriateness} actionability=${outcome.scores!.actionability}`);
-    expect(verdict[0].usage).toBeDefined();
+    // The tokens are on the model_call line, once; the verdict line repeats nothing, so a run's lines add up.
+    expect(verdict[0].usage).toBeUndefined();
     expect(evaluatorLines(lines, "reject")).toHaveLength(0);
     expect(modelCalls(lines)).toHaveLength(1);
+    expect(modelCalls(lines)[0].usage).toMatchObject({ model_calls: 1, tokens_in: outcome.model!.usage?.tokens_in, tokens_out: outcome.model!.usage?.tokens_out });
     expect(run.usage.model_calls).toBe(callsBefore + 1);
   });
 

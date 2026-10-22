@@ -150,6 +150,11 @@ const ADVICE = [
 ];
 const INJECTION = [/ignore\s+previous\s+instructions/i, /\byou\s+are\s+now\b/i, /\btell\s+the\s+owner\s+to\b/i];
 
+/** The injection phrase `text` holds, as the pattern's source, or null. The orchestrator uses it on rows and memories. */
+export function injectionIn(text: string): string | null {
+  return INJECTION.find((pattern) => pattern.test(text))?.source ?? null;
+}
+
 function stringsIn(value: unknown, out: string[] = [], depth = 0): string[] {
   if (depth > 8) return out;
   if (typeof value === "string") out.push(value);

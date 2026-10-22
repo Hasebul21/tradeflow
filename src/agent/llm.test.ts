@@ -4,6 +4,7 @@ import {
   BadJson,
   complete,
   ModelHttpError,
+  ModelTimeout,
   NightshiftNotRunning,
   parseJsonReply,
   PromptTooLarge,
@@ -236,6 +237,17 @@ describe("complete: paths beyond the eleven cases", () => {
     expect(traced("model_call")[0].model_retries).toBe(1);
   });
 
+  it("makes no retry when the time left is under one second: one request, no model_retry line, ModelTimeout", async () => {
+    const timeout = Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+    mocks.create.mockRejectedValue(timeout);
+    const error = await complete({ ...base, timeoutMs: 900 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelTimeout);
+    expect((error as Error).message).toContain("no time left for a retry");
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(traced("model_retry")).toHaveLength(0);
+    expect(traced("model_call")[0]).toMatchObject({ status: "error", model_retries: 0 });
+  });
+
   it("falls back to main when strong fails twice with a 5xx", async () => {
     mocks.create
       .mockRejectedValueOnce(httpError(503, "down"))
@@ -275,8 +287,8 @@ describe("complete: paths beyond the eleven cases", () => {
     const user = JSON.stringify({ task: "explain_week", question: "Why?", as_of: "2026-10-01" });
     const result = await complete({ ...base, user, sampleMode: true, json: true, agent: "Planner" });
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ agent_name: "Planner", action: "model_call", status: "ok", model: "sample-model" });
-    expect(lines[0].usage).toEqual({ tokens_in: result.usage?.tokens_in, tokens_out: result.usage?.tokens_out });
+    expect(lines[0]).toMatchObject({ agent_name: "Planner", action: "model_call", status: "ok", model: "sample-model", model_retries: 0 });
+    expect(lines[0].usage).toEqual({ tokens_in: result.usage?.tokens_in, tokens_out: result.usage?.tokens_out, model_calls: 1 });
     expect(lines[0].usage?.tokens_in).toBeGreaterThan(0);
     expect(typeof lines[0].duration_ms).toBe("number");
     expect(mocks.create).not.toHaveBeenCalled();

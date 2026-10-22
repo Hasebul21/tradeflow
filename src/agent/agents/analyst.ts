@@ -290,7 +290,6 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
       model: model.model_id,
       retry_count: round,
       duration_ms: Date.now() - started,
-      ...(model.usage === null ? {} : { usage: model.usage }),
     });
     return { ...base, ok: false, error };
   };
@@ -325,7 +324,6 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     model: model.model_id,
     retry_count: round,
     duration_ms: Date.now() - started,
-    ...(model.usage === null ? {} : { usage: model.usage }),
   });
   return { ...base, ok: true, findings, gaps, injection_seen: guard.injection_seen };
 }

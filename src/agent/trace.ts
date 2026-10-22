@@ -5,9 +5,13 @@ import path from "node:path";
 
 export type TraceStatus = "ok" | "retry" | "fallback" | "cached" | "rejected" | "blocked" | "accepted" | "needs_human" | "error";
 
+/**
+ * A model_call line carries the call's tokens and model_calls 1; a Query line that ran carries query_calls 1; the
+ * run_end line carries the run's total. Adding up every other line of a run gives the run_end line's usage.
+ */
 export type TraceUsage = {
-  tokens_in: number;
-  tokens_out: number;
+  tokens_in?: number;
+  tokens_out?: number;
   model_calls?: number;
   query_calls?: number;
   duration_ms?: number;

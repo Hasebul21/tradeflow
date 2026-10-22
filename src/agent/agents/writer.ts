@@ -106,6 +106,8 @@ export type WriteOutcome = {
   memory_id: string | null;
   /** Why the memory was not stored, when the guard refused it. */
   memory_reason: string | null;
+  /** True when guards.afterModel saw injection wording in the last reply checked. */
+  injection_seen: boolean;
   attempts: number;
   model: {
     model_id: string;
@@ -334,13 +336,13 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
       model: model.model_id,
       retry_count: round,
       duration_ms: Date.now() - started,
-      ...(model.usage === null ? {} : { usage: model.usage }),
     });
-    return { ok: true, ...review, reason: null, memory_id: memoryId, memory_reason: memoryReason, attempts, model };
+    return { ok: true, ...review, reason: null, memory_id: memoryId, memory_reason: memoryReason, injection_seen: injectionSeen, attempts, model };
   };
 
   let draft: WriterReply = EMPTY;
   let reason = "";
+  let injectionSeen = false;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const user = writerInput(input, cfg, attempt === 1 ? null : reason);
     run?.beforeModelCall();
@@ -369,7 +371,8 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     if (parsed.success) {
       draft = parsed.data;
       const check = checkReview(draft, { findings: input.findings, results: input.results, memories, task: input.task }, tracer, round);
-      if (check.ok) return accepted(draft, attempt, check.injection_seen === true);
+      injectionSeen = check.injection_seen === true;
+      if (check.ok) return accepted(draft, attempt, injectionSeen);
       reason = check.reason;
     } else {
       draft = draftOf(result.json);
@@ -412,7 +415,6 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     model: model.model_id,
     retry_count: round,
     duration_ms: Date.now() - started,
-    ...(model.usage === null ? {} : { usage: model.usage }),
   });
-  return { ok: false, ...draft, reason, memory_id: null, memory_reason: null, attempts: MAX_ATTEMPTS, model };
+  return { ok: false, ...draft, reason, memory_id: null, memory_reason: null, injection_seen: injectionSeen, attempts: MAX_ATTEMPTS, model };
 }

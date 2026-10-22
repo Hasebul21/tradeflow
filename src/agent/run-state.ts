@@ -37,6 +37,11 @@ export type RunStateOptions = {
   data?: QueryData;
   /** A Zetaris client to use instead of the one built from config; null forces local. */
   zetaris?: ZetarisClient | null;
+  /**
+   * Applied to every fresh result before it is cached and stored, so what the models and checkCitations see is the
+   * same. The orchestrator uses it to remove injection wording from rows.
+   */
+  onResult?: (result: QueryResult) => QueryResult;
 };
 
 const SUMMARY_CHARS = 200;
@@ -80,6 +85,7 @@ export class RunState {
   private readonly cache = new Map<string, QueryResult>();
   private data: QueryData | undefined;
   private readonly zetaris: ZetarisClient | null | undefined;
+  private readonly onResult: ((result: QueryResult) => QueryResult) | undefined;
 
   constructor(options: RunStateOptions) {
     this.runId = options.runId;
@@ -88,6 +94,7 @@ export class RunState {
     this.sampleMode = options.sampleMode ?? this.config.sampleMode;
     this.data = options.data;
     this.zetaris = options.zetaris;
+    this.onResult = options.onResult;
     this.started = Date.now();
   }
 
@@ -124,7 +131,7 @@ export class RunState {
       return hit;
     }
     const data = await this.queryData();
-    const result = await runQuery({
+    const fresh = await runQuery({
       query_id,
       params,
       runId: this.runId,
@@ -137,6 +144,7 @@ export class RunState {
       queriesUsed: this.usage.query_calls,
     });
     this.usage.query_calls += 1;
+    const result = this.onResult === undefined ? fresh : this.onResult(fresh);
     this.cache.set(key, result);
     this.store[result.run_query_id] = result;
     return result;

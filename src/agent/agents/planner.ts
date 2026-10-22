@@ -294,7 +294,6 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
     model: result.model_id,
     retry_count: round,
     duration_ms: Date.now() - started,
-    ...(result.usage === null ? {} : { usage: { tokens_in: result.usage.tokens_in, tokens_out: result.usage.tokens_out } }),
   });
   return outcome;
 }

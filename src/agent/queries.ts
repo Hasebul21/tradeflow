@@ -899,6 +899,8 @@ export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
     source: fetched.source,
     ...(why === null ? {} : { why }),
     duration_ms: Date.now() - started,
+    // One query call of the run's budget; a cached result (run-state.ts) writes no usage.
+    usage: { query_calls: 1 },
   });
   return { query_id: id, run_query_id: randomUUID(), params, rows: fetched.rows, source: fetched.source, sql_head: fetched.sqlHead };
 }

@@ -224,7 +224,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       status: "ok",
       model: result.model_id,
       duration_ms: result.duration_ms,
-      ...(result.usage === null ? {} : { usage: { tokens_in: result.usage.tokens_in, tokens_out: result.usage.tokens_out } }),
+      usage: { ...(result.usage === null ? {} : { tokens_in: result.usage.tokens_in, tokens_out: result.usage.tokens_out }), model_calls: 1 },
+      model_retries: 0,
     });
     return result;
   }
@@ -266,6 +267,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
         json = parseJsonReply(answered.message.text);
       } catch (first) {
         if (!(first instanceof BadJson)) throw first;
+        // With under a second left there is no time for another request: the first error stands.
+        if (timeLeftMs(state) < RETRY_FLOOR_MS) throw first;
         state.retries += 1;
         options.tracer?.log({
           ...baseLine(),
@@ -308,7 +311,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       ...(fellBack ? { why: "strong model unavailable" } : {}),
       model: result.model_id,
       duration_ms: result.duration_ms,
-      ...(state.usage === null ? {} : { usage: { tokens_in: state.usage.tokens_in, tokens_out: state.usage.tokens_out } }),
+      usage: { ...(state.usage === null ? {} : { tokens_in: state.usage.tokens_in, tokens_out: state.usage.tokens_out }), model_calls: 1 },
       model_retries: state.retries,
       ...(fellBack ? { fallback: "strong->main" as const } : {}),
       requested_model: answered.requested,
@@ -467,6 +470,14 @@ function buildParams(
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** No retry is made with less than this left before the deadline: the retry would time out at once. */
+const RETRY_FLOOR_MS = 1000;
+
+/** The time left before the caller's deadline; Infinity when the caller set none. */
+function timeLeftMs(state: CallState): number {
+  return state.deadline === undefined ? Infinity : state.deadline - Date.now();
+}
+
 function attemptTimeoutMs(state: CallState, tier: Tier): number {
   if (state.deadline !== undefined) {
     const left = state.deadline - Date.now();
@@ -525,17 +536,19 @@ async function sendWithRetry(
         case "network": {
           const why =
             failure.kind === "timeout" ? "timeout" : failure.kind === "network" ? "network error" : `HTTP ${failure.kind === "rate_limit" ? 429 : failure.status}`;
-          if (!transportRetried) {
+          // One retry, unless the caller's deadline leaves under a second: that retry would only time out.
+          if (!transportRetried && timeLeftMs(state) >= RETRY_FLOOR_MS) {
             transportRetried = true;
             state.retries += 1;
             retryTrace(why);
             await sleep(BACKOFF_MS);
             continue;
           }
-          if (failure.kind === "timeout") throw new ModelTimeout(`The ${tier} model call timed out twice (${timeout} ms each attempt at most).`);
-          if (failure.kind === "rate_limit") throw new RateLimited(`The ${tier} model call was rate limited (HTTP 429) twice.`);
+          const times = transportRetried ? "twice" : "once, with no time left for a retry";
+          if (failure.kind === "timeout") throw new ModelTimeout(`The ${tier} model call timed out ${times} (${timeout} ms at most for the attempt).`);
+          if (failure.kind === "rate_limit") throw new RateLimited(`The ${tier} model call was rate limited (HTTP 429) ${times}.`);
           throw new ModelHttpError(
-            `The ${tier} model call failed twice: ${scrub(failure.message, cfg)}`,
+            `The ${tier} model call failed ${times}: ${scrub(failure.message, cfg)}`,
             failure.kind === "server" ? failure.status : undefined,
           );
         }

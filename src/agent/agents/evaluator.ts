@@ -355,7 +355,6 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     duration_ms: result.duration_ms,
     ...(result.fallback === undefined ? {} : { fallback: result.fallback }),
   };
-  const usage = result.usage === null ? {} : { usage: { tokens_in: result.usage.tokens_in, tokens_out: result.usage.tokens_out } };
 
   const badReply = (error: EvaluateError): EvaluateOutcome => {
     tracer.log({
@@ -368,7 +367,6 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       model: result.model_id,
       retry_count: round,
       duration_ms: Date.now() - started,
-      ...usage,
     });
     return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", code_checks: checks, target_agent: target, model, error };
   };
@@ -399,7 +397,6 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     model: result.model_id,
     retry_count: round,
     duration_ms: Date.now() - started,
-    ...usage,
   });
   return { accepted, scores, total, confidence, fix, code_checks: checks, target_agent: accepted ? "Writer" : target, model };
 }
