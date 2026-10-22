@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -79,7 +79,23 @@ describe("cursor-adapter.mjs", () => {
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", path: ".", glob: ".env*" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob: "{.env,README.md}" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "secrets/" } }))).toBe("deny");
-    expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "planner", path: "src", glob: "*.ts" } }).out).toBeNull();
+    for (const glob of ["?env", "*env", "**/*", ".e[n]v", "*.{pem,ts}"]) {
+      expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob } }))).toBe("deny");
+    }
+    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob: "[env" } }))).toBe("deny");
+    for (const glob of ["*.ts", "**/*.test.ts", "*.{ts,tsx}", ".env.example"]) {
+      expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "planner", path: "src", glob } }).out).toBeNull();
+    }
+  });
+
+  it("denies a Grep over a folder named secrets", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
+    try {
+      mkdirSync(path.join(dir, "secrets"));
+      expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: path.join(dir, "secrets") } }))).toBe("deny");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("denies reading a symlink that points at .env", () => {
