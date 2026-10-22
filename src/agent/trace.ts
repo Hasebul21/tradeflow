@@ -34,6 +34,19 @@ export type TraceLine = {
   stop_reason?: string;
   escalation_rule?: string;
   usage?: TraceUsage;
+  /** Model calls (llm.ts): the retries made inside one call. retry_count stays the loop round. */
+  model_retries?: number;
+  /** The meterless/* id that was sent, which names the lane. */
+  requested_model?: string;
+  /** The model the reply reports; left out when it names none. */
+  reported_model?: string;
+  /** From the Nightshift receipt (meterless.routed_model); left out when absent. */
+  routed_model?: string;
+  /** From the Nightshift receipt (meterless.cost.actual_usd); left out when absent. */
+  cost_usd?: number;
+  /** The host name of METERLESS_BASE_URL, never the full URL. */
+  provider_host?: string;
+  fallback?: "strong->main";
 };
 
 /** What a caller passes: the five fields that always differ, the rest default to null or 0. */
