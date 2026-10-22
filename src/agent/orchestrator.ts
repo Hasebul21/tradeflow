@@ -566,6 +566,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
         let findings: Finding[];
         let gaps: string[];
+        let cutByQueryBudget = false;
         if (task === "thesis_check") {
           // The plan is made once: code runs the per-symbol queries, so a later round reuses it and the evidence.
           if (thesis === null) {
@@ -683,8 +684,15 @@ export async function run(options: RunOptions): Promise<RunResult> {
           if (analysis.injection_seen) flags.injection = true;
           findings = analysis.findings;
           gaps = analysis.gaps;
+          // A planned step that the spent query budget kept from running leaves a draft on part of the evidence:
+          // stop with that draft instead of scoring it as complete.
+          cutByQueryBudget = state.usage.query_calls >= config.MAX_QUERY_CALLS && planned.steps.some((step) => !state.isCached(step.query_id, step.params));
         }
         latest = { findings, gaps, scores: null, total: 0, round };
+        if (cutByQueryBudget) {
+          stop = "query_calls";
+          break;
+        }
 
         // Evaluator: code checks first, then the fast model.
         stop = budgetStop(false);
