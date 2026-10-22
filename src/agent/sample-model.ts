@@ -221,6 +221,7 @@ const TOPICS: readonly { pattern: RegExp; label: string; queries: readonly strin
 function analyst(input: Obj): Obj {
   // thesis_check: the input carries the theses with their evidence tables; the rules are in thesisFinding.
   if (Array.isArray(input.theses)) return { findings: objs(input.theses).map(thesisFinding), gaps: [] };
+  if (str(input.task) === "pre_trade") return preTradeAnalyst(input);
   const task = str(input.task) || "explain_week";
   const question = str(input.question);
   const feedback = str(input.feedback);
@@ -502,6 +503,80 @@ function thesisFinding(thesis: Obj): Obj {
 }
 
 /** "<SYMBOL> fell <x>% over the week, after its <category> announcement on <date>: '<title>'": after, never because of. */
+// ---------------------------------------------------------------------------------------------------------------
+// Analyst for pre_trade: from the what_if and journal_for_symbol results only (code ran every query; no tools).
+//   pre_trade  one finding: the trade's cost, the symbol's weight and the most-changed sector's weight before and
+//              after, then each new rule finding by its kind and message, or that none is new
+//   thesis     one finding per journal row for the symbol, verdict null: the trade matches the thesis's direction
+//              (the side of the trade it backed) or does not
+// A past review in memory that names the symbol is noted on the pre_trade finding. Never approves or rejects.
+
+function preTradeAnalyst(input: Obj): Obj {
+  const trade = isObj(input.trade) ? input.trade : {};
+  const symbol = str(trade.symbol);
+  const side = str(trade.side);
+  const results: Result[] = objs(input.results).map((result) => ({ id: str(result.run_query_id), query_id: str(result.query_id), params: isObj(result.params) ? result.params : {}, rows: objs(result.rows) }));
+  const whatIf = results.find((result) => result.query_id === "what_if" && result.rows.length > 0);
+  const journal = results.find((result) => result.query_id === "journal_for_symbol");
+  const findings: Obj[] = [];
+
+  if (whatIf !== undefined) {
+    const tradeRow = whatIf.rows.find((row) => row.row_type === "trade") ?? {};
+    const holding = whatIf.rows.find((row) => row.row_type === "holding" && row.symbol === symbol);
+    const moved = whatIf.rows
+      .filter((row) => row.row_type === "sector")
+      .sort((a, b) => Math.abs((num(b.weight_after_pct) ?? 0) - (num(b.weight_before_pct) ?? 0)) - Math.abs((num(a.weight_after_pct) ?? 0) - (num(a.weight_before_pct) ?? 0)))[0];
+    const newRows = whatIf.rows.filter((row) => row.row_type === "new_finding");
+    const numbers: Num[] = [];
+    const add = (row: Obj | undefined, field: string, label: string): number | null => {
+      const value = row === undefined ? null : num(row[field]);
+      if (value !== null) numbers.push({ value: round1(value), label });
+      return value === null ? null : round1(value);
+    };
+
+    const verb = side === "buy" ? "Buying" : "Selling";
+    const quantity = num(tradeRow.quantity);
+    const price = num(tradeRow.price);
+    const cash = num(tradeRow.cash_bdt);
+    const cost = cash === null ? null : Math.abs(cash);
+    if (cost !== null) numbers.push({ value: cost, label: "cost bdt" });
+    const before = add(holding, "weight_before_pct", `${symbol} weight before pct`);
+    const after = add(holding, "weight_after_pct", `${symbol} weight after pct`);
+    const sectorBefore = add(moved, "weight_before_pct", "sector weight before pct");
+    const sectorAfter = add(moved, "weight_after_pct", "sector weight after pct");
+    const target = moved === undefined ? null : num(moved.target_pct);
+
+    const first = `${verb} ${quantity ?? ""} ${symbol}${price === null ? "" : ` at Tk ${price}`} would cost Tk ${cost ?? "unknown"} with commission; ${symbol} would go from ${before ?? "unknown"}% to ${after ?? "unknown"}% of the portfolio${
+      moved === undefined ? "" : `, and ${str(moved.sector)} from ${sectorBefore ?? "unknown"}% to ${sectorAfter ?? "unknown"}%${target === null ? "" : ` against a ${target}% target`}`
+    }.`.replace(/\s+/g, " ");
+    if (target !== null) numbers.push({ value: target, label: "sector target pct" });
+    const second =
+      newRows.length === 0
+        ? "The trade causes no new rule finding: every position limit and sector target that holds today still holds after it."
+        : `The trade would newly cause ${newRows.map((row) => `a ${str(row.kind).replace(/_/g, " ")} finding (${str(row.kind)}): ${str(row.message)}`).join(" ")}`;
+    const reviews = objs(input.memories).filter((memory) => arr(memory.tags).includes("review") && symbol !== "" && str(memory.content).includes(symbol));
+    const memoryNote = reviews.length === 0 ? "" : ` A past review in memory also mentions ${symbol}.`;
+    findings.push(finding("pre_trade", symbol || "trade", `${first} ${second}${memoryNote}`, numbers, [whatIf.id], { memory_ids: reviews.map((memory) => str(memory.id)) }));
+  }
+
+  if (journal !== undefined) {
+    for (const row of journal.rows) {
+      const backed = str(row.side);
+      const same = backed !== "" && backed === side;
+      findings.push(
+        finding(
+          "thesis",
+          str(row.id) || symbol,
+          `Your thesis ${str(row.id)} for ${symbol} backed a ${backed || "trade"}, ${same ? "the same direction as this trade" : "the opposite direction to this trade"}: "${str(row.thesis)}".`,
+          [],
+          [journal.id],
+        ),
+      );
+    }
+  }
+  return { findings, gaps: [] };
+}
+
 function announcementFinding(announcements: Result, row: Obj, moves: Result | undefined, moveRow: Obj | undefined): Obj {
   const symbol = str(row.symbol);
   const category = str(row.category).replace(/_/g, " ");

@@ -67,6 +67,8 @@ export type AnalysisRequest = {
    * instead of results and offers the model no tools.
    */
   theses?: readonly ThesisEvidence[];
+  /** pre_trade: code has run every query the review needs, so the model is offered no tools. */
+  noTools?: boolean;
 };
 
 /** The user message, exactly as the model sees it. */
@@ -221,8 +223,8 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   );
 
   // 2. The model, with the task's queries as tools; each tool call runs through the same cache and guard.
-  // thesis_check: code has run every query, so the model is offered no tools.
-  const tools = request.theses === undefined ? toolsFor(request.task) : [];
+  // thesis_check and pre_trade: code has run every query, so the model is offered no tools.
+  const tools = request.theses === undefined && request.noTools !== true ? toolsFor(request.task) : [];
   const allowed = new Set<string>(catalogueFor(request.task).map((entry) => entry.id));
   const history: HistoryMessage[] = [];
   const model: AnalysisBase["model"] = { model_id: "", source: "sample-model", usage: null, calls: 0, duration_ms: 0 };

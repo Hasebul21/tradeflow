@@ -30,7 +30,8 @@ const MAX_ATTEMPTS = 2;
 
 export const DISCLAIMER = "This is a review of your own records, not financial advice.";
 
-export type Escalation = { rule: string; message: string };
+/** pre_trade: the rule the trade would break. sector or symbol, before and after, are the weights in percent, when what_if shows them. */
+export type Escalation = { rule: string; message: string; sector?: string; symbol?: string; before?: number | null; after?: number | null };
 
 /** What the orchestrator hands the Writer. The cited rows are taken from the run's store here. */
 export type WriteInput = {

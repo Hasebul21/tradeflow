@@ -10,14 +10,15 @@
 import path from "node:path";
 import { analyse, type AnalysisOutcome } from "./agents/analyst";
 import { evaluate, type Scores } from "./agents/evaluator";
-import { PlanBlockedError, plan, type PlannerTrade } from "./agents/planner";
+import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade } from "./agents/planner";
 import { DISCLAIMER, write } from "./agents/writer";
 import { ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { recall, seedOwnerContext, type RecalledMemory } from "./memory";
-import type { QueryId, QueryResult, QuerySource } from "./queries";
+import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
+import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource } from "./queries";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
 import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
@@ -30,7 +31,7 @@ const GUARD = "Guard";
 const SUMMARY_CHARS = 200;
 
 /** The tasks this loop runs today; later steps add the others. */
-const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check"];
+const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check", "pre_trade"];
 
 // ---------------------------------------------------------------------------------------------------------------
 // The request and the reply.
@@ -90,6 +91,10 @@ export type RunOutput = {
   stop_reason: StopReason | null;
   /** thesis_check only: one entry per thesis that has a finding, in journal order. */
   verdicts?: ThesisVerdict[];
+  /** pre_trade only: the distinct kinds of the rule findings the trade would newly cause, such as ["sector_target"]; [] when none. */
+  new_findings?: string[];
+  /** pre_trade only: the first new rule finding, decided in code; null when the trade breaks no rule. */
+  escalation?: PreTradeEscalation | null;
 };
 
 export type ThesisVerdict = { journal_id: string; symbol: string; verdict: string; cites: string[] };
@@ -195,6 +200,8 @@ function stopText(reason: StopReason, config: Config, detail: string): string {
 
 /** The error reply for a typed error from llm.ts or an agent. Recoverable: a timeout, a 429 or a 5xx; nothing else. */
 export function errorOf(error: unknown): RunError {
+  // A query that refuses its parameters (an unknown symbol, no price, a rejected trade) is the caller's input, never a 500.
+  if (error instanceof QueryError && error.type !== "unknown_query") return { type: "InvalidInput", message: error.message, recoverable: false };
   if (error instanceof ModelTimeout) return { type: "ModelTimeout", message: error.message, recoverable: true };
   if (error instanceof RateLimited) return { type: "RateLimited", message: error.message, recoverable: true };
   if (error instanceof ModelHttpError) return { type: "ModelHttpError", message: error.message, recoverable: error.status !== undefined && error.status >= 500 };
@@ -274,7 +281,12 @@ type Draft = { findings: Finding[]; gaps: string[]; scores: Scores | null; total
 
 /** What the loop ends with, before the reply is built. `rounds` is the round accepted in, or the rounds run. */
 type NeedsHuman = { kind: "needs_human"; stop: StopReason; detail: string; draft: Draft | null; rounds: number; summary?: string; review_markdown?: string };
-type Outcome = { kind: "success"; summary: string; review_markdown: string; draft: Draft; rounds: number } | NeedsHuman | { kind: "error"; error: RunError };
+type Outcome =
+  | { kind: "success"; summary: string; review_markdown: string; draft: Draft; rounds: number }
+  /** pre_trade: the trade would newly break a rule. A finished review for the owner to decide on, not a stopped run. */
+  | { kind: "escalated"; summary: string; review_markdown: string; draft: Draft; rounds: number }
+  | NeedsHuman
+  | { kind: "error"; error: RunError };
 
 /**
  * Runs one task to a reply. The budgets are checked before every call, each model call gets the time left as its
@@ -319,6 +331,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
   let lastConfidence: number | null = null;
   /** thesis_check: the journal ids and symbols of the theses checked, in journal order. */
   let thesisIds: { journal_id: string; symbol: string }[] = [];
+  /** pre_trade: what the what_if rows decided in code. */
+  let preTrade: { new_findings: string[]; escalation: PreTradeEscalation | null } | null = null;
   const modelIds = new Set<string>();
 
   const declineAdvice = (by: string) => {
@@ -398,17 +412,27 @@ export async function run(options: RunOptions): Promise<RunResult> {
         why: "as_of is not a session: the Thursday before a Friday or Saturday, or the last session on or before the date",
       });
     }
+    // pre_trade: the trade is validated in code before any model call; a bad trade never reaches a model.
+    let trade: PlannerTrade | null = null;
+    let planId: string | null = null;
+    if (task === "pre_trade") {
+      const rules = await readJson<Rules | null>("rules", null);
+      const resolvedTrade = resolveTrade(input, { hasSymbol: (symbol) => data.portfolio.instruments.has(symbol), plans: rules?.trade_plans ?? [] });
+      if (!resolvedTrade.ok) return invalid(resolvedTrade.message);
+      trade = resolvedTrade.trade;
+      planId = resolvedTrade.plan_id;
+    }
     tracer.log({
       agent_name: AGENT,
       action: "run_start",
-      input_summary: capped(`task=${task} question ${question.length} chars as_of=${asOf}${input.trade ? ` trade=${input.trade.side} ${input.trade.quantity} ${input.trade.symbol}` : ""}`),
+      input_summary: capped(`task=${task} question ${question.length} chars as_of=${asOf}${trade ? ` trade=${trade.side} ${trade.quantity} ${trade.symbol}${trade.price === undefined ? "" : ` at ${trade.price}`}${planId ? ` (plan ${planId})` : ""}` : ""}`),
       output_summary: `sample_mode=${sampleMode}; limits: ${config.MAX_ROUNDS} rounds, ${config.MAX_QUERY_CALLS} query calls, ${config.MAX_MODEL_CALLS} model calls, ${config.MAX_TOKENS_PER_RUN} tokens, ${config.ROUND_TIMEOUT_MS} ms a round, ${config.RUN_TIMEOUT_MS} ms a run`,
       status: "ok",
     });
 
     // 2. Memory: the owner's context once, then what this question recalls, scanned in code.
     await seedOwnerContext(tracer);
-    const recalled = await recall(question, asOf, tracer);
+    const recalled = await recall(trade === null ? question : `${question} ${trade.symbol} ${trade.side}`.trim(), asOf, tracer);
     const scrubbed = scrubMemories(recalled, tracer);
     memories = scrubbed.kept;
     if (scrubbed.flagged > 0) flags.injection = true;
@@ -474,6 +498,46 @@ export async function run(options: RunOptions): Promise<RunResult> {
     };
 
     try {
+      // pre_trade is a fixed chain: its evidence never changes, so code builds the plan (the Planner is not called),
+      // traces it, runs what_if first and branches on its rows. The other four queries run in the Analyst's step.
+      let fixed: PlannedStep[] = [];
+      if (task === "pre_trade" && trade !== null) {
+        fixed = fixedPlan(trade, asOf);
+        tracer.log({
+          agent_name: AGENT,
+          action: "fixed_plan",
+          input_summary: capped(`task=pre_trade ${trade.side} ${trade.quantity} ${trade.symbol} as_of=${asOf}`),
+          output_summary: capped(`${fixed.length} steps, no Planner call: ${fixed.map((step) => step.query_id).join(", ")}`),
+          target_agent: "Analyst",
+          status: "ok",
+          why: fixed.map((step, index) => `${index + 1}. ${step.query_id}: ${step.why}`).join(" "),
+        });
+        stop = budgetStop(true);
+        if (stop !== null) return stopped(stop);
+        let whatIf: QueryResult;
+        try {
+          whatIf = await state.query(fixed[0].query_id, fixed[0].params);
+        } catch (error) {
+          if (error instanceof QueryBlockedError) return invalid(error.reason);
+          throw error;
+        }
+        preTrade = branchOnWhatIf(whatIf);
+        tracer.log({
+          agent_name: AGENT,
+          action: "branch",
+          input_summary: capped(`what_if ${whatIf.run_query_id}`),
+          output_summary: capped(
+            preTrade.escalation === null
+              ? "no new rule finding: the review says which rules still hold and what the trade does to the weights"
+              : `the trade would newly break ${preTrade.new_findings.join(", ")}; the run escalates to the owner with the review`,
+          ),
+          target_agent: "Analyst",
+          status: "ok",
+          why: "decided in code from the what_if rows, never by a model",
+          ...(preTrade.escalation === null ? {} : { escalation_rule: preTrade.escalation.rule }),
+        });
+      }
+
       // 4. The loop.
       rounds: for (round = 0; round < config.MAX_ROUNDS; round += 1) {
         roundStarted = Date.now();
@@ -548,6 +612,24 @@ export async function run(options: RunOptions): Promise<RunResult> {
             revise(round, feedback, findings.length);
             continue;
           }
+        } else if (task === "pre_trade" && trade !== null) {
+          // No Planner: the plan is fixed, so a rejection goes to the Analyst with its previous findings and the fix.
+          // The steps come from the cache after round 0, and the Analyst is offered no tools.
+          stop = budgetStop(fixed.some((step) => !state.isCached(step.query_id, step.params)));
+          if (stop !== null) break;
+          const analysis: AnalysisOutcome = await analyse(
+            { task, question, as_of: asOf, trade, focus: PRE_TRADE_FOCUS, steps: fixed, memories, previous_findings: previous, feedback, noTools: true },
+            { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+          );
+          modelIds.add(analysis.model.model_id);
+          if (!analysis.ok) {
+            feedback = `The Analyst's reply was unusable (${analysis.error.type}): ${analysis.error.message} Reply with the JSON object the prompt defines, findings and gaps only.`;
+            revise(round, feedback, previous?.length ?? 0);
+            continue;
+          }
+          if (analysis.injection_seen) flags.injection = true;
+          findings = analysis.findings;
+          gaps = analysis.gaps;
         } else {
           // Planner. plan() has no run of its own, so its call is counted here.
           stop = budgetStop(false);
@@ -618,7 +700,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           results: state.store,
           gaps: accepted.gaps,
           declined_advice: flags.declined,
-          escalation: null,
+          escalation: preTrade?.escalation ?? null,
           memories,
           runId,
         },
@@ -630,7 +712,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
         const detail = written.reason ?? "the review failed its code check";
         return { ...stopped("writer_rejected", detail), summary: written.summary, review_markdown: written.review_markdown };
       }
-      return { kind: "success", summary: written.summary, review_markdown: written.review_markdown, draft: accepted, rounds: accepted.round + 1 };
+      const done = { summary: written.summary, review_markdown: written.review_markdown, draft: accepted, rounds: accepted.round + 1 };
+      return { kind: preTrade?.escalation ? "escalated" : "success", ...done };
     } catch (error) {
       // A budget an agent found spent, or a timeout that was the round's or the run's, ends as needs_human.
       if (error instanceof BudgetExhaustedError) return stopped(error.stop_reason === "max_tokens" ? "tokens" : "model_calls", error.message);
@@ -650,12 +733,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
       input_summary: `round ${round + 1} of ${config.MAX_ROUNDS} rejected`,
       output_summary: capped(
         round + 1 < config.MAX_ROUNDS
-          ? taskName === "thesis_check"
+          ? taskName === "pre_trade"
+            ? `round ${round + 2}: the plan is fixed; the Analyst gets its ${previousFindings} previous findings and the fix`
+            : taskName === "thesis_check"
             ? `round ${round + 2}: the plan is reused; the Analyst reruns only the batches that hold a journal id the fix names, with their previous findings and the fix, and the other batches keep their ${previousFindings} findings`
             : `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix`
           : `no round left; the run returns needs_human with the best draft`,
       ),
-      target_agent: round + 1 < config.MAX_ROUNDS ? (taskName === "thesis_check" ? "Analyst" : "Planner") : null,
+      target_agent: round + 1 < config.MAX_ROUNDS ? (taskName === "thesis_check" || taskName === "pre_trade" ? "Analyst" : "Planner") : null,
       status: "retry",
       why: fix,
       retry_count: round,
@@ -671,7 +756,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     const findings = draft?.findings ?? [];
     const gaps = draft?.gaps ?? [];
     const stopReason = outcome.kind === "needs_human" ? outcome.stop : null;
-    const text = outcome.kind === "success" ? outcome : outcome.summary !== undefined && outcome.review_markdown !== undefined ? { summary: outcome.summary, review_markdown: outcome.review_markdown } : null;
+    const text = outcome.kind === "success" || outcome.kind === "escalated" ? outcome : outcome.summary !== undefined && outcome.review_markdown !== undefined ? { summary: outcome.summary, review_markdown: outcome.review_markdown } : null;
     const explanation = outcome.kind === "needs_human" ? stopText(outcome.stop, config, outcome.detail) : "";
     const output: RunOutput = {
       summary: text?.summary ?? explanation,
@@ -679,7 +764,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       findings,
       gaps,
       citations: citationsOf(findings, store),
-      needs_human: outcome.kind === "needs_human",
+      needs_human: outcome.kind === "needs_human" || outcome.kind === "escalated",
       declined_advice: flags.declined,
       injection_seen: flags.injection,
       memories_recalled: memories.map(({ id, tags }) => ({ id, tags: [...tags] })),
@@ -690,6 +775,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       partial: outcome.kind === "needs_human",
       stop_reason: stopReason,
       ...(taskName === "thesis_check" ? { verdicts: verdictsOf(findings, thesisIds) } : {}),
+      ...(taskName === "pre_trade" && preTrade !== null ? { new_findings: preTrade.new_findings, escalation: preTrade.escalation } : {}),
     };
     return { ...base, status: outcome.kind === "success" ? "success" : "needs_human", output, error: null };
   }
