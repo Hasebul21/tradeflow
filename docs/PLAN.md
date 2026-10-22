@@ -876,6 +876,6 @@ The planted cases map to the input examples as follows:
 11. **Committed traces:** commit copies of chosen traces under `output_examples/traces/`; `logs/` stays ignored.
 12. **example_8:** until the reconcile task exists, the eval reports `example_8` as "not built yet" without failing; from the reconcile step on it must pass. The expectation itself never changes.
 13. **Tuesday:** no extra time. Tuesday evening is checks only. Optional steps run only when a day's list is pushed early; otherwise they ship simplified or not at all.
-14. **Limits:** `MAX_TOOL_ROUNDS` 2, `MAX_TOKENS_PER_RUN` 120000, `MAX_PROMPT_CHARS` 60000, `MAX_COMPLETION_TOKENS` 4096.
+14. **Limits:** the config step's prompt sets them, and it wins: `MAX_TOOL_ROUNDS` 2, `MAX_TOKENS_PER_RUN` 150000, `MAX_PROMPT_CHARS` 40000, `MAX_COMPLETION_TOKENS` 4000 (as built in `src/agent/config.ts`, commit 72fdfd8).
 
 Where this plan's step numbers differ from the build file's prompts, the prompt wins (the `run-step` skill, item 2).
