@@ -1,0 +1,15 @@
+# The judges' route: docker compose -f docker-compose.judge.yml up --build
+# One service, built from the Dockerfile, on port 8000 in sample mode. It needs no key and no Postgres.
+# SAMPLE_MODE=true in environment wins over any .env, so this route never uses a key.
+# The Dockerfile's own node-based HEALTHCHECK applies; there is no healthcheck block here.
+services:
+  app:
+    build: .
+    environment:
+      PORT: "8000"
+      SAMPLE_MODE: "true"
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
