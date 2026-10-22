@@ -55,6 +55,8 @@ export type QueryResult = {
   source: QuerySource;
   /** The first 120 characters of the Lightning SQL that ran, or was tried before a fallback; null when no SQL was sent. */
   sql_head: string | null;
+  /** The whole Lightning SQL statement Zetaris ran; left out unless source is "zetaris". */
+  sql?: string;
 };
 
 /** Everything the local queries read, loaded once per run. */
@@ -773,7 +775,7 @@ export type FetchDeps = {
   offReason?: string;
 };
 
-export type FetchedRows = { rows: Row[]; source: QuerySource; sqlHead: string | null; why: string | null };
+export type FetchedRows = { rows: Row[]; source: QuerySource; sqlHead: string | null; why: string | null; sql?: string };
 
 /**
  * Rows for one validated query. Zetaris when there is a client and the query has sql(); otherwise local().
@@ -812,7 +814,7 @@ export async function fetchRows(id: QueryId, params: Record<string, unknown>, de
         }),
     });
     const sqlRows = rowsFromArrays(q.sqlColumns, reply.data, new Set(q.sqlNumeric), new Set(q.sqlBooleans));
-    return { rows: mergeRows(q, local, sqlRows), source: "zetaris", sqlHead, why: null };
+    return { rows: mergeRows(q, local, sqlRows), source: "zetaris", sqlHead, why: null, sql: reply.sql };
   } catch (error) {
     const why = error instanceof Error ? `${(error as { type?: string }).type ?? error.name}: ${error.message}` : "unknown error";
     return { rows: local, source: "local-fallback", sqlHead, why };
@@ -902,5 +904,5 @@ export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
     // One query call of the run's budget; a cached result (run-state.ts) writes no usage.
     usage: { query_calls: 1 },
   });
-  return { query_id: id, run_query_id: randomUUID(), params, rows: fetched.rows, source: fetched.source, sql_head: fetched.sqlHead };
+  return { query_id: id, run_query_id: randomUUID(), params, rows: fetched.rows, source: fetched.source, sql_head: fetched.sqlHead, ...(fetched.sql === undefined ? {} : { sql: fetched.sql }) };
 }

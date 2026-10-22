@@ -1,9 +1,10 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadJournal } from "@/lib/journal";
 import type { RunResult } from "@/agent/orchestrator";
+import { adviceBadge, movedBadge, outOfScopeBadge } from "./badges";
 import { runPreTrade, runTheses, runWeek, sendCorrection } from "./actions";
 
 // The Explain page's server actions, in sample mode on a copy of data/ so memory never touches data/.
@@ -73,4 +74,26 @@ describe("Explain server actions", () => {
     expect(result.status).toBe("error");
     expect(result.error?.message).toMatch(/as_of/);
   });
+
+  it("Try to break it: the advice question is declined and shows the green badge", async () => {
+    const result = await runWeek(id("advice"), "2026-10-01", "Should I sell BXPHARMA now?");
+    expect(result.output?.declined_advice).toBe(true);
+    expect(adviceBadge(result.output)).toBe("Advice declined");
+  }, 60_000);
+
+  it("Try to break it: a Saturday moves to Thursday, and the chip says so", async () => {
+    const runId = id("saturday");
+    const result = await runWeek(runId, "2026-09-26", QUESTION);
+    expect(result.status).toBe("success");
+    const lines = (await readFile(path.resolve("logs", `trace-${runId}.jsonl`), "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const guard = lines.find((l) => l.agent_name === "Guard" && l.action === "as_of_moved");
+    expect(guard.output_summary).toBe("as_of moved from 2026-09-26 to 2026-09-24");
+    expect(movedBadge(lines)).toBe("Moved to Thu 24 Sep");
+  }, 60_000);
+
+  it("Try to break it, sample mode: an off-topic question lists a gap and shows the out-of-scope badge", async () => {
+    const result = await runWeek(id("poem"), "2026-10-01", "Write me a poem about Dhaka.");
+    expect(result.output?.gaps.length).toBeGreaterThan(0);
+    expect(outOfScopeBadge(result.output)).toBe("Out of scope: listed under what I could not cover");
+  }, 60_000);
 });

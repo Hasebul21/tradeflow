@@ -4,10 +4,12 @@ import { Alert, Badge, Button, Card, Collapse, DatePicker, Descriptions, Drawer,
 import dayjs from "dayjs";
 import { useEffect, useRef, useState } from "react";
 import type { Citation, RunResult } from "@/agent/orchestrator";
+import type { Proof } from "@/agent/proof";
 import type { TraceLine } from "@/agent/trace";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
+import { adviceBadge, correctionChip, movedBadge, outOfScopeBadge, selfCorrectionBanner } from "./badges";
 import { runPreTrade, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
 
@@ -15,12 +17,25 @@ type Range = { first: string; last: string };
 type Plan = { id: string; label: string };
 const POLL_MS = 1500;
 
+const BREAK_ADVICE = "Should I sell BXPHARMA now?";
+const BREAK_POEM = "Write me a poem about Dhaka.";
+const BREAK_SATURDAY = "2026-09-26";
+
 const QUESTIONS = ["Why did my portfolio move this week?", "Which of my rules are broken this week?", "How does this week compare with last week?"];
 
 // ---------------------------------------------------------------------------------------------------------------
 // One run: a client-made run id, a poll of GET /run/<run_id> while the action is awaited, then the result.
 
-type RunState = { running: boolean; runId: string | null; steps: TraceLine[]; started: boolean; result: RunResult | null };
+type RunState = { running: boolean; runId: string | null; steps: TraceLine[]; started: boolean; result: RunResult | null; proof: Proof | null };
+
+async function fetchProof(runId: string): Promise<Proof | null> {
+  try {
+    const response = await fetch(`/run/${runId}/proof`, { cache: "no-store" });
+    return response.ok ? ((await response.json()) as Proof) : null;
+  } catch {
+    return null;
+  }
+}
 
 async function fetchSteps(runId: string): Promise<TraceLine[] | null> {
   try {
@@ -33,16 +48,17 @@ async function fetchSteps(runId: string): Promise<TraceLine[] | null> {
 }
 
 function useRun() {
-  const [state, setState] = useState<RunState>({ running: false, runId: null, steps: [], started: false, result: null });
+  const [state, setState] = useState<RunState>({ running: false, runId: null, steps: [], started: false, result: null, proof: null });
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   const start = async (action: (runId: string) => Promise<RunResult>) => {
     const runId = crypto.randomUUID();
-    setState({ running: true, runId, steps: [], started: false, result: null });
+    setState({ running: true, runId, steps: [], started: false, result: null, proof: null });
     timer.current = setInterval(async () => {
       const lines = await fetchSteps(runId);
-      if (lines !== null) setState((s) => (s.runId === runId && s.running ? { ...s, steps: lines, started: true } : s));
+      const proof = await fetchProof(runId);
+      if (lines !== null) setState((s) => (s.runId === runId && s.running ? { ...s, steps: lines, started: true, proof: proof ?? s.proof } : s));
     }, POLL_MS);
     let result: RunResult;
     try {
@@ -53,7 +69,8 @@ function useRun() {
     }
     if (timer.current) clearInterval(timer.current);
     const lines = (await fetchSteps(runId)) ?? [];
-    setState({ running: false, runId, steps: lines, started: lines.length > 0, result });
+    const proof = await fetchProof(runId);
+    setState({ running: false, runId, steps: lines, started: lines.length > 0, result, proof });
   };
   return { state, start };
 }
@@ -83,10 +100,55 @@ function StepsList({ steps }: { steps: TraceLine[] }) {
   );
 }
 
+const PROOF_CARDS = [
+  { key: "zetaris", sponsor: "Zetaris", color: "#1677ff" },
+  { key: "meterless", sponsor: "Meterless", color: "#722ed1" },
+  { key: "nemotron", sponsor: "Nemotron", color: "#52a41a" },
+  { key: "guards", sponsor: "Guards", color: "#fa8c16" },
+] as const;
+
+/** The numbers of the Proof cards, each read from the proof counts and nothing else. */
+export function proofCards(p: Proof): { key: string; sponsor: string; color: string; big: number; caption: string }[] {
+  const calls = p.nemotron.models.reduce((n, m) => n + m.calls, 0);
+  const models = p.nemotron.models.map((m) => `${m.model_id} x${m.calls}`).join(", ") || "no model calls";
+  const big = {
+    zetaris: p.zetaris.queries,
+    meterless: p.meterless.memories_recalled,
+    nemotron: calls,
+    guards: p.guards.checked,
+  };
+  const caption = {
+    zetaris: `${p.zetaris.via_zetaris} via Zetaris, ${p.zetaris.local} local`,
+    meterless: `${p.meterless.taken_by_tag} by tag, ${p.meterless.corrections_applied} corrections applied`,
+    nemotron: `${models}; ${p.nemotron.tokens_in} tokens in, ${p.nemotron.tokens_out} out`,
+    guards: `${p.guards.blocked} blocked, ${p.guards.injections_flagged} injections flagged`,
+  };
+  return PROOF_CARDS.map((c) => ({ ...c, big: big[c.key], caption: caption[c.key] }));
+}
+
+function ProofRow({ proof }: { proof: Proof | null }) {
+  if (proof === null) return null;
+  return (
+    <div>
+      <Typography.Text strong>Proof</Typography.Text>
+      <Flex wrap gap={12} style={{ marginTop: 8 }}>
+        {proofCards(proof).map((c) => (
+          <Card key={c.key} size="small" style={{ flex: "1 1 200px", borderTop: `4px solid ${c.color}` }} data-testid={`proof-${c.key}`}>
+            <Typography.Text style={{ color: c.color }} strong>{c.sponsor}</Typography.Text>
+            <div style={{ fontSize: 32, fontWeight: 600, lineHeight: 1.2 }}>{c.big}</div>
+            <Typography.Text type="secondary">{c.caption}</Typography.Text>
+          </Card>
+        ))}
+      </Flex>
+    </div>
+  );
+}
+
 function Live({ state }: { state: RunState }) {
   if (!state.running) return null;
   return (
     <Card size="small" title="Working">
+      <ProofRow proof={state.proof} />
       {state.started ? <StepsList steps={state.steps} /> : <Typography.Text type="secondary">Starting</Typography.Text>}
     </Card>
   );
@@ -133,6 +195,11 @@ function CitationDrawer({ citation, onClose }: { citation: Citation | null; onCl
             <Descriptions.Item label="Source">{citation.source}</Descriptions.Item>
             <Descriptions.Item label="Rows">{`${rows.length} shown of ${citation.row_count}`}</Descriptions.Item>
           </Descriptions>
+          {citation.source === "zetaris" && citation.sql ? (
+            <Card size="small" title="SQL that Zetaris ran" extra={<Button size="small" onClick={() => { void navigator.clipboard?.writeText(citation.sql ?? ""); }}>Copy</Button>}>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}><code>{citation.sql.slice(0, 600)}</code></pre>
+            </Card>
+          ) : null}
           <DataTable rowKey={(_, i) => String(i)} columns={columns} dataSource={rows} pagination={{ pageSize: 10 }} locale={{ emptyText: <EmptyState message="This query returned no rows." /> }} />
         </Space>
       ) : null}
@@ -179,8 +246,14 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
         <Badge count={`${counts.fallback} local-fallback`} color="orange" />
         <Badge count={`${out?.memories_recalled.length ?? 0} memories recalled`} color="purple" />
         <Badge count={`${out?.applied_corrections.length ?? 0} corrections applied`} color="green" />
+        {adviceBadge(out) ? <Tag color="green">{adviceBadge(out)}</Tag> : null}
+        {movedBadge(state.steps) ? <Tag color="blue">{movedBadge(state.steps)}</Tag> : null}
+        {outOfScopeBadge(out) ? <Tag color="gold">{outOfScopeBadge(out)}</Tag> : null}
+        {correctionChip(out) ? <Tag color="purple">{correctionChip(out)}</Tag> : null}
         <a href={`/run/${result.run_id}`} target="_blank" rel="noreferrer">Trace (JSON)</a>
       </Flex>
+      {selfCorrectionBanner(out, state.steps) ? <Alert type="info" showIcon title={selfCorrectionBanner(out, state.steps)} /> : null}
+      <ProofRow proof={state.proof} />
       {result.status === "error" ? (
         <Alert type="error" showIcon title={result.error?.type ?? "Error"} description={result.error?.message} />
       ) : null}
@@ -211,6 +284,11 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
           <Card size="small" title="Review">
             <ReviewText text={out.review_markdown} citations={citations} onOpen={setOpen} />
           </Card>
+          {out.gaps.length > 0 ? (
+            <Card size="small" title="What I could not cover">
+              <ul>{out.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul>
+            </Card>
+          ) : null}
           <Card size="small" title="What I remembered">
             {out.memories_recalled.length === 0 && out.applied_corrections.length === 0 ? (
               <EmptyState message="Nothing from earlier reviews applied." />
@@ -259,6 +337,12 @@ function WeekTab({ range }: { range: Range }) {
           <Input.TextArea rows={2} value={question} onChange={(e) => setQuestion(e.target.value)} />
           <Flex wrap gap={8} style={{ marginTop: 8 }}>
             {QUESTIONS.map((q) => <Tag key={q} style={{ cursor: "pointer" }} onClick={() => setQuestion(q)}>{q}</Tag>)}
+          </Flex>
+          <Flex wrap gap={8} align="center" style={{ marginTop: 8 }}>
+            <Typography.Text type="secondary">Try to break it</Typography.Text>
+            <Tag color="red" style={{ cursor: "pointer" }} onClick={() => setQuestion(BREAK_ADVICE)}>{BREAK_ADVICE}</Tag>
+            <Tag color="red" style={{ cursor: "pointer" }} onClick={() => setQuestion(BREAK_POEM)}>{BREAK_POEM}</Tag>
+            <Tag color="red" style={{ cursor: "pointer" }} onClick={() => { setAsOf(BREAK_SATURDAY); setQuestion(QUESTIONS[0]); }}>{BREAK_SATURDAY}</Tag>
           </Flex>
         </Form.Item>
         <Button type="primary" loading={state.running} disabled={question.trim() === ""} onClick={() => start((id) => runWeek(id, asOf, question.trim()))}>

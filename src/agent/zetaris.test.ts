@@ -454,3 +454,21 @@ describe("mergeRows", () => {
     expect(mergeRows(q, local, [])).toEqual([]);
   });
 });
+
+describe("the SQL that was sent", () => {
+  it("the client reply and the query result both carry the statement Zetaris ran", async () => {
+    const fetchImpl = fetchOf(() => json(weekMovesReply()));
+    const { call } = weekMoves();
+    const result = await call(clientOf(fetchImpl));
+    expect(result.source).toBe("zetaris");
+    const sent = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body)) as { sql: string };
+    expect(result.sql).toBe(sent.sql);
+    const reply = await clientOf(fetchOf(() => json(weekMovesReply()))).run("SELECT 1", { timeoutMs: 1000 });
+    expect(reply.sql).toBe("SELECT 1");
+  });
+
+  it("a local result has no sql", async () => {
+    const { call } = weekMoves({ sampleMode: true });
+    expect((await call(clientOf(fetchOf(() => json(weekMovesReply()))))).sql).toBeUndefined();
+  });
+});

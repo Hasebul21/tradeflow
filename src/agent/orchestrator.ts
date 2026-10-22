@@ -72,7 +72,7 @@ export type StopReason = "rounds" | "query_calls" | "model_calls" | "tokens" | "
 export type RunStatus = "success" | "needs_human" | "error";
 
 /** One cited result: what the accepted findings rest on. `rows` (at most CITATION_ROWS) is for the Explain page's drawer; it is output only and never goes into a model's input. */
-export type Citation = { run_query_id: string; query_id: QueryId; params: Record<string, unknown>; source: QuerySource; row_count: number; rows: QueryResult["rows"] };
+export type Citation = { run_query_id: string; query_id: QueryId; params: Record<string, unknown>; source: QuerySource; row_count: number; rows: QueryResult["rows"]; /** The SQL Zetaris ran, when source is "zetaris". */ sql?: string };
 export const CITATION_ROWS = 50;
 export type RunScores = Scores & { total: number };
 
@@ -171,7 +171,7 @@ export function citationsOf(findings: readonly Finding[], store: Record<string, 
       const result = store[cite];
       if (result === undefined || seen.has(cite)) continue;
       seen.add(cite);
-      out.push({ run_query_id: cite, query_id: result.query_id, params: result.params, source: result.source, row_count: result.rows.length, rows: result.rows.slice(0, CITATION_ROWS) });
+      out.push({ run_query_id: cite, query_id: result.query_id, params: result.params, source: result.source, row_count: result.rows.length, rows: result.rows.slice(0, CITATION_ROWS), ...(result.source === "zetaris" && result.sql !== undefined ? { sql: result.sql } : {}) });
     }
   }
   return out;

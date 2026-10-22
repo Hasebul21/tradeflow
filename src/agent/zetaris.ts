@@ -37,6 +37,8 @@ export type ZetarisReply = {
   /** The reply's own column names. Their case varies, so callers name columns from their SELECT list instead. */
   headers: string[];
   durationMs: number;
+  /** The statement that was sent, kept so a citation can show it. */
+  sql: string;
 };
 
 export interface ZetarisClient {
@@ -59,7 +61,7 @@ export function createZetarisClient(cfg: Config["zetaris"], fetchImpl: typeof fe
       for (let attempt = 0; ; attempt++) {
         try {
           const reply = await post(base, cfg, sql, timeoutMs, fetchImpl);
-          return { ...reply, durationMs: Date.now() - started };
+          return { ...reply, sql, durationMs: Date.now() - started };
         } catch (error) {
           if (error instanceof ZetarisError && error.type === "timeout" && attempt === 0) {
             onRetry?.();
@@ -79,7 +81,7 @@ async function post(
   sql: string,
   timeoutMs: number,
   fetchImpl: typeof fetch,
-): Promise<Omit<ZetarisReply, "durationMs">> {
+): Promise<Omit<ZetarisReply, "durationMs" | "sql">> {
   let response: Response;
   try {
     response = await fetchImpl(`${base}/sql-editor/sqls/run`, {
@@ -118,7 +120,7 @@ async function post(
   return parseReply(json);
 }
 
-function parseReply(json: unknown): Omit<ZetarisReply, "durationMs"> {
+function parseReply(json: unknown): Omit<ZetarisReply, "durationMs" | "sql"> {
   if (json === null || typeof json !== "object" || Array.isArray(json)) throw new ZetarisError("bad_reply", "The reply was not a JSON object.");
   const { data, headers } = json as { data?: unknown; headers?: unknown };
   // No rows can arrive as a missing or null data field: that is an empty answer, not an error.
