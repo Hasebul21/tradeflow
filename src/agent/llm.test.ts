@@ -262,4 +262,17 @@ describe("complete: paths beyond the eleven cases", () => {
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.ctor).not.toHaveBeenCalled();
   });
+
+  it("traces one line with the model id, usage and duration_ms for a real sample-model Planner call", async () => {
+    const actual = await vi.importActual<typeof import("./sample-model")>("./sample-model");
+    vi.mocked(sampleComplete).mockImplementationOnce(actual.complete);
+    const user = JSON.stringify({ task: "explain_week", question: "Why?", as_of: "2026-10-01" });
+    const result = await complete({ ...base, user, sampleMode: true, json: true, agent: "Planner" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ agent_name: "Planner", action: "model_call", status: "ok", model: "sample-model" });
+    expect(lines[0].usage).toEqual({ tokens_in: result.usage?.tokens_in, tokens_out: result.usage?.tokens_out });
+    expect(lines[0].usage?.tokens_in).toBeGreaterThan(0);
+    expect(typeof lines[0].duration_ms).toBe("number");
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
 });

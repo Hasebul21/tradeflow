@@ -150,6 +150,8 @@ npx tsc --noEmit    # types
 npm run build       # production build
 ```
 
+To see which model answers, run `npm run try-model` (add `-- --strong` or `-- --fast` for another tier). It sends one short Planner input and prints the source, the requested `meterless/*` id, the model the reply reports, the receipt's `routed_model` and `cost_usd`, whether the reply parsed, the usage and the time. With no key set, or with `SAMPLE_MODE=true`, it uses `src/agent/sample-model.ts`: deterministic code that builds each reply from the input, with no network and no stored answers, and reports usage as an estimate of characters divided by four.
+
 ### 9. Troubleshooting
 
 | Problem | What to do |

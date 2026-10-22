@@ -11,6 +11,7 @@
     "test": "vitest run",
     "seed": "node scripts/seed.mjs",
     "db:load": "node scripts/load-postgres.mjs",
+    "try-model": "node --env-file-if-exists=.env --import tsx scripts/try-model.ts",
     "check": "npm run lint && tsc --noEmit && npm test"
   },
   "dependencies": {
