@@ -10,7 +10,9 @@ process.stdin.on("end", () => {
     // Unreadable input: fall through to allow; nothing to match against.
   }
   const rules = [
-    [/(^|[\s;&|])(cat|less|more|head|tail|bat|grep|sed|awk|base64|xxd|strings|od)\b[^\n]*\.env(?!\.example)\b/i, "deny", "Reading .env would put secrets in the chat. Use .env.example."],
+    [/(^|[\s;&|])(cat|less|more|head|tail|bat|grep|rg|sed|awk|base64|xxd|strings|od)\b[^\n]*\.env(?!\.example)\b/i, "deny", "Reading .env would put secrets in the chat. Use .env.example."],
+    // A copy or a link of .env under another name would get past the read guard, which matches names.
+    [/(^|[\s;&|])(ln|cp|mv|rsync|tar|zip|scp|curl)\b[^\n]*\.env(?!\.example)\b/i, "deny", "Copying or linking .env would move secrets past the guards. Scripts load .env themselves."],
     [/(^|[\s;&|])(printenv|env)(\s|$)|echo\s+[^\n]*\$\{?[A-Z_]*(KEY|TOKEN|SECRET|PASSWORD|PGPASS|DATABASE_URL)/, "deny", "Printing environment variables would expose keys."],
     [/git\s+push\b[^\n]*(--force|-f\b|--delete|\s:)|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|git\s+tag\s+(-f|-d|--delete)|git\s+rebase\b|git\s+commit\b[^\n]*--amend|git\s+(checkout\s+--|restore)\s+\.(\s|$)/, "deny", "History-rewriting or work-discarding git commands are off limits; the pre-hackathon tag and the commit history are evidence."],
     [/git\s+push\b/, "ask", "Pushing publishes the work. Confirm this push."],

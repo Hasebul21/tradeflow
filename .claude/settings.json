@@ -2,6 +2,9 @@
   "permissions": {
     "deny": [
       "Read(./.env)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/secrets/**)",
       "Read(./.hackathon-prep/**)",
       "Read(./data/memory/**)",
       "Read(./logs/*.jsonl)"

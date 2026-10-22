@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -72,6 +73,30 @@ describe("cursor-adapter.mjs", () => {
   it("denies reading .env and allows .env.example", () => {
     expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/.env` } }))).toBe("deny");
     expect(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/.env.example` } }).out).toBeNull();
+  });
+
+  it("denies a Grep that reaches .env through its glob or path", () => {
+    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", path: ".", glob: ".env*" } }))).toBe("deny");
+    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob: "{.env,README.md}" } }))).toBe("deny");
+    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "secrets/" } }))).toBe("deny");
+    expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "planner", path: "src", glob: "*.ts" } }).out).toBeNull();
+  });
+
+  it("denies reading a symlink that points at .env", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
+    try {
+      writeFileSync(path.join(dir, ".env"), "NAME=made-up\n");
+      symlinkSync(path.join(dir, ".env"), path.join(dir, "notes.txt"));
+      expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: path.join(dir, "notes.txt") } }))).toBe("deny");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("denies copying or linking .env", () => {
+    expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "ln -s .env notes.txt" } }))).toBe("deny");
+    expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "cp .env /tmp/x" } }))).toBe("deny");
+    expect(adapter("shell", { tool_name: "Bash", tool_input: { command: "cp .env.example /tmp/names.txt" } }).out).toBeNull();
   });
 
   it("denies cat .env, asks before git push and allows ls", () => {
