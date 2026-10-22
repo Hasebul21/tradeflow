@@ -441,11 +441,29 @@ function parseArguments(raw: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * True when the provider answered 502 with "empty_response": the model spent the token budget reasoning and
+ * returned no content. Nightshift names it in the message, the error code, the type or the error body.
+ */
+function isEmptyResponse(error: unknown): boolean {
+  if (error === null || typeof error !== "object") return false;
+  const e = error as ErrorLike & { type?: unknown; error?: unknown };
+  if (e.status !== 502) return false;
+  const fields = [e.message, e.code, e.type, e.error === undefined ? undefined : JSON.stringify(e.error)];
+  return fields.some((field) => typeof field === "string" && /empty_response/i.test(field));
+}
+
+/** Whether a request turns reasoning off: always for the fast tier, and for the retry after an empty reply. */
+function sendsReasoningOff(tier: Tier, requested: string, forced: boolean): boolean {
+  return !noReasoningSwitch.has(requested) && (tier === "fast" || forced);
+}
+
 function buildParams(
   state: CallState,
   tier: Tier,
   requested: string,
   messages: HistoryMessage[],
+  reasoningOff = false,
 ): OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming {
   const { cfg, options } = state;
   // max_tokens is deprecated in the SDK types in favour of max_completion_tokens; the spec names max_tokens.
@@ -460,10 +478,10 @@ function buildParams(
     params.tools = options.tools;
     params.tool_choice = "auto";
   }
-  if (tier === "fast" && !noReasoningSwitch.has(requested)) {
-    // openai-node has no extra_body, so the switch goes into the params directly.
-    if (state.host === "openrouter.ai") params.reasoning = { enabled: false };
-    else params.chat_template_kwargs = { enable_thinking: false };
+  if (sendsReasoningOff(tier, requested, reasoningOff)) {
+    // openai-node has no extra_body, so the switch goes into the params directly. Nightshift and OpenRouter both
+    // honour reasoning { enabled: false }; Nightshift does not pass chat_template_kwargs on, so it is not sent.
+    params.reasoning = { enabled: false };
   }
   return params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
 }
@@ -495,8 +513,10 @@ async function sendWithRetry(
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const { options, cfg } = state;
   let transportRetried = false;
+  // Set for the one retry after a 502 "empty_response": that request turns reasoning off.
+  let reasoningOff = false;
   for (;;) {
-    const params = buildParams(state, tier, requested, messages);
+    const params = buildParams(state, tier, requested, messages, reasoningOff);
     const timeout = attemptTimeoutMs(state, tier);
     try {
       return await state.client.chat.completions.create(params, { timeout, maxRetries: 0 });
@@ -521,7 +541,7 @@ async function sendWithRetry(
         case "refused":
           throw new NightshiftNotRunning("Nightshift not running: start it and check METERLESS_BASE_URL");
         case "bad_request": {
-          const dropped = dropRejectedParam(state, tier, requested, failure.message);
+          const dropped = dropRejectedParam(state, tier, requested, failure.message, sendsReasoningOff(tier, requested, reasoningOff));
           if (dropped !== null) {
             state.retries += 1;
             continue;
@@ -540,6 +560,22 @@ async function sendWithRetry(
           if (!transportRetried && timeLeftMs(state) >= RETRY_FLOOR_MS) {
             transportRetried = true;
             state.retries += 1;
+            // A 502 "empty_response": the model reasoned past the token budget. The one retry turns reasoning
+            // off instead of repeating the same request, unless this model id already rejected the switch.
+            if (isEmptyResponse(error) && !noReasoningSwitch.has(requested)) {
+              reasoningOff = true;
+              options.tracer?.log({
+                agent_name: options.agent,
+                action: "reasoning_off_retry",
+                input_summary: `${tier} model request`,
+                output_summary: "HTTP 502 empty_response; trying once more with reasoning off",
+                status: "retry",
+                why: "the model reasoned past the token budget",
+                model: requested,
+              });
+              await sleep(BACKOFF_MS);
+              continue;
+            }
             retryTrace(why);
             await sleep(BACKOFF_MS);
             continue;
@@ -563,7 +599,7 @@ async function sendWithRetry(
  * A 400 that names an optional request field: remember the rejection for this model id, trace it once, and
  * report which field to leave out on the resend. Returns null when the 400 is about something else.
  */
-function dropRejectedParam(state: CallState, tier: Tier, requested: string, message: string): string | null {
+function dropRejectedParam(state: CallState, tier: Tier, requested: string, message: string, sentReasoningOff: boolean): string | null {
   const { options } = state;
   if (options.json === true && !noJsonMode.has(requested) && /response_format/i.test(message)) {
     noJsonMode.add(requested);
@@ -578,7 +614,7 @@ function dropRejectedParam(state: CallState, tier: Tier, requested: string, mess
     });
     return "response_format";
   }
-  if (tier === "fast" && !noReasoningSwitch.has(requested) && /chat_template_kwargs|enable_thinking|reasoning/i.test(message)) {
+  if (sentReasoningOff && /chat_template_kwargs|enable_thinking|reasoning/i.test(message)) {
     noReasoningSwitch.add(requested);
     options.tracer?.log({
       agent_name: options.agent,

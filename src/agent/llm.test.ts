@@ -269,8 +269,65 @@ describe("complete: paths beyond the eleven cases", () => {
     mocks.create.mockResolvedValue(reply("ok"));
     await complete({ ...base, model: "fast" });
     await complete(base);
-    expect(mocks.create.mock.calls[0][0]).toMatchObject({ chat_template_kwargs: { enable_thinking: false } });
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({ reasoning: { enabled: false } });
+    expect(mocks.create.mock.calls[0][0]).not.toHaveProperty("chat_template_kwargs");
+    expect(mocks.create.mock.calls[1][0]).not.toHaveProperty("reasoning");
     expect(mocks.create.mock.calls[1][0]).not.toHaveProperty("chat_template_kwargs");
+  });
+
+  it("sends reasoning { enabled: false } and no chat_template_kwargs for the fast tier on a 127.0.0.1 base URL", async () => {
+    const local = loadConfig(
+      {
+        METERLESS_API_KEY: KEY,
+        METERLESS_BASE_URL: "http://127.0.0.1:8088/v1",
+        NEMOTRON_MODEL_STRONG: "lane/strong",
+        NEMOTRON_MODEL_MAIN: "lane/main",
+        NEMOTRON_MODEL_FAST: "lane/fast",
+      },
+      () => {},
+    );
+    mocks.create.mockResolvedValueOnce(reply("ok"));
+    await complete({ ...base, model: "fast", config: local });
+    const [request] = mocks.create.mock.calls[0] as [Record<string, unknown>];
+    expect(request.reasoning).toEqual({ enabled: false });
+    expect(request).not.toHaveProperty("chat_template_kwargs");
+    expect(traced("model_call")[0]).toMatchObject({ provider_host: "127.0.0.1", status: "ok" });
+  });
+
+  it("retries a 502 empty_response once with reasoning off, and traces it as reasoning_off_retry", async () => {
+    mocks.create
+      .mockRejectedValueOnce(httpError(502, '502 {"error":{"type":"empty_response","message":"no content"}}'))
+      .mockResolvedValueOnce(reply("ok"));
+    const result = await complete(base);
+    expect(result.text).toBe("ok");
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    const [first] = mocks.create.mock.calls[0] as [Record<string, unknown>];
+    const [second] = mocks.create.mock.calls[1] as [Record<string, unknown>];
+    expect(first).not.toHaveProperty("reasoning");
+    expect(second.reasoning).toEqual({ enabled: false });
+    expect(second).not.toHaveProperty("chat_template_kwargs");
+    const retries = traced("reasoning_off_retry");
+    expect(retries).toHaveLength(1);
+    expect(retries[0]).toMatchObject({ why: "the model reasoned past the token budget", status: "retry", model: "lane/main" });
+    expect(traced("model_retry")).toHaveLength(0);
+    expect(traced("model_call")[0]).toMatchObject({ status: "ok", model_retries: 1 });
+  });
+
+  it("makes no reasoning-off retry after a 502 empty_response when under one second is left", async () => {
+    mocks.create.mockRejectedValue(httpError(502, "502 empty_response"));
+    const error = await complete({ ...base, timeoutMs: 900 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelHttpError);
+    expect((error as ModelHttpError).status).toBe(502);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(traced("reasoning_off_retry")).toHaveLength(0);
+  });
+
+  it("throws after the one reasoning-off retry when the second 502 empty_response comes back: the caller never loops", async () => {
+    mocks.create.mockRejectedValue(httpError(502, "502 empty_response"));
+    const error = await complete(base).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelHttpError);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(traced("reasoning_off_retry")).toHaveLength(1);
   });
 
   it("calls the sample model, and never the client, when sampleMode is true", async () => {
