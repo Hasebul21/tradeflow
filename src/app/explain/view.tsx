@@ -9,7 +9,7 @@ import type { TraceLine } from "@/agent/trace";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
-import { adviceBadge, correctionChip, modelUnavailableLabel, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner } from "./badges";
+import { acceptedText, adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner, stopReasonLabel } from "./badges";
 import { runPreTrade, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
 
@@ -265,12 +265,12 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
           description={`${out.escalation.rule}: ${out.escalation.message}`}
         />
       ) : result.status === "needs_human" ? (
-        <Alert type="warning" showIcon title="Needs your attention" description={modelUnavailableLabel(out) ?? out?.stop_reason ?? "The run needs a person to decide."} />
+        <Alert type="warning" showIcon title="Needs your attention" description={stopReasonLabel(out) ?? "The run needs a person to decide."} />
       ) : null}
       {out ? (
         <>
           <Descriptions size="small" column={{ xs: 1, md: 2 }} bordered>
-            <Descriptions.Item label="Accepted">{`accepted in round ${out.rounds}`}</Descriptions.Item>
+            <Descriptions.Item label={result.status === "success" ? "Accepted" : "Stopped"}>{acceptedText(result.status, out)}</Descriptions.Item>
             <Descriptions.Item label="Scores">
               {scoresText(out, state.steps)}
             </Descriptions.Item>

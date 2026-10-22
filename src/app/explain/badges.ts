@@ -1,5 +1,5 @@
 // Pure helpers for the Explain page's badges and banner. Each one reads the run's output or trace lines only.
-import { MODEL_UNAVAILABLE_LABEL } from "@/agent/labels";
+import { MODEL_UNAVAILABLE_LABEL, STOP_REASON_LABELS, type StopReasonCode } from "@/agent/labels";
 import type { RunResult } from "@/agent/orchestrator";
 
 type Line = { agent_name?: unknown; action?: unknown; why?: unknown; output_summary?: unknown };
@@ -64,4 +64,16 @@ export function correctionChip(output: Pick<Output, "applied_corrections"> | nul
 /** The label for a draft the code built because the model failed after the queries ran, or null. It is never shown as a model answer. */
 export function modelUnavailableLabel(output: Pick<Output, "stop_reason"> | null | undefined): string | null {
   return output?.stop_reason === "model_unavailable" ? MODEL_UNAVAILABLE_LABEL : null;
+}
+
+/** The sentence for a stop code, or null when the run has none (an escalation has stop_reason null). */
+export function stopReasonLabel(output: Pick<Output, "stop_reason"> | null | undefined): string | null {
+  const code = output?.stop_reason;
+  return code ? (STOP_REASON_LABELS as Record<string, string>)[code as StopReasonCode] ?? null : null;
+}
+
+/** The header cell for the round: "accepted in round N" only for success; needs_human gives the stop sentence, never "accepted". */
+export function acceptedText(status: RunResult["status"], output: Pick<Output, "rounds" | "stop_reason"> | null | undefined): string {
+  if (status === "success") return `accepted in round ${output?.rounds ?? 0}`;
+  return stopReasonLabel(output) ?? "Not accepted. The decision is yours.";
 }

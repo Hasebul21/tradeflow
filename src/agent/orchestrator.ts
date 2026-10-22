@@ -15,7 +15,7 @@ import { DISCLAIMER, write } from "./agents/writer";
 import { ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
-import { MODEL_UNAVAILABLE_LABEL } from "./labels";
+import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
 import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, recall, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
@@ -72,7 +72,7 @@ export type RunOptions = {
   localReason?: string;
 };
 
-export type StopReason = "rounds" | "query_calls" | "model_calls" | "tokens" | "round_timeout" | "run_timeout" | "writer_rejected" | "model_unavailable";
+export type StopReason = (typeof STOP_REASONS)[number];
 export type RunStatus = "success" | "needs_human" | "error";
 
 /** One cited result: what the accepted findings rest on. `rows` (at most CITATION_ROWS) is for the Explain page's drawer; it is output only and never goes into a model's input. */
