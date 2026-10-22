@@ -16,12 +16,13 @@ const split = (text) => {
   return { front: match ? match[1] : "", body: match ? text.slice(match[0].length) : text };
 };
 
-function adapter(kind, event) {
+function adapter(kind, event, extraEnv = {}) {
   const run = spawnSync(process.execPath, [".claude/hooks/cursor-adapter.mjs", kind], {
     input: JSON.stringify(event),
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+    // A switch file that never exists, so the owner's own .run/allow-push can't change these results.
+    env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_KIT_ALLOW_PUSH_FILE: path.join(tmpdir(), "claude-kit-no-switch"), ...extraEnv },
   });
   return { status: run.status, out: run.stdout.trim() ? JSON.parse(run.stdout) : null };
 }
@@ -123,6 +124,21 @@ describe("cursor-adapter.mjs", () => {
         env: { ...process.env, CLAUDE_PROJECT_DIR: link },
       });
       expect(JSON.parse(run.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets a plain push to origin main through only when the owner's switch file exists", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
+    try {
+      const sw = path.join(dir, "allow-push");
+      writeFileSync(sw, "");
+      const on = { CLAUDE_KIT_ALLOW_PUSH_FILE: sw };
+      expect(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin main" } }, on).out).toBeNull();
+      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin feature" } }, on))).toBe("ask");
+      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push --force origin main" } }, on))).toBe("deny");
+      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin main" } }))).toBe("ask");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

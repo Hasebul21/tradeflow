@@ -15,6 +15,10 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next"]);
 // Past these limits the hook could run out of time, which would let the call through, so it denies instead.
 const MAX_FILES = 20000;
 const MAX_CHECKS = 12;
+// The owner can let an unattended run push without a question: create .run/allow-push (git-ignored).
+// Only the exact plain push to origin main is let through; force pushes stay denied by guard-shell.
+const PUSH_SWITCH = process.env.CLAUDE_KIT_ALLOW_PUSH_FILE || join(root, ".run", "allow-push");
+const pushAllowed = (command) => /^\s*git push origin main\s*$/.test(command ?? "") && existsSync(PUSH_SWITCH);
 
 // Only these glob characters are translated; any other glob is refused, so the check can't read it differently
 // from ripgrep (no [classes], ?, \, !, spaces or several patterns in one).
@@ -216,7 +220,7 @@ process.stdin.on("end", () => {
     if (!out) return deny(`The ${kind} guard gave no answer, so this was stopped. Run: node .cursor/hooks/${guards[kind]}`);
     if (kind === "prompt" && out.continue === false) return process.stdout.write(JSON.stringify(reply("block", out.user_message)));
     if (out.permission === "deny") return deny(out.agent_message ?? out.user_message);
-    if (out.permission === "ask") ask ??= out.agent_message ?? out.user_message;
+    if (out.permission === "ask" && !(kind === "shell" && pushAllowed(payload.command))) ask ??= out.agent_message ?? out.user_message;
   }
   if (ask) process.stdout.write(JSON.stringify(reply("ask", ask)));
 });
