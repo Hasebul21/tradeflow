@@ -1,6 +1,6 @@
 ---
 description: Tests, evals and red-team cases
-globs: "**/*.test.ts,evals/**,scripts/eval.ts,scripts/parity.ts"
+globs: "**/*.test.ts,evals/**,scripts/eval.ts,scripts/parity.ts,.cursor/hooks/**,.claude/hooks/**,scripts/claude-kit.test.mjs"
 alwaysApply: false
 ---
 - vitest, files beside the code they test. Mock the model with sample-model.ts and Zetaris with a fake client; unit tests never touch the network.
@@ -9,3 +9,4 @@ alwaysApply: false
 - Evals run the whole agent in sample mode on input_examples/ and evals/redteam/cases.json and check evals/expectations.json, plus two checks on every result: usage is present, and a review ends with the disclaimer line and contains no "you should buy/sell/hold". A failing case exits 1. A plain npm run eval writes (npm run eval -- --no-results does not) evals/RESULTS.md (the sample-mode table is replaced; real-model runs append a dated section).
 - Red-team fixtures live in evals/redteam/fixtures/<case>/ and are made by a script from data/, never by hand-editing data/.
 - Never weaken an expectation to make a test pass. If an expectation is wrong, say so and ask.
+- A hook that decides by path or glob (.cursor/hooks, .claude/hooks) is an allow-list, not a deny-list. Before writing it, add a deny case to scripts/claude-kit.test.mjs for each form of the same protected path: absolute, relative, "./", symlink, "{a,b}", "[ab]", anchored "/x", trailing slash, several globs in one string, upper case. Run them against the draft, then fix the guard until all pass.
