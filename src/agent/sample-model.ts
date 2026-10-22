@@ -37,7 +37,10 @@ const round1 = (value: number): number => Math.round(value * 10) / 10;
 /** "change_pct" becomes "change pct": the label of a number, as the row names it. */
 const labelOf = (field: string): string => field.replace(/_/g, " ");
 
-const ADVICE_QUESTION = /\b(should i|shall i|buy|sell|hold|trim|dump)\b/i;
+// A question that asks whether to trade ("should I sell", "should I buy", "go ahead and buy"), not one that names
+// a trade or a holding ("Why did GP sell off?", "What do I hold?").
+const ADVICE_QUESTION =
+  /\b(should|shall|could|can|do|would|must|ought) i (just |also |now |still |rather )?(buy|sell|hold|trim|dump|exit|add)\b|\bgo ahead and (buy|sell)\b|\b(buy|sell|hold) (now|more|it|them|everything|all|out)\b|\btime to (buy|sell)\b|\bbuy or sell\b/i;
 // Text addressed to the assistant. The owner's own notes ("Take profit") are not matched.
 const INJECTION = /ignore (all |any )?(previous|prior) instructions|you are now\b|tell the owner to\b/i;
 const ADVICE_CLAIM = /\b(you should|consider|i recommend|i suggest)\b[^.]*\b(buy|sell|hold|buying|selling|holding)\b/i;
@@ -47,6 +50,8 @@ const CAUSE_CLAIM = /\bbecause of\b|\balways\b|\bwill (rise|fall|go)\b/i;
 // Planner
 
 type Step = { query_id: string; params: Obj; why: string };
+
+const MAX_STEPS = 5;
 
 function planSteps(task: string, asOf: string, trade: Obj | null): Step[] {
   const weekStart = minusDays(asOf, 7);
@@ -73,6 +78,7 @@ function planSteps(task: string, asOf: string, trade: Obj | null): Step[] {
         { query_id: "week_moves", params: { as_of: asOf }, why: "The week's moves per holding, with the portfolio total." },
         { query_id: "sector_vs_stock", params: { as_of: asOf }, why: "Each sector index against DSEX, to tell sector moves from stock moves." },
         { query_id: "announcements_between", params: { from: weekStart, to: asOf }, why: "Announcements behind any stock-specific move." },
+        { query_id: "dividends_between", params: { from: weekStart, to: asOf }, why: "Dividends and bonus shares in the week, behind any fall around a record date." },
         { query_id: "rule_findings", params: { as_of: asOf }, why: "Which of the owner's rules the week broke." },
       ];
   }
@@ -92,10 +98,11 @@ function planner(input: Obj): Obj {
   const named = feedback.match(/\b[A-Z][A-Z0-9]{2,}\b/g) ?? [];
   const symbol = named.find((token) => token !== "DSEX" && token !== "BDT");
   if (symbol !== undefined && !steps.some((step) => step.query_id === "fundamentals_latest")) {
-    steps = [
-      ...steps,
-      { query_id: "fundamentals_latest", params: { symbol, as_of: asOf }, why: `${symbol}'s latest quarters, which the Evaluator asked for.` },
-    ];
+    const extra: Step = { query_id: "fundamentals_latest", params: { symbol, as_of: asOf }, why: `${symbol}'s latest quarters, which the Evaluator asked for.` };
+    const rules = steps.findIndex((step) => step.query_id === "rule_findings");
+    steps = rules === -1 ? [...steps, extra] : [...steps.slice(0, rules), extra, ...steps.slice(rules)];
+    // Five at most: the dividends step gives way, rule_findings stays.
+    if (steps.length > MAX_STEPS) steps = steps.filter((step) => step.query_id !== "dividends_between");
   }
 
   // Only ids the catalogue offers, when the input has one.
@@ -112,7 +119,7 @@ function planner(input: Obj): Obj {
 
   return {
     focus,
-    steps: steps.slice(0, 5),
+    steps: steps.slice(0, MAX_STEPS),
     declined_advice: ADVICE_QUESTION.test(str(input.question)),
     injection_seen: memories.some((memory) => INJECTION.test(str(memory.content))),
   };

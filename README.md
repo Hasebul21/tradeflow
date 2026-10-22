@@ -193,6 +193,14 @@ The ledger maths lives in `src/lib/portfolio.ts`, `src/lib/rules.ts` and `src/li
 - `src/app/api/**/route.ts`: the JSON APIs, described in `src/lib/openapi.ts`.
 - `scripts/`: the seed (`seed.mjs`, `seed-data.mjs`) and the Postgres loader (`load-postgres.mjs`, `db-schema.mjs`).
 
+## Agents
+
+`src/agent/agents/` holds one file per agent; its system prompt is the matching file in `src/agent/prompts/`, read as-is. Everything else reaches a model as one JSON user message. `src/agent/context.ts` decides what each model sees: `forModel` cuts a query result to `MAX_ROWS_PER_QUERY` (50) rows and adds `row_count` and `truncated` (for `week_moves` the `PORTFOLIO` row stays first and the holdings are ordered by absolute contribution, so a cut drops the smallest moves); `memoriesForModel` keeps at most `MAX_MEMORIES` (5) memories as id, tags, content and relevance; `catalogueFor` gives a task its named queries; `citedResults` gives the Evaluator and the Writer only the results the findings cite. The full rows stay in the run's result store, keyed by `run_query_id`, which `checkCitations` reads, so a number from a cut row is still citable.
+
+| Agent | Model tier | What it does | Where |
+|---|---|---|---|
+| Planner | strong (`llm.ts` falls back to main) | Picks at most `MAX_PLAN_STEPS` (5) named queries for `explain_week` or `thesis_check`, each with a why, from the task's catalogue. A step whose query id is not in the catalogue, or whose params fail the query's schema, is dropped and traced as `step_dropped` and never run; invalid steps are dropped before a longer plan is cut to the first 5 (traced as `plan_cut`). The kept plan goes through `afterModel`; a refused plan is a `PlanBlockedError`. Each planned step is one `plan_step` trace line with its why and `target_agent` Analyst. In sample mode the plan comes from the input alone: for `explain_week`, `week_moves`, `sector_vs_stock`, `announcements_between`, `dividends_between` and `rule_findings`, with `declined_advice` when the question asks whether to buy, sell or hold | `src/agent/agents/planner.ts`, `src/agent/prompts/planner.md`, `src/agent/agents/planner.test.ts` |
+
 ## Guards
 
 `src/agent/guards.ts` holds the runtime checks. Each guard writes one trace line as agent `Guard` and returns `{ ok: true }` or `{ ok: false, reason }`; a block has action `block` and status `blocked`.
