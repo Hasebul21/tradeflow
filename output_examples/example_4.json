@@ -1,0 +1,365 @@
+{
+  "run_id": "example_4",
+  "task": "explain_week",
+  "agents": [
+    {
+      "name": "Planner",
+      "role": "picks at most MAX_PLAN_STEPS named queries for the task, with a why for each",
+      "model": "meterless/deep"
+    },
+    {
+      "name": "Analyst",
+      "role": "turns the plan's query results into findings that cite a run_query_id for every number",
+      "model": "meterless/auto"
+    },
+    {
+      "name": "Evaluator",
+      "role": "checks citations, the guard and coverage in code, then scores the draft out of 9",
+      "model": "meterless/fast"
+    },
+    {
+      "name": "Writer",
+      "role": "writes the owner's review from the accepted findings; code checks every number",
+      "model": "meterless/deep"
+    }
+  ],
+  "usage": {
+    "model_calls": 4,
+    "query_calls": 5,
+    "tokens_in": 19276,
+    "tokens_out": 16368,
+    "duration_ms": 140963
+  },
+  "trace_id": "example_4",
+  "log_file": "logs/trace-example_4.jsonl",
+  "execution_time_seconds": 140.963,
+  "status": "success",
+  "output": {
+    "summary": "Your portfolio rose 0.92% in the week to 17 Sep, 1.18 points ahead of DSEX; BRACBANK's 5.2% rise explains most of it.",
+    "review_markdown": "Your portfolio rose 0.92% in the week to 17 Sep, 1.18 points ahead of DSEX; BRACBANK's 5.2% rise explains most of it.\n\n- BRACBANK rose 5.2% over the week, adding 0.6 points to the portfolio, in line with its sector. [q:0bae8d8e-803b-4153-8174-b2e7e0e86aa6]\n- CITYBANK rose 5.9% over the week, adding 0.35 points to the portfolio, in line with its sector. [q:0bae8d8e-803b-4153-8174-b2e7e0e86aa6]\n- EBL rose 6.2% over the week, adding 0.29 points to the portfolio, in line with its sector. [q:0bae8d8e-803b-4153-8174-b2e7e0e86aa6]\n\n**What to look at next**\n- BRACBANK\n- Bank sector\n\nNot covered: dividends between 2026-09-10 and 2026-09-17 returned no rows\n\nThis is a review of your own records, not financial advice.",
+    "findings": [
+      {
+        "kind": "move",
+        "subject": "PORTFOLIO",
+        "claim": "The data shows the portfolio rose 0.9% over the week, 1.2 points ahead of DSEX.",
+        "numbers": [
+          {
+            "value": 0.92,
+            "label": "portfolio change %"
+          },
+          {
+            "value": 1.18,
+            "label": "points against DSEX"
+          }
+        ],
+        "cites": [
+          "0bae8d8e-803b-4153-8174-b2e7e0e86aa6"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "BRACBANK",
+        "claim": "The data shows BRACBANK rose 5.2% over the week, 0.2 points against its sector index (in line with sector).",
+        "numbers": [
+          {
+            "value": 5.22,
+            "label": "change %"
+          },
+          {
+            "value": -0.18,
+            "label": "vs sector pts"
+          }
+        ],
+        "cites": [
+          "0bae8d8e-803b-4153-8174-b2e7e0e86aa6"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "CITYBANK",
+        "claim": "The data shows CITYBANK rose 5.9% over the week, 0.5 points against its sector index (in line with sector).",
+        "numbers": [
+          {
+            "value": 5.9,
+            "label": "change %"
+          },
+          {
+            "value": 0.51,
+            "label": "vs sector pts"
+          }
+        ],
+        "cites": [
+          "0bae8d8e-803b-4153-8174-b2e7e0e86aa6"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "EBL",
+        "claim": "The data shows EBL rose 6.2% over the week, 0.8 points against its sector index (in line with sector).",
+        "numbers": [
+          {
+            "value": 6.2,
+            "label": "change %"
+          },
+          {
+            "value": 0.8,
+            "label": "vs sector pts"
+          }
+        ],
+        "cites": [
+          "0bae8d8e-803b-4153-8174-b2e7e0e86aa6"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      }
+    ],
+    "gaps": [
+      "dividends_between {\"from\":\"2026-09-10\",\"to\":\"2026-09-17\"} returned no rows, so this review says nothing it would have shown."
+    ],
+    "citations": [
+      {
+        "run_query_id": "0bae8d8e-803b-4153-8174-b2e7e0e86aa6",
+        "query_id": "week_moves",
+        "params": {
+          "as_of": "2026-09-17",
+          "sessions": 5
+        },
+        "source": "zetaris",
+        "row_count": 14,
+        "rows": [
+          {
+            "symbol": "PORTFOLIO",
+            "from_date": "2026-09-10",
+            "to_date": "2026-09-17",
+            "change_pct": 0.92,
+            "change_bdt": 5780.2,
+            "index_change_pct": -0.26,
+            "vs_index_pts": 1.18
+          },
+          {
+            "symbol": "BRACBANK",
+            "sector": "Bank",
+            "shares": 1520,
+            "from_close": 47.9,
+            "to_close": 50.4,
+            "change_pct": 5.22,
+            "contribution_bdt": 3800,
+            "contribution_pts": 0.6,
+            "sector_change_pct": 5.4,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": -0.18,
+            "comparison": "in line with sector",
+            "weight_pct": 12.07
+          },
+          {
+            "symbol": "CITYBANK",
+            "sector": "Bank",
+            "shares": 1300,
+            "from_close": 28.8,
+            "to_close": 30.5,
+            "change_pct": 5.9,
+            "contribution_bdt": 2210,
+            "contribution_pts": 0.35,
+            "sector_change_pct": 5.4,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.51,
+            "comparison": "in line with sector",
+            "weight_pct": 6.25
+          },
+          {
+            "symbol": "SQURPHARMA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 655,
+            "from_close": 236.9,
+            "to_close": 234.1,
+            "change_pct": -1.18,
+            "contribution_bdt": -1834,
+            "contribution_pts": -0.29,
+            "sector_change_pct": -0.6,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": -0.59,
+            "comparison": "in line with sector",
+            "weight_pct": 24.16
+          },
+          {
+            "symbol": "EBL",
+            "sector": "Bank",
+            "shares": 1200,
+            "from_close": 24.2,
+            "to_close": 25.7,
+            "change_pct": 6.2,
+            "contribution_bdt": 1800,
+            "contribution_pts": 0.29,
+            "sector_change_pct": 5.4,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.8,
+            "comparison": "in line with sector",
+            "weight_pct": 4.86
+          },
+          {
+            "symbol": "BXPHARMA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 320,
+            "from_close": 167.7,
+            "to_close": 166.3,
+            "change_pct": -0.83,
+            "contribution_bdt": -448,
+            "contribution_pts": -0.07,
+            "sector_change_pct": -0.6,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": -0.24,
+            "comparison": "in line with sector",
+            "weight_pct": 8.38
+          },
+          {
+            "symbol": "BATBC",
+            "sector": "Food & Allied",
+            "shares": 80,
+            "from_close": 494.8,
+            "to_close": 497.5,
+            "change_pct": 0.55,
+            "contribution_bdt": 216,
+            "contribution_pts": 0.03,
+            "sector_change_pct": 0.27,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.27,
+            "comparison": "in line with sector",
+            "weight_pct": 6.27
+          },
+          {
+            "symbol": "SUMITPOWER",
+            "sector": "Fuel & Power",
+            "shares": 600,
+            "from_close": 29.5,
+            "to_close": 29.8,
+            "change_pct": 1.02,
+            "contribution_bdt": 180,
+            "contribution_pts": 0.03,
+            "sector_change_pct": 0.26,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.76,
+            "comparison": "in line with sector",
+            "weight_pct": 2.82
+          },
+          {
+            "symbol": "RENATA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 36,
+            "from_close": 919.6,
+            "to_close": 915.8,
+            "change_pct": -0.41,
+            "contribution_bdt": -136.8,
+            "contribution_pts": -0.02,
+            "sector_change_pct": -0.6,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.18,
+            "comparison": "in line with sector",
+            "weight_pct": 5.19
+          },
+          {
+            "symbol": "LHBL",
+            "sector": "Cement",
+            "shares": 400,
+            "from_close": 71.4,
+            "to_close": 71.7,
+            "change_pct": 0.42,
+            "contribution_bdt": 120,
+            "contribution_pts": 0.02,
+            "sector_change_pct": -0.26,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.68,
+            "comparison": "in line with sector",
+            "weight_pct": 4.52
+          },
+          {
+            "symbol": "UPGDCL",
+            "sector": "Fuel & Power",
+            "shares": 250,
+            "from_close": 167.3,
+            "to_close": 167,
+            "change_pct": -0.18,
+            "contribution_bdt": -75,
+            "contribution_pts": -0.01,
+            "sector_change_pct": 0.26,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": -0.44,
+            "comparison": "in line with sector",
+            "weight_pct": 6.58
+          },
+          {
+            "symbol": "OLYMPIC",
+            "sector": "Food & Allied",
+            "shares": 100,
+            "from_close": 165.4,
+            "to_close": 164.8,
+            "change_pct": -0.36,
+            "contribution_bdt": -60,
+            "contribution_pts": -0.01,
+            "sector_change_pct": 0.27,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": -0.64,
+            "comparison": "in line with sector",
+            "weight_pct": 2.6
+          },
+          {
+            "symbol": "GP",
+            "sector": "Telecommunication",
+            "shares": 240,
+            "from_close": 375.8,
+            "to_close": 376,
+            "change_pct": 0.05,
+            "contribution_bdt": 48,
+            "contribution_pts": 0.01,
+            "sector_change_pct": 0.01,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": 0.04,
+            "comparison": "in line with sector",
+            "weight_pct": 14.22
+          },
+          {
+            "symbol": "ROBI",
+            "sector": "Telecommunication",
+            "shares": 400,
+            "from_close": 33.4,
+            "to_close": 33.3,
+            "change_pct": -0.3,
+            "contribution_bdt": -40,
+            "contribution_pts": -0.01,
+            "sector_change_pct": 0.01,
+            "index_change_pct": -0.26,
+            "vs_sector_pts": -0.31,
+            "comparison": "in line with sector",
+            "weight_pct": 2.1
+          }
+        ],
+        "sql": "SELECT symbol, from_close, to_close, ROUND((to_close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT symbol,\n         MAX(CASE WHEN rn = 1 THEN close END) AS to_close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-09-17' AS DATE)\n      AND symbol IN (\n        SELECT symbol FROM tradeflow_ledger.transactions\n        WHERE created_at < CAST('2026-09-18T00:00:00+06:00' AS TIMESTAMP)\n        GROUP BY symbol\n        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0\n      )\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY symbol\n) w\nWHERE from_close IS NOT NULL AND to_close IS NOT NULL\nORDER BY symbol"
+      }
+    ],
+    "needs_human": false,
+    "declined_advice": false,
+    "injection_seen": false,
+    "memories_recalled": [],
+    "applied_corrections": [],
+    "rounds": 1,
+    "scores": {
+      "accuracy": 3,
+      "appropriateness": 2,
+      "actionability": 2,
+      "total": 7
+    },
+    "model_source": "openrouter/nvidia/nemotron-3.5-lightning",
+    "partial": false,
+    "stop_reason": null
+  },
+  "error": null
+}
