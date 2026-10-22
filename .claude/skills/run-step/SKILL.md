@@ -1,0 +1,15 @@
+---
+name: run-step
+description: Carry out the task in the prompt the owner pasted, end to end, then stop.
+disable-model-invocation: true
+---
+Use when the owner types /run-step followed by a task prompt.
+
+1. Restate the task's goal in one sentence and list the files you will create or change. If any of them is in PRE-EXISTING.md and not allowed by AGENTS.md rule 1, say so and wait.
+2. Read every file the prompt names, AGENTS.md, the attached rules and docs/PLAN.md if it exists; where docs/PLAN.md differs from the prompt (a name, a signature, a file), follow the prompt and list each difference. Plan before editing when more than two files change.
+3. Implement only this task. Reuse src/lib; follow the attached rules.
+4. Write or update the tests the prompt names, then run every verification command the prompt lists, in order. Fix the code until they pass, at most 3 attempts; if one still fails, stop and explain why. Never weaken a test or an expectation to pass. If a command needs a server, start it in the background and stop it afterwards. Scripts that need keys load .env themselves; never open, print or copy .env.
+5. Run `npm run check` last. Then go through the prompt's "Check yourself before you finish" list, item by item, in this same chat: PASS with its evidence (a count, a value or a file) or FAIL with what is missing. If any item fails, fix it and check the whole list again, at most 3 rounds, never weakening a test or a check. If an item still fails, stop before committing and explain why. Example: "PASS: npm test: 131 passed, 0 failed"; "FAIL: the trace has no why on step 2; added it in planner.ts; rechecked: PASS".
+6. Append one line to CURSOR.md: `| <date> | <task in a few words> | <what you did> | <what the owner should review> |`, unless the step's prompt already had you append this step's row; one row per step.
+7. When everything passes (unless the prompt says to commit and push before its checks; then follow the prompt): run `git status`; if only tests changed `data/`, run `git restore data/`; stage only the files this task changed, by name; commit with the prompt's message (or a one-line conventional one); then `git push origin main`. The shell hook asks the owner before the push. Never `git add -A` or `git add .`, never force-push, amend or rebase. If the pre-commit hook fails, fix the cause and commit again; never use --no-verify.
+8. Stop. Report the self-check list with PASS and evidence for each item, then each command you ran with a one-line result (pass and fail counts, and the key values the prompt asks for, such as status or newFindings), not the whole log, then the commit hash and whether the push went through. Add a short summary of the diff and anything you were unsure of. End with one line, "Lesson: <a rule or test that would have prevented a fix you needed in this task>", or "Lesson: none". Don't start another task.

@@ -2,6 +2,8 @@
 
 Instructions for any coding agent working in this repository (Cursor, Claude Code, Codex). Read it before every task.
 
+Claude Code reads the same kit from `.claude/`: the skills, rules and agents are copies of `.cursor/`, and `.claude/hooks/cursor-adapter.mjs` runs the Cursor guards in `.cursor/hooks/`. Change both copies together; `scripts/claude-kit.test.mjs` fails when they differ.
+
 ## What this is
 
 Tradeflow is a stock portfolio ledger for the Dhaka Stock Exchange on synthetic data. Everything at the git tag `pre-hackathon` existed before the Open Agent Hackathon 2026 (see `PRE-EXISTING.md`): the ledger, announcements, dividends, the broker and bank files, DSEX and sector indices, the journal, attribution, the what-if preview, reconciliation, fundamentals, the profile, the APIs, Docker and the Postgres loader. The hackathon work is the AI layer only: a small team of agents that explains the week (A1), checks the owner's trade theses (A2), reviews a trade before it is saved (A3), explains reconciliation differences (A4) and learns from the owner's corrections (A5), citing the query behind every number.

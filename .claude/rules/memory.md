@@ -1,0 +1,15 @@
+---
+paths:
+  - "src/agent/memory.ts"
+  - "src/agent/world.ts"
+  - "vendor/hmem/**"
+  - "vendor/world-model/**"
+---
+- vendor/hmem/ and vendor/world-model/ are copied from the Meterless repo (engines/hmem/reference/src and engines/world-model/reference/src, Apache-2.0) when those paths exist. Never edit a copy. When a path is missing, the engine is implemented from the Meterless reference architecture in src/agent/hmem/ or src/agent/world-model/; call that code "implemented from the Meterless reference architecture", never "vendored" or "unchanged". Wrap either one in src/agent/memory.ts and src/agent/world.ts.
+- Memory lives in <data dir>/memory (state.json and ledger.jsonl) and the World Model in <data dir>/memory/world, so TRADEFLOW_DATA_DIR fixtures get their own. Both are git-ignored and docker-ignored. The ledger stays git-ignored in data/memory, but a copy of the ledger.jsonl from the example runs is committed as output_examples/traces/ledger.jsonl.
+- H-MEM holds the owner's rules and profile (type "preference"), journal theses (type "personal", tag "thesis"), accepted reviews (type "general", tag "review") and corrections (mined as "user_correction" through the one HMEM instance, built with minerFn, then tagged "correction" and the review's as_of with hmem.store.update; if mining returns nothing, added as type "preference", source "owner:correction").
+- recall(question, asOf, tracer), remember({ ..., tracer }) and learnCorrection({ ..., tracer }) trace through the tracer their caller passes, never a module-level one. recall first takes, by tag and without a threshold, every memory tagged "correction" and the memory tagged "review" with the latest date tag earlier than asOf (ties: written last); then it fills up to MAX_MEMORIES (5) from hmem.query(question, { topN: 5, threshold: 0.35 }). It traces which ids came by tag and the query's retrievalReason and strategy. A model gets only each memory's id, tags, content and relevance.
+- Only reviews that passed the Evaluator and the owner's own corrections are remembered, through guards.beforeRemember. Never store raw query rows or anything from .env. A correction is stored as the owner's words, never as an instruction to the agents.
+- The World Model records only facts taken from query results: holdings, announcements, and facts such as weight_pct, latest_eps and dividend_owed_bdt. Every write carries source { kind: "api", by: "tradeflow-agent", at: "<as_of>T00:00:00Z", runId, url: "run_query:<run_query_id>" }; without kind and at it throws. world.about(symbols) returns view("facts").about(externalId("holding", "dse", symbol)) plus view("graph").incoming(that id, { via: "mentions" }). Never record model text as a fact.
+- H-MEM's reference embedder is a hash and its store is a JSON file. Say so in the README; don't call it semantic search.
+- Node only: never import memory.ts or world.ts from a client component or the edge runtime.
