@@ -9,6 +9,7 @@ import path from "node:path";
 import { HMEM } from "../../vendor/hmem/src/index";
 import type { MemoryRecord, MemoryType } from "../../vendor/hmem/src/types";
 import { loadConfig } from "./config";
+import { beforeRemember } from "./guards";
 import { complete } from "./llm";
 import type { Tracer } from "./trace";
 import type { JournalEntry, Profile, Rules } from "@/lib/data-types";
@@ -158,9 +159,21 @@ function lastLedgerEntry(): { memoryId: string; action: string; actor: string } 
   }
 }
 
-/** Stores an accepted review as a "general" memory tagged review, the task, the as_of date and the run. Returns its id. */
+/** guards.beforeRemember refused a memory write; nothing was stored. */
+export class MemoryBlockedError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "MemoryBlockedError";
+  }
+}
+
+/**
+ * Stores an accepted review as a "general" memory tagged review, the task, the as_of date and the run. Returns its id.
+ * guards.beforeRemember runs first: a refused write throws MemoryBlockedError and stores nothing. */
 export async function remember(a: { content: string; task: string; asOf: string; runId: string; tracer: Tracer }): Promise<string> {
   assertYmd(a.asOf, "asOf");
+  const guard = beforeRemember({ kind: "review", text: a.content }, a.tracer);
+  if (!guard.ok) throw new MemoryBlockedError(guard.reason);
   const started = Date.now();
   const tags = ["review", a.task, a.asOf, `run:${a.runId}`];
   const record = openMemory().add({ content: a.content, type: "general", source: "agent:writer", tags });

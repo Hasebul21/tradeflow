@@ -193,6 +193,17 @@ The ledger maths lives in `src/lib/portfolio.ts`, `src/lib/rules.ts` and `src/li
 - `src/app/api/**/route.ts`: the JSON APIs, described in `src/lib/openapi.ts`.
 - `scripts/`: the seed (`seed.mjs`, `seed-data.mjs`) and the Postgres loader (`load-postgres.mjs`, `db-schema.mjs`).
 
+## Guards
+
+`src/agent/guards.ts` holds the runtime checks. Each guard writes one trace line as agent `Guard` and returns `{ ok: true }` or `{ ok: false, reason }`; a block has action `block` and status `blocked`.
+
+| Guard | Where it runs | What it blocks |
+|---|---|---|
+| `beforeQuery` | `runQuery`, before any query | A query id that is not in the registry, params that fail the query's schema, an `as_of` outside the dates of the bars, a `what_if` with an unknown symbol or a quantity that is not a positive whole number, and a run whose query budget is spent. A Friday or Saturday `as_of` moves to the Thursday before and is traced as `as_of_moved` |
+| `afterModel` | After each model reply | A finding that fails the finding schema, wording that tells the owner to buy, sell or hold, and a thesis verdict other than confirmed, contradicted or open in the `thesis_check` task. Injection wording sets `injection_seen` without blocking |
+| `checkCitations` | Over the findings of a draft | A finding with no `run_query_id`, a cite that does not exist in the run, and a number in `numbers` or in the claim that is not in the cited rows (or in a listed memory) |
+| `beforeRemember` | `remember`, before a memory write | Anything but a review's note, an owner correction or an owner decision; raw rows; text over 600 characters |
+
 ## Where it came from
 
 This is a cut-down, public version of a private portfolio app. The ledger maths, commission rule, number formatting and DSE calendar are copied from it unchanged. The private version's login, database, email reports, price scraping and AI features were removed, and the data was replaced with the synthetic set above. `PRE-EXISTING.md` lists what existed before the hackathon build window.

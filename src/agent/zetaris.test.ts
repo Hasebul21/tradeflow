@@ -16,10 +16,12 @@ beforeAll(async () => {
 const ENV = { ZETARIS_REST_URL: "http://zetaris.test/api/v1.0/", ZETARIS_ORG_ID: "7", ZETARIS_API_KEY: "made-up-key-for-tests" };
 const config: Config = loadConfig({ ...ENV, SAMPLE_MODE: "true" }, () => {});
 
+// `lines` holds every line except the Guard's, which runQuery now writes first; `guard` holds those.
 function collector() {
   const lines: TraceInput[] = [];
-  const tracer = { log: (line: TraceInput) => (lines.push(line), line as never) } as unknown as Tracer;
-  return { lines, tracer };
+  const guard: TraceInput[] = [];
+  const tracer = { log: (line: TraceInput) => ((line.agent_name === "Guard" ? guard : lines).push(line), line as never) } as unknown as Tracer;
+  return { lines, guard, tracer };
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -335,15 +337,26 @@ describe("runQuery", () => {
     await runQuery({ query_id: "announcements_between", params: { from: "2026-09-24", to: AS_OF, symbol: "GP" }, runId: "t", tracer, config, sampleMode: true, data: d });
     expect(lines[0].input_summary.length).toBeLessThan(260);
     const bad = collector();
-    await expect(runQuery({ query_id: "week_moves", params: { as_of: "x".repeat(500) }, runId: "t", tracer: bad.tracer, config, sampleMode: true, data: d })).rejects.toBeInstanceOf(QueryError);
-    expect(bad.lines[0].input_summary.length).toBeLessThan(260);
+    await expect(runQuery({ query_id: "week_moves", params: { as_of: "x".repeat(500) }, runId: "t", tracer: bad.tracer, config, sampleMode: true, data: d })).rejects.toBeInstanceOf(QueryBlockedError);
+    expect(bad.guard[0].input_summary.length).toBeLessThan(260);
   });
 
-  it("throws a QueryError for bad params and traces the refusal", async () => {
-    const { lines, tracer } = collector();
-    await expect(runQuery({ query_id: "week_moves", params: { as_of: "yesterday" }, runId: "t", tracer, config, sampleMode: true, data: d })).rejects.toBeInstanceOf(QueryError);
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ agent_name: "Query", status: "error" });
+  it("throws a QueryBlockedError for bad params: a Guard block line and no Query line", async () => {
+    const { lines, guard, tracer } = collector();
+    await expect(runQuery({ query_id: "week_moves", params: { as_of: "yesterday" }, runId: "t", tracer, config, sampleMode: true, data: d })).rejects.toBeInstanceOf(QueryBlockedError);
+    expect(lines).toHaveLength(0);
+    expect(guard).toHaveLength(1);
+    expect(guard[0]).toMatchObject({ agent_name: "Guard", action: "block", status: "blocked" });
+  });
+
+  it("throws a QueryBlockedError for an unknown query_id: a Guard block line that names it and no Query line", async () => {
+    const { lines, guard, tracer } = collector();
+    const error = await runQuery({ query_id: "no_such_query", params: {}, runId: "t", tracer, config, sampleMode: true, data: d }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(QueryBlockedError);
+    expect((error as QueryBlockedError).reason).toMatch(/no_such_query/);
+    expect(guard).toHaveLength(1);
+    expect(guard[0]).toMatchObject({ agent_name: "Guard", action: "block", status: "blocked" });
+    expect(lines.filter((l) => l.agent_name === "Query")).toHaveLength(0);
   });
 });
 

@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Config } from "./config";
+import { beforeQuery } from "./guards";
 import type { Tracer } from "./trace";
 import { createZetarisClient, rowsFromArrays, type ZetarisClient } from "./zetaris";
 import { attributionAsOf, sectorMovesAsOf } from "@/lib/market-views";
@@ -723,7 +724,7 @@ export function runLocal(id: string, raw: unknown, d: QueryData): QueryResult {
 
 // ---------------------------------------------------------------------------------------------- zetaris
 
-/** A guard blocked the call. Nothing throws it yet: the guards arrive in a later step, and runQuery will. */
+/** guards.beforeQuery blocked the call; `reason` is the guard's. runQuery throws it before any Query trace line. */
 export class QueryBlockedError extends Error {
   constructor(readonly reason: string) {
     super(reason);
@@ -833,20 +834,32 @@ export type RunQueryArgs = {
   data?: QueryData;
   /** A client to use instead of the one built from config.zetaris. Null forces local. */
   zetaris?: ZetarisClient | null;
+  /** The run's query-call limit for guards.beforeQuery; defaults to config.MAX_QUERY_CALLS. A later step passes the run's value. */
+  maxQueries?: number;
+  /** Calls the run has already made; defaults to 0. A later step passes the run's count. */
+  queriesUsed?: number;
 };
 
 /**
  * The one way an agent runs a named query. Chooses the source (Zetaris when it is configured, the query has
  * sql() and sample mode is off; otherwise local), writes one "Query" trace line and returns the rows.
- * Throws QueryError for bad params; never throws for a Zetaris failure.
+ * guards.beforeQuery runs first: a block throws QueryBlockedError with the guard's reason and writes no Query line.
+ * Throws QueryError when local() refuses the call; never throws for a Zetaris failure.
  */
 export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
   const started = Date.now();
   const { tracer, config } = args;
   const data = args.data ?? (await loadQueryData());
+  const guard = await beforeQuery(
+    { query_id: args.query_id, params: args.params },
+    { used: args.queriesUsed ?? 0, max: args.maxQueries ?? config.MAX_QUERY_CALLS },
+    tracer,
+    data,
+  );
+  if (!guard.ok) throw new QueryBlockedError(guard.reason);
   let prepared: ReturnType<typeof prepareQuery>;
   try {
-    prepared = prepareQuery(args.query_id, args.params, data);
+    prepared = prepareQuery(args.query_id, guard.params, data);
   } catch (error) {
     tracer.log({
       agent_name: "Query",

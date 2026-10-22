@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { memoryDir, openMemory, recall, remember, seedOwnerContext, withMiner, type MinerUsage } from "./memory";
+import { MemoryBlockedError, memoryDir, openMemory, recall, remember, seedOwnerContext, withMiner, type MinerUsage } from "./memory";
 import { startRun, type TraceLine, type Tracer } from "./trace";
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so it has its own memory/ folder and never
@@ -204,6 +204,20 @@ describe("remember", () => {
     const record = openMemory().store.get(id)!;
     expect(record.tags).toEqual(["review", "explain_week", "2026-09-24", "run:review-tags"]);
     expect(record).toMatchObject({ type: "general", source: "agent:writer" });
+  });
+
+  it("stores nothing and writes one Guard block line when guards.beforeRemember refuses the text", async () => {
+    const tracer = run("review-blocked");
+    const before = openMemory().store.all().length;
+    const text = "x".repeat(700);
+    const error = await remember({ content: text, task: "explain_week", asOf: "2026-09-24", runId: "review-blocked", tracer }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MemoryBlockedError);
+    expect((error as MemoryBlockedError).reason).toMatch(/700 characters; the limit is 600/);
+    expect(openMemory().store.all()).toHaveLength(before);
+    expect(existsSync(path.join(dir, "memory", "ledger.jsonl"))).toBe(false);
+    const lines = traceLines(tracer);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "block", status: "blocked" });
   });
 
   it("rejects an asOf that is not a date", async () => {

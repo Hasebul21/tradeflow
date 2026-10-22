@@ -3,7 +3,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export type TraceStatus = "ok" | "retry" | "fallback" | "cached" | "rejected" | "accepted" | "needs_human" | "error";
+export type TraceStatus = "ok" | "retry" | "fallback" | "cached" | "rejected" | "blocked" | "accepted" | "needs_human" | "error";
 
 export type TraceUsage = {
   tokens_in: number;
