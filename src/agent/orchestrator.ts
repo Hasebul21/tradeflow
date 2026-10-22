@@ -13,7 +13,7 @@ import { evaluate, type Scores } from "./agents/evaluator";
 import { PlanBlockedError, plan, type PlannerTrade } from "./agents/planner";
 import { DISCLAIMER, write } from "./agents/writer";
 import { ConfigError, loadConfig, type Config, type Tier } from "./config";
-import type { Task } from "./context";
+import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { recall, seedOwnerContext, type RecalledMemory } from "./memory";
@@ -35,15 +35,25 @@ const SUPPORTED: readonly Task[] = ["explain_week"];
 // The request and the reply.
 
 export type RunInput = {
-  question: string;
-  /** A yyyy-mm-dd date, resolved to a session with resolveAsOf; the latest session when absent. */
+  /** Required for explain_week; a missing question is "" for every other task. */
+  question?: string;
+  /** A yyyy-mm-dd date, resolved to a session with resolveAsOf; the latest session when absent, for every task. */
   as_of?: string | null;
   trade?: PlannerTrade | null;
+  /** Fields later tasks read; each task checks the ones it needs when it is added. */
+  plan_id?: string;
+  review_run_id?: string;
+  text?: string;
+  issue_id?: string;
 };
+
+/** A run id the API accepts: it becomes part of logs/trace-<run_id>.jsonl, so no dot or separator. */
+export const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
 
 export type RunOptions = {
   runId: string;
-  task: Task;
+  /** Default "explain_week". An unknown name is an InvalidInput error reply, never a throw. */
+  task?: string;
   input: RunInput;
   /** Default config.sampleMode. */
   sampleMode?: boolean;
@@ -85,7 +95,7 @@ export type RunUsage = Usage & { duration_ms: number };
 
 export type RunResult = {
   run_id: string;
-  task: Task;
+  task: string;
   status: RunStatus;
   output: RunOutput | null;
   error: RunError | null;
@@ -261,17 +271,18 @@ type Outcome = { kind: "success"; summary: string; review_markdown: string; draf
  */
 export async function run(options: RunOptions): Promise<RunResult> {
   const started = Date.now();
-  const { runId, task, input } = options;
+  const { runId, input } = options;
+  const taskName = options.task ?? "explain_week";
   const config = options.config ?? loadConfig();
   const sampleMode = options.sampleMode ?? config.sampleMode;
   const agents = agentsOf(config, sampleMode);
   const seconds = () => Math.round(Date.now() - started) / 1000;
 
-  if (!isRunId(runId)) {
+  if (typeof runId !== "string" || !RUN_ID_PATTERN.test(runId) || !isRunId(runId)) {
     const usage: RunUsage = { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: Date.now() - started };
     return {
       run_id: String(runId),
-      task,
+      task: taskName,
       status: "error",
       output: null,
       error: { type: "InvalidInput", message: `Invalid run id: ${JSON.stringify(String(runId))}.`, recoverable: false },
@@ -284,7 +295,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   }
 
   const tracer = startRun(runId);
-  tracer.setTask(task);
+  tracer.setTask(taskName);
   const logFile = path.relative(process.cwd(), tracer.file);
   const flags = { declined: false, injection: false };
   let run: RunState | undefined;
@@ -301,7 +312,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     tracer.log({
       agent_name: GUARD,
       action: "advice_declined",
-      input_summary: capped(`question of ${input.question.length} chars`),
+      input_summary: capped(`question of ${typeof input.question === "string" ? input.question.length : 0} chars`),
       output_summary: `the question asks whether to buy, sell or hold (${by}); the review explains the records and declines the advice`,
       status: "ok",
       why: "no output tells the owner to buy, sell or hold",
@@ -320,7 +331,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   tracer.log({
     agent_name: AGENT,
     action: "run_end",
-    input_summary: capped(`task=${task} as_of=${asOf ?? "unresolved"} sample_mode=${sampleMode}`),
+    input_summary: capped(`task=${taskName} as_of=${asOf ?? "unresolved"} sample_mode=${sampleMode}`),
     output_summary: capped(
       result.status === "error"
         ? `status=error type=${result.error?.type}: ${result.error?.message}`
@@ -338,11 +349,18 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   // The run, start to finish. Throws only what the catch above turns into an error reply.
   async function execute(): Promise<Outcome> {
-    if (!SUPPORTED.includes(task)) {
-      return { kind: "error", error: { type: "InvalidInput", message: `Task ${JSON.stringify(task)} is not supported yet; this loop runs ${SUPPORTED.join(", ")}.`, recoverable: false } };
+    const invalid = (message: string): Outcome => ({ kind: "error", error: { type: "InvalidInput", message, recoverable: false } });
+    if (typeof taskName !== "string" || !TASKS.includes(taskName as Task)) {
+      return invalid(`Unknown task ${JSON.stringify(taskName)}; the tasks are ${TASKS.join(", ")}.`);
     }
-    const question = typeof input.question === "string" ? input.question.trim() : "";
-    if (question === "") return { kind: "error", error: { type: "InvalidInput", message: "The question is empty.", recoverable: false } };
+    const task = taskName as Task;
+    if (!SUPPORTED.includes(task)) return invalid(`Task ${JSON.stringify(task)} is not supported yet; this loop runs ${SUPPORTED.join(", ")}.`);
+    if (input === null || typeof input !== "object") return invalid("The input must be an object.");
+    if (input.question !== undefined && input.question !== null && typeof input.question !== "string") return invalid("The question must be a string.");
+    if (input.as_of !== undefined && input.as_of !== null && typeof input.as_of !== "string") return invalid("as_of must be a date as YYYY-MM-DD.");
+    // The question is required for explain_week only; every other task gets "" when it has none.
+    const question = (input.question ?? "").trim();
+    if (task === "explain_week" && question === "") return invalid("The question is empty.");
 
     const flagRow = () => {
       flags.injection = true;
@@ -552,7 +570,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   }
 
   function reply(outcome: Outcome, usage: RunUsage): RunResult {
-    const base = { run_id: runId, task, agents, usage, trace_id: runId, log_file: logFile, execution_time_seconds: seconds() };
+    const base = { run_id: runId, task: taskName, agents, usage, trace_id: runId, log_file: logFile, execution_time_seconds: seconds() };
     if (outcome.kind === "error") return { ...base, status: "error", output: null, error: outcome.error };
 
     const store = run?.store ?? {};
