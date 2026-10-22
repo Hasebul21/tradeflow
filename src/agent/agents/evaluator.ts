@@ -222,8 +222,8 @@ export function coverage(task: Task, findings: readonly Finding[], store: Result
 
 function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[]): string {
   const first = failures[0];
-  const finding = findings[first.finding];
-  const who = finding === undefined ? `finding ${first.finding + 1}` : `finding ${first.finding + 1} (${finding.kind} ${finding.subject})`;
+  const finding = findings[first.finding - 1];
+  const who = finding === undefined ? `finding ${first.finding}` : `finding ${first.finding} (${finding.kind} ${finding.subject})`;
   const more = failures.length > 1 ? ` (and ${failures.length - 1} more ${failures.length === 2 ? "problem" : "problems"})` : "";
   return `Fix ${who}: ${first.problem}; use only figures from the rows it cites${more}.`;
 }
@@ -235,7 +235,7 @@ function guardFix(reason: string): string {
     const detail = reason.match(/finding (\d+) does not match the finding schema \(([^)]*)\)/);
     return detail === null
       ? "Give every finding a kind, a non-empty subject, a claim, numbers, cites, verdict, proposed_fix and memory_ids."
-      : `Give finding ${Number(detail[1]) + 1} a kind, a non-empty subject, a claim, numbers, cites, verdict, proposed_fix and memory_ids (${detail[2]}).`;
+      : `Give finding ${detail[1]} a kind, a non-empty subject, a claim, numbers, cites, verdict, proposed_fix and memory_ids (${detail[2]}).`;
   }
   return `Fix the draft so the reply guard allows it: ${reason.replace(/\.$/, "")}.`;
 }

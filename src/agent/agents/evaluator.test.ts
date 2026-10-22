@@ -97,6 +97,22 @@ describe("the Evaluator's code checks", () => {
     expect(run.usage.model_calls).toBe(0);
   });
 
+  it("numbers the same finding the same way in the Guard block line and the Evaluator's fix, counting from 1", async () => {
+    const { run } = runState();
+    const moves = await run.query("week_moves", { as_of: AS_OF });
+    const good = finding("PORTFOLIO", [moves.run_query_id]);
+    const bad = finding("AAA", [moves.run_query_id], [{ value: 98765.4, label: "loss" }], "The data shows AAA lost Tk 98765.4.");
+    const { lines, tracer } = collector();
+    const outcome = await evaluate(input(run, [good, bad]), { tracer, run });
+
+    expect(outcome.accepted).toBe(false);
+    const block = lines.find((line) => line.agent_name === "Guard" && line.action === "block");
+    expect(block?.why).toMatch(/^finding 2: /);
+    expect(block?.why).not.toMatch(/finding [01]\b/);
+    expect(outcome.fix).toMatch(/^Fix finding 2 \(move AAA\): /);
+    expect(block?.why?.match(/finding (\d+)/)?.[1]).toBe(outcome.fix?.match(/finding (\d+)/)?.[1]);
+  });
+
   it("rejects a draft that tells the owner what to trade at the guard check, before coverage and the model", async () => {
     const { run } = runState();
     const moves = await run.query("week_moves", { as_of: AS_OF });

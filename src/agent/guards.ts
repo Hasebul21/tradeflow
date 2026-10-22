@@ -181,11 +181,11 @@ export function afterModel(agent: string, reply: unknown, input: unknown, tracer
       const parsed = findingSchema.safeParse(candidate);
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
-        problems.push(`finding ${index} does not match the finding schema (${issue.path.join(".") || "finding"}: ${issue.message})`);
+        problems.push(`finding ${index + 1} does not match the finding schema (${issue.path.join(".") || "finding"}: ${issue.message})`);
         return;
       }
       if (task === "thesis_check" && (parsed.data.verdict === null || !THESIS_VERDICTS.includes(parsed.data.verdict))) {
-        problems.push(`finding ${index} has verdict ${JSON.stringify(parsed.data.verdict)}; a thesis verdict is confirmed, contradicted or open`);
+        problems.push(`finding ${index + 1} has verdict ${JSON.stringify(parsed.data.verdict)}; a thesis verdict is confirmed, contradicted or open`);
       }
     });
   }
@@ -250,6 +250,7 @@ function numbersInRows(value: unknown, ignore: readonly string[], out: number[] 
   return out;
 }
 
+/** `finding` is the owner-facing number, counted from 1: the first finding is 1. */
 export type CitationFailure = { finding: number; problem: string };
 export type CitationResult = GuardResult & { failures: CitationFailure[] };
 
@@ -271,17 +272,17 @@ export function checkCitations(
   findings.forEach((candidate, index) => {
     const parsed = findingSchema.safeParse(candidate);
     if (!parsed.success) {
-      failures.push({ finding: index, problem: "the finding does not match the finding schema" });
+      failures.push({ finding: index + 1, problem: "the finding does not match the finding schema" });
       return;
     }
     const finding = parsed.data;
     if (finding.cites.length === 0) {
-      failures.push({ finding: index, problem: "it cites no run_query_id" });
+      failures.push({ finding: index + 1, problem: "it cites no run_query_id" });
       return;
     }
     const missing = finding.cites.filter((cite) => !Object.prototype.hasOwnProperty.call(results, cite));
     if (missing.length > 0) {
-      failures.push({ finding: index, problem: `it cites ${missing.join(", ")}, which does not exist in this run` });
+      failures.push({ finding: index + 1, problem: `it cites ${missing.join(", ")}, which does not exist in this run` });
       return;
     }
 
@@ -293,11 +294,11 @@ export function checkCitations(
     }
 
     for (const { value, label } of finding.numbers) {
-      if (!matches(value, candidates)) failures.push({ finding: index, problem: `the number ${value} (${label}) is not in the cited rows` });
+      if (!matches(value, candidates)) failures.push({ finding: index + 1, problem: `the number ${value} (${label}) is not in the cited rows` });
     }
     const listed = finding.numbers.map((entry) => entry.value);
     for (const n of numbersIn(finding.claim, [...knownIds, ...finding.cites])) {
-      if (!matches(n, listed) && !matches(n, candidates)) failures.push({ finding: index, problem: `the claim has ${n}, which is not in its numbers or the cited rows` });
+      if (!matches(n, listed) && !matches(n, candidates)) failures.push({ finding: index + 1, problem: `the claim has ${n}, which is not in its numbers or the cited rows` });
     }
   });
 

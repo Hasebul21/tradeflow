@@ -37,6 +37,12 @@ describe("beforeQuery", () => {
 });
 
 describe("afterModel", () => {
+  it("counts a malformed finding from 1 in the reason", () => {
+    const { tracer } = collector();
+    const result = afterModel("Analyst", { findings: [{ kind: "move" }] }, { task: "explain_week" }, tracer);
+    expect(!result.ok && result.reason).toMatch(/finding 1 does not match the finding schema/);
+  });
+
   it("allows the owner's own words: an exit condition that starts with Sell", () => {
     const { lines, tracer } = collector();
     const reply = { summary: "Your exit condition 'Sell if two quarters in a row show lower profit' is met for BXPHARMA; you bought 70 WALTONHIL on 1 Sep." };
@@ -88,6 +94,8 @@ describe("checkCitations", () => {
     const result = checkCitations([finding(`${row.symbol} moved 987.65% in the week.`, 987.65)], results, [], tracer);
     expect(result.ok).toBe(false);
     expect(!result.ok && result.reason).toMatch(/987\.65/);
+    expect(!result.ok && result.reason).toMatch(/^finding 1: /);
+    expect(!result.ok && result.failures[0].finding).toBe(1);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "block", status: "blocked" });
   });
