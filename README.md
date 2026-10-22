@@ -2,7 +2,7 @@
 
 A small stock portfolio ledger for the Dhaka Stock Exchange (DSE). You record buys and sells, and it shows open positions, average cost, break-even, unrealised and realised profit or loss, what moved the portfolio this week against the market and its sectors, dividends and bonus shares, and whether the portfolio still follows the rules you set for yourself. It can preview a trade before you make it, and reconcile the ledger against a broker statement and a bank file.
 
-It runs on **synthetic data**. Every price, trade, deposit, announcement and company figure in `data/` is made up by `scripts/seed.mjs`. The trading codes are real DSE symbols so the pages read naturally, but nothing here came from a market, a broker or a bank. There is no login and no network call; Postgres is optional.
+It runs on **synthetic data**. Every price, trade, deposit, announcement and company figure in `data/` is made up by `scripts/seed.mjs`. The trading codes are real DSE symbols so the pages read naturally, but nothing here came from a market, a broker or a bank. There is no login, and Postgres is optional. The base ledger pages read local data. The agents call the Nemotron model through Meterless Nightshift (`METERLESS_BASE_URL`, `src/agent/llm.ts`) and can query Postgres through Zetaris (`src/agent/zetaris.ts`), falling back to local rows; in sample mode they make no network call.
 
 ## Run it locally
 
@@ -50,10 +50,10 @@ cp .env.example .env
 ### 4. Run the app
 
 ```sh
-npm run dev
+npm run dev -- -p 8000
 ```
 
-Open http://localhost:3000.
+Open http://localhost:8000. Port 3000 is left for the Zetaris console.
 
 | Page | What it is for |
 |---|---|
