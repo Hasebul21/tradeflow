@@ -314,7 +314,9 @@ export type MemoryWrite = { kind: "review" | "correction" | "decision"; text: st
 
 /**
  * What may enter memory: an accepted review's memory_note, an owner correction or an owner decision such as an
- * approval. Never raw rows (JSON), never empty, at most 600 characters.
+ * approval. Never raw rows (JSON), never empty, at most 600 characters, and never text that reads like an
+ * instruction to the agents: the same injection phrases afterModel detects. A memory is read by every later run,
+ * so an instruction stored once would reach every model after it.
  */
 export function beforeRemember(write: MemoryWrite, tracer?: Tracer): GuardResult {
   const kind = String(write?.kind);
@@ -328,6 +330,10 @@ export function beforeRemember(write: MemoryWrite, tracer?: Tracer): GuardResult
     return block(tracer, summary, `The memory text is ${text.length} characters; the limit is ${MAX_MEMORY_CHARS}.`);
   }
   if (/^\s*[[{]/.test(text)) return block(tracer, summary, "The memory text looks like raw rows (JSON); memory keeps a short note, not data.");
+  const injection = INJECTION.find((pattern) => pattern.test(text));
+  if (injection !== undefined) {
+    return block(tracer, summary, `The memory text reads like an instruction to the agents (matched ${injection.source}); memory keeps the owner's words and accepted reviews, never instructions.`);
+  }
   allow(tracer, summary, `${kind} allowed`);
   return { ok: true };
 }

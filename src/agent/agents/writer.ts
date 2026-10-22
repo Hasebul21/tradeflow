@@ -6,7 +6,9 @@
 // [q:...] tags are not numbers); the last line of the review is the disclaimer; guards.afterModel passes. A failure
 // gets one retry with the same input plus retry_reason; a second failure returns ok false with the draft, which the
 // loop turns into needs_human. An accepted review's memory_note goes to memory.remember, so through
-// guards.beforeRemember with kind "review". Server only (node:fs, memory.ts).
+// guards.beforeRemember with kind "review"; when afterModel saw injection wording in the reply, the memory_note is
+// not stored at all (traced as memory_skipped), so instruction-like text never reaches a later run. Server only
+// (node:fs, memory.ts).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -208,12 +210,16 @@ export function allowedNumbers(findings: readonly Finding[], store: ResultStore,
   return out;
 }
 
-export type ReviewCheck = { ok: true } | { ok: false; reason: string };
+export type ReviewCheck = ({ ok: true } | { ok: false; reason: string }) & {
+  /** Present, and true, only when guards.afterModel saw injection wording in the reply; write() then stores no memory. */
+  injection_seen?: true;
+};
 
 /**
  * The three checks, in order: every number in the summary, the review and the memory note is allowed; the last
  * line of the review is the disclaimer; guards.afterModel passes. Every problem found goes into one reason, so a
- * retry can fix them all at once. Traced as agent "Writer", action "code_check".
+ * retry can fix them all at once. Traced as agent "Writer", action "code_check". Injection wording the guard sees
+ * does not fail the check (the guard does not block on it); it is passed on as injection_seen.
  */
 export function checkReview(
   reply: WriterReply,
@@ -239,6 +245,7 @@ export function checkReview(
 
   const guard = afterModel(AGENT, reply, { task: allowed.task }, tracer);
   if (!guard.ok) problems.push(guard.reason.replace(/\.$/, ""));
+  const seen = guard.injection_seen ? { injection_seen: true as const } : {};
 
   const ok = problems.length === 0;
   const reason = ok ? "" : `${problems.join("; ")}.`;
@@ -251,7 +258,7 @@ export function checkReview(
     why: ok ? "every number is allowed, the last line is the disclaimer, the guard allows it" : reason,
     retry_count: round,
   });
-  return ok ? { ok: true } : { ok: false, reason };
+  return ok ? { ok: true, ...seen } : { ok: false, reason, ...seen };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -270,7 +277,9 @@ function draftOf(raw: unknown): WriterReply {
 /**
  * Writes the review for one run: the strong model with writer.md, the code check, one retry with retry_reason, then
  * ok false with the draft and the reason. On success the memory_note is stored through memory.remember (and so
- * guards.beforeRemember); a refused memory write leaves the review ok and names the reason in memory_reason.
+ * guards.beforeRemember); a refused memory write leaves the review ok and names the reason in memory_reason. When
+ * guards.afterModel saw injection wording in the accepted reply, remember is not called at all: the review stays
+ * ok, memory_id is null and memory_reason says why, traced as action "memory_skipped".
  * Model errors from llm.ts and BudgetExhaustedError from the run state pass through.
  */
 export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise<WriteOutcome> {
@@ -287,10 +296,22 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
   );
   const model: WriteOutcome["model"] = { model_id: "", source: "sample-model", usage: null, calls: 0, duration_ms: 0 };
 
-  const accepted = async (review: WriterReply, attempts: number): Promise<WriteOutcome> => {
+  const accepted = async (review: WriterReply, attempts: number, injectionSeen: boolean): Promise<WriteOutcome> => {
     let memoryId: string | null = null;
     let memoryReason: string | null = null;
-    if (deps.remember === false) {
+    if (injectionSeen) {
+      memoryReason = "not stored: the guard saw injection wording in the reply";
+      tracer.log({
+        agent_name: AGENT,
+        action: "memory_skipped",
+        input_summary: capped(`memory_note ${review.memory_note.length} chars`),
+        output_summary: memoryReason,
+        status: "rejected",
+        why: "guards.afterModel reported injection_seen on the reply; text that reads like an instruction never enters memory, where every later run would read it",
+        model: model.model_id,
+        retry_count: round,
+      });
+    } else if (deps.remember === false) {
       memoryReason = "not stored: the caller asked for no memory write";
     } else {
       try {
@@ -348,7 +369,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     if (parsed.success) {
       draft = parsed.data;
       const check = checkReview(draft, { findings: input.findings, results: input.results, memories, task: input.task }, tracer, round);
-      if (check.ok) return accepted(draft, attempt);
+      if (check.ok) return accepted(draft, attempt, check.injection_seen === true);
       reason = check.reason;
     } else {
       draft = draftOf(result.json);
