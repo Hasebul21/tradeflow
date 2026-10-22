@@ -44,8 +44,7 @@ const ADVICE_QUESTION =
   /\b(should|shall|could|can|do|would|must|ought) i (just |also |now |still |rather )?(buy|sell|hold|trim|dump|exit|add)\b|\bgo ahead and (buy|sell)\b|\b(buy|sell|hold) (now|more|it|them|everything|all|out)\b|\btime to (buy|sell)\b|\bbuy or sell\b/i;
 // Text addressed to the assistant. The owner's own notes ("Take profit") are not matched.
 const INJECTION = /ignore (all |any )?(previous|prior) instructions|you are now\b|tell the owner to\b/i;
-const ADVICE_CLAIM = /\b(you should|consider|i recommend|i suggest)\b[^.]*\b(buy|sell|hold|buying|selling|holding)\b/i;
-const CAUSE_CLAIM = /\bbecause of\b|\balways\b|\bwill (rise|fall|go)\b/i;
+const DATE_TAG = /^\d{4}-\d{2}-\d{2}$/;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Planner
@@ -458,100 +457,207 @@ function fundamentalsFinding(result: Result, symbol: string, quarters: Obj[]): O
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Evaluator: scores from simple checks on the findings. Code has already checked the citations.
+// Evaluator: scores from simple checks on the findings. Code has already checked the citations, the guard and the
+// coverage. accuracy 3 when every finding has at least one cite and a numbers list (an empty list is fine, as for
+// "no rule was broken"), else 1; appropriateness 3 when the task's required kind is present, else 2;
+// actionability 3 with two or more findings, else 2; the fix names the missing kind when the total is below 7.
 
-const clamp3 = (value: number): number => Math.max(0, Math.min(3, value));
+const REQUIRED_KIND: Record<string, { kind: string; query: string }> = {
+  explain_week: { kind: "move", query: "week_moves" },
+  thesis_check: { kind: "thesis", query: "journal_for_symbol" },
+  pre_trade: { kind: "pre_trade", query: "what_if" },
+  reconcile: { kind: "reconciliation", query: "reconciliation" },
+};
 
 function evaluator(input: Obj): Obj {
-  const task = str(input.task);
+  const task = str(input.task) || "explain_week";
   const findings = objs(input.findings);
   if (findings.length === 0) {
     return { accuracy: 0, appropriateness: 0, actionability: 0, fix: "Write at least one finding, each citing the query result it came from." };
   }
 
-  let accuracy = 3;
+  const cited = findings.every((finding) => arr(finding.cites).length > 0 && Array.isArray(finding.numbers));
+  const accuracy = cited ? 3 : 1;
+  const required = REQUIRED_KIND[task] ?? REQUIRED_KIND.explain_week;
+  const hasKind = findings.some((finding) => finding.kind === required.kind);
+  const appropriateness = hasKind ? 3 : 2;
+  const actionability = findings.length >= 2 ? 3 : 2;
+  const total = accuracy + appropriateness + actionability;
+
   let fix = "";
-  if (findings.some((finding) => CAUSE_CLAIM.test(str(finding.claim)))) {
-    accuracy -= 1;
-    fix = "Rewrite the claim that names a cause with 'after' and the date, since the rows can't show a cause.";
+  if (total < 7) {
+    fix = !hasKind
+      ? `Add a ${required.kind} finding from ${required.query}: the draft has none.`
+      : !cited
+        ? "Cite the run_query_id of the result behind every finding and list each figure it uses in numbers."
+        : "Add a second finding that names a holding, sector, thesis or rule for the owner to look at next.";
   }
-  if (findings.some((finding) => ADVICE_CLAIM.test(str(finding.claim)))) {
-    accuracy -= 2;
-    fix = "Remove the claim that tells the owner to buy, sell or hold.";
-  }
-  if (findings.some((finding) => arr(finding.cites).length === 0)) {
-    accuracy -= 1;
-    fix ||= "Cite the run_query_id of the result behind every finding.";
-  }
-
-  let appropriateness = 3;
-  const hasKind = (kind: string) => findings.some((finding) => finding.kind === kind);
-  if (task === "explain_week" && !findings.some((finding) => finding.subject === "PORTFOLIO")) {
-    appropriateness -= 2;
-    fix ||= "Add a finding for the portfolio's move against DSEX from week_moves.";
-  } else if (task === "thesis_check" && findings.some((finding) => finding.kind === "thesis" && !str(finding.verdict))) {
-    appropriateness -= 2;
-    fix ||= "Give every thesis a verdict of confirmed, contradicted or open.";
-  } else if (task === "pre_trade" && !hasKind("pre_trade")) {
-    appropriateness -= 2;
-    fix ||= "Report what what_if says the trade would change.";
-  } else if (task === "reconcile" && !hasKind("reconciliation")) {
-    appropriateness -= 2;
-    fix ||= "Add a finding and a proposed fix for each reconciliation difference.";
-  }
-
-  const pointsSomewhere = findings.some((finding) => finding.kind === "rule" || (str(finding.subject) !== "" && finding.subject !== "PORTFOLIO"));
-  const actionability = pointsSomewhere ? 3 : 1;
-  if (!pointsSomewhere) fix ||= "Name a holding, thesis or rule for the owner to look at next.";
-
-  const scores = { accuracy: clamp3(accuracy), appropriateness: clamp3(appropriateness), actionability };
-  const total = scores.accuracy + scores.appropriateness + scores.actionability;
-  return { ...scores, fix: total >= 7 ? "" : fix };
+  return { accuracy, appropriateness, actionability, fix };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Writer: Markdown in the prompt's shape, from the accepted findings only.
+// Writer: Markdown in the prompt's shape, from the accepted findings only. One bullet per accepted finding, each
+// ending with its [q:<run_query_id>] tags, in this order for explain_week: the PORTFOLIO move; the largest holding
+// move with its announcement folded in; each rule finding, quoting the rule's message; the sector finding; the
+// dividend findings; the "Last week" finding; the remaining moves; then anything else. Every figure comes from a
+// finding's numbers, a cited row or a recalled memory, so the Writer's code check passes.
 
 const DISCLAIMER = "This is a review of your own records, not financial advice.";
+const MEMORY_NOTE_CHARS = 590;
 
-const cites = (finding: Obj): string =>
-  arr(finding.cites)
-    .map((id) => `[q:${str(id)}]`)
-    .join(" ");
+const citeTags = (findings: readonly Obj[]): string =>
+  [...new Set(findings.flatMap((finding) => arr(finding.cites).map(str)).filter((id) => id !== ""))].map((id) => `[q:${id}]`).join(" ");
 
-function shorten(text: string, limit: number): string {
-  const trimmed = text.trim();
-  return trimmed.length <= limit ? trimmed : `${trimmed.slice(0, limit - 1).trimEnd()}…`;
+/** The value of the finding's number whose label matches, as the Analyst labelled it. */
+function numberOf(finding: Obj, label: RegExp): number | null {
+  const entry = objs(finding.numbers).find((n) => label.test(str(n.label)));
+  return entry === undefined ? null : num(entry.value);
+}
+
+/** The cited rows of one query that the Writer was given with the finding. */
+const citedRowsOf = (finding: Obj, queryId: string): Obj[] =>
+  objs(finding.cited_rows)
+    .filter((cited) => str(cited.query_id) === queryId)
+    .flatMap((cited) => objs(cited.rows));
+
+const isMove = (finding: Obj): boolean => str(finding.kind) === "move" || str(finding.kind) === "";
+const isLastWeek = (finding: Obj): boolean => str(finding.claim).startsWith("Last week");
+
+/** The size of a holding's move: its week_moves row's contribution, else the number labelled contribution. */
+function contributionOf(finding: Obj): number {
+  const row = citedRowsOf(finding, "week_moves").find((r) => r.symbol === finding.subject);
+  return Math.abs(num(row?.contribution_bdt) ?? numberOf(finding, /contribution/i) ?? 0);
+}
+
+/** "<SYMBOL> fell 9.8%" from the finding's change figure, or null without one. */
+function moveText(finding: Obj): string | null {
+  const change = numberOf(finding, /^change (pct|%)$/i) ?? numberOf(finding, /change/i);
+  return change === null ? null : `${str(finding.subject)} ${roseFell(change)}`;
+}
+
+/** The rule row behind a rule finding: a row_type "finding" row about the subject. */
+const ruleRowOf = (finding: Obj): Obj | undefined =>
+  citedRowsOf(finding, "rule_findings").find((row) => row.row_type === "finding" && (row.subject === finding.subject || row.symbol === finding.subject));
+
+type Bullet = { text: string; sources: Obj[] };
+
+function weekBullets(findings: Obj[]): Bullet[] {
+  const portfolio = findings.find((f) => isMove(f) && f.subject === "PORTFOLIO" && !isLastWeek(f));
+  const moves = findings.filter((f) => isMove(f) && f.subject !== "PORTFOLIO" && !isLastWeek(f)).sort((a, b) => contributionOf(b) - contributionOf(a));
+  const largest = moves[0];
+  const announcement = largest === undefined ? undefined : findings.find((f) => f.kind === "announcement" && f.subject === largest.subject);
+  const rules = findings.filter((f) => f.kind === "rule");
+  const sectors = findings.filter((f) => f.kind === "sector");
+  const dividends = findings.filter((f) => f.kind === "dividend");
+  const lastWeek = findings.filter(isLastWeek);
+
+  const bullets: Bullet[] = [];
+  if (portfolio !== undefined) bullets.push({ text: str(portfolio.claim), sources: [portfolio] });
+  if (largest !== undefined) {
+    let text = str(largest.claim);
+    const sources = [largest];
+    if (announcement !== undefined) {
+      const row = citedRowsOf(announcement, "announcements_between").find((r) => r.symbol === announcement.subject && str(r.title) !== "");
+      const fromClaim = str(announcement.claim).match(/announcement on (\d{4}-\d{2}-\d{2}): "([^"]*)"/);
+      const title = row === undefined ? fromClaim?.[2] : str(row.title);
+      const date = row === undefined ? fromClaim?.[1] : str(row.published_on) || str(row.published_at).slice(0, 10);
+      text += title === undefined || date === undefined ? ` ${str(announcement.claim)}` : ` It came after "${title}" on ${date}.`;
+      sources.push(announcement);
+    }
+    bullets.push({ text, sources });
+  }
+  for (const rule of rules) {
+    // The "furthest from its target" finding describes a sector, not a broken rule, so it quotes no message.
+    const message = /furthest from its target/i.test(str(rule.claim)) ? "" : str(ruleRowOf(rule)?.message);
+    bullets.push({ text: `${str(rule.claim)}${message === "" ? "" : ` Rule: "${message}"`}`, sources: [rule] });
+  }
+  for (const f of [...sectors, ...dividends, ...lastWeek, ...moves.slice(1)]) bullets.push({ text: str(f.claim), sources: [f] });
+  const used = new Set(bullets.flatMap((bullet) => bullet.sources));
+  for (const f of findings) if (!used.has(f)) bullets.push({ text: str(f.claim), sources: [f] });
+  return bullets;
+}
+
+/** The memory_note in writer.md's form: for explain_week the rule broken, or none, and the largest move. */
+function memoryNote(task: string, asOf: string, findings: Obj[], escalation: Obj | null, lead: string): string {
+  let note: string;
+  if (task === "explain_week") {
+    const rules = findings.filter((f) => f.kind === "rule");
+    const limit = rules.find((f) => ruleRowOf(f)?.kind === "max_position_weight" || (ruleRowOf(f) === undefined && /position limit/i.test(str(f.claim))));
+    const target = rules.find((f) => ruleRowOf(f)?.kind === "sector_target" || (ruleRowOf(f) === undefined && /\btarget\b/i.test(str(f.claim)) && !/furthest/i.test(str(f.claim))));
+    const actual = (f: Obj) => numberOf(f, /actual pct/i);
+    if (limit !== undefined && actual(limit) !== null && numberOf(limit, /limit pct/i) !== null) {
+      note = `Week to ${asOf}: ${str(limit.subject)} ${actual(limit)}% of the portfolio, above the ${numberOf(limit, /limit pct/i)}% limit.`;
+    } else if (limit !== undefined) {
+      note = `Week to ${asOf}: ${str(limit.claim)}`;
+    } else if (target !== undefined && actual(target) !== null && numberOf(target, /target pct/i) !== null) {
+      note = `Week to ${asOf}: ${str(target.subject)} ${actual(target)}% of the portfolio against a ${numberOf(target, /target pct/i)}% target.`;
+    } else if (target !== undefined) {
+      note = `Week to ${asOf}: ${str(target.claim)}`;
+    } else {
+      note = `Week to ${asOf}: no rule broken.`;
+    }
+    const largest = findings.filter((f) => isMove(f) && f.subject !== "PORTFOLIO" && !isLastWeek(f)).sort((a, b) => contributionOf(b) - contributionOf(a))[0];
+    const move = largest === undefined ? null : moveText(largest);
+    if (move !== null) note = `${note.replace(/\.$/, "")}; ${move}, the largest move.`;
+  } else if (task === "thesis_check") {
+    const verdicts = findings.filter((f) => f.kind === "thesis").map((f) => `${str(f.subject)} ${str(f.verdict) || "open"}`);
+    note = `Theses to ${asOf}: ${verdicts.length === 0 ? "no thesis was checked" : verdicts.join(", ")}.`;
+  } else if (task === "pre_trade") {
+    note = `Pre-trade check on ${asOf}: ${escalation ? `the trade would break ${str(escalation.rule)}: ${str(escalation.message)}` : lead}`;
+  } else if (task === "reconcile") {
+    const issues = findings.filter((f) => f.kind === "reconciliation").map((f) => str(f.subject));
+    note = `Reconciliation on ${asOf}: ${issues.length === 0 ? "no difference was found" : `differences ${issues.join(", ")} open, awaiting your approval`}.`;
+  } else {
+    note = `${task} to ${asOf}: ${lead}`;
+  }
+  return excerpt(note, MEMORY_NOTE_CHARS);
 }
 
 function writer(input: Obj): Obj {
-  const task = str(input.task);
+  const task = str(input.task) || "explain_week";
   const asOf = str(input.as_of);
   const findings = objs(input.findings);
   const gaps = arr(input.gaps).map(str).filter((gap) => gap !== "");
   const memories = objs(input.memories);
-  const corrections = objs(input.applied_corrections);
   const escalation = isObj(input.escalation) ? input.escalation : null;
 
-  const lead = findings[0] === undefined ? `No findings were accepted for the week to ${asOf}.` : str(findings[0].claim);
-  const summary = escalation
-    ? `This trade would break ${str(escalation.rule)}: ${str(escalation.message)} Nothing has been saved; the decision is yours.`
-    : lead;
+  const bullets = task === "explain_week" ? weekBullets(findings) : findings.map((f): Bullet => ({ text: str(f.claim), sources: [f] }));
+  const lead = findings[0] === undefined ? `No findings were accepted for ${task === "explain_week" ? "the week to" : "the review as of"} ${asOf}.` : str(findings[0].claim);
+
+  // The summary: the PORTFOLIO move against DSEX and the largest holding move, from the findings' own figures.
+  let summary = lead;
+  if (escalation) {
+    summary = `This trade would break ${str(escalation.rule)}: ${str(escalation.message)} Nothing has been saved; the decision is yours.`;
+  } else if (task === "explain_week") {
+    const portfolio = findings.find((f) => isMove(f) && f.subject === "PORTFOLIO" && !isLastWeek(f));
+    const largest = findings.filter((f) => isMove(f) && f.subject !== "PORTFOLIO" && !isLastWeek(f)).sort((a, b) => contributionOf(b) - contributionOf(a))[0];
+    const change = portfolio === undefined ? null : numberOf(portfolio, /^change (pct|%)$/i);
+    const vsIndex = portfolio === undefined ? null : numberOf(portfolio, /vs index|against dsex/i);
+    const first =
+      change === null
+        ? portfolio === undefined
+          ? null
+          : str(portfolio.claim).replace(/\.$/, "")
+        : `Your portfolio ${roseFell(change)} in the week to ${asOf}${vsIndex === null ? "" : `, ${Math.abs(round1(vsIndex))} points ${aheadBehind(vsIndex)} DSEX`}`;
+    const move = largest === undefined ? null : moveText(largest);
+    const second = move === null ? null : `${move}, the largest move`;
+    if (first !== null) summary = `${first}${second === null ? "" : `; ${second}`}.`;
+    else if (second !== null) summary = `${second.charAt(0).toUpperCase()}${second.slice(1)}.`;
+  }
 
   const lines: string[] = [summary, ""];
-  const bodyFindings = task === "explain_week" ? findings.slice(0, 5) : findings;
-  for (const finding of bodyFindings) lines.push(`- ${str(finding.claim)} ${cites(finding)}`.trimEnd());
+  for (const bullet of bullets) lines.push(`- ${bullet.text} ${citeTags(bullet.sources)}`.trimEnd());
 
-  const remembered = [
-    ...corrections.map((memory) => {
-      const date = arr(memory.tags).map(str).find((tag) => /^\d{4}-\d{2}-\d{2}$/.test(tag));
-      return `Applied your correction${date === undefined ? "" : ` from ${date}`}: ${shorten(str(memory.content), 80)}`;
-    }),
-    ...memories
-      .filter((memory) => !corrections.some((correction) => correction.id === memory.id))
-      .map((memory) => shorten(str(memory.content), 80)),
-  ].filter((line) => line !== "");
-  if (remembered.length > 0) lines.push("", "**What I remembered**", ...remembered.map((line) => `- ${line}`));
+  // What I remembered: one plain line per recalled memory.
+  const remembered = memories.map((memory) => {
+    const tags = arr(memory.tags).map(str);
+    const date = tags.find((tag) => DATE_TAG.test(tag));
+    const content = str(memory.content).trim();
+    if (tags.includes("correction")) return `Applied your correction${date === undefined ? "" : ` from ${date}`}: ${content}`;
+    if (tags.includes("review")) return `Last week's review${date === undefined ? "" : ` (${date})`}: ${content}`;
+    return content;
+  });
+  if (remembered.length > 0) lines.push("", "**What I remembered**", ...remembered);
 
   const next = findings
     .map((finding) => str(finding.subject))
@@ -563,11 +669,7 @@ function writer(input: Obj): Obj {
   if (input.declined_advice === true) lines.push("", "You asked what to trade. This review explains what happened; the decision stays with you.");
   lines.push("", DISCLAIMER);
 
-  return {
-    summary,
-    review_markdown: lines.join("\n"),
-    memory_note: `${task === "explain_week" ? "Week" : task} to ${asOf}: ${shorten(lead, 200)}`,
-  };
+  return { summary, review_markdown: lines.join("\n"), memory_note: memoryNote(task, asOf, findings, escalation, lead) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

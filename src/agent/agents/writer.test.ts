@@ -1,0 +1,237 @@
+import { readFileSync } from "node:fs";
+import { cp, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { loadConfig, type Config } from "../config";
+import type { Finding } from "../guards";
+import type { CompleteOptions, CompleteResult } from "../llm";
+import { openMemory, type RecalledMemory } from "../memory";
+import { RunState } from "../run-state";
+import type { TraceInput, Tracer } from "../trace";
+import { analyse } from "./analyst";
+import { evaluate } from "./evaluator";
+import { plan } from "./planner";
+import { DISCLAIMER, checkReview, write, writerReplySchema, type WriteInput } from "./writer";
+
+// Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so the memory it writes lands in that copy and
+// never in data/. A fake tracer keeps every line in memory; the sample model answers unless a test stubs it.
+let dir: string;
+beforeEach(async () => {
+  dir = await mkdtemp(path.join(tmpdir(), "tradeflow-writer-"));
+  await cp(path.resolve("data"), dir, { recursive: true, filter: (source) => path.basename(source) !== "memory" });
+  process.env.TRADEFLOW_DATA_DIR = dir;
+});
+
+afterEach(async () => {
+  delete process.env.TRADEFLOW_DATA_DIR;
+  await rm(dir, { recursive: true, force: true });
+});
+
+const config: Config = loadConfig({ SAMPLE_MODE: "true" }, () => {});
+const AS_OF = "2026-10-01";
+const QUESTION = "Why did my portfolio move this week?";
+const REVIEW_MEMORY: RecalledMemory = { id: "mem-review", tags: ["review", "explain_week", "2026-09-24"], content: "Week to 2026-09-24: the portfolio rose 0.9%, 1.2 points ahead of DSEX.", relevance: null };
+const CORRECTION: RecalledMemory = { id: "mem-fix", tags: ["correction", "2026-09-24"], content: "Compare each holding with its sector index before DSEX.", relevance: null };
+
+function collector() {
+  const lines: TraceInput[] = [];
+  const tracer = { log: (line: TraceInput) => (lines.push(line), line as never) } as unknown as Tracer;
+  return { lines, tracer };
+}
+
+function runState() {
+  const { lines, tracer } = collector();
+  const run = new RunState({ runId: "t", tracer, config, sampleMode: true });
+  return { lines, tracer, run };
+}
+
+/** The sample Analyst's findings for 1 Oct, accepted by the Evaluator, with the run that holds the results. */
+async function accepted(memories: RecalledMemory[] = [REVIEW_MEMORY]) {
+  const { run } = runState();
+  const planned = await plan({ task: "explain_week", question: QUESTION, as_of: AS_OF, memories }, { tracer: run.tracer, sampleMode: true });
+  const outcome = await analyse({ task: "explain_week", question: QUESTION, as_of: AS_OF, focus: planned.focus, steps: planned.steps, memories }, { run });
+  if (!outcome.ok) throw new Error(outcome.error.message);
+  const verdict = await evaluate({ task: "explain_week", question: QUESTION, as_of: AS_OF, findings: outcome.findings, gaps: outcome.gaps, memories, results: run.store }, { tracer: run.tracer, run });
+  if (!verdict.accepted) throw new Error(`not accepted: ${verdict.fix}`);
+  return { run, findings: outcome.findings, gaps: outcome.gaps, memories };
+}
+
+const input = (run: RunState, findings: readonly Finding[], extra: Partial<WriteInput> = {}): WriteInput => ({
+  task: "explain_week",
+  question: QUESTION,
+  as_of: AS_OF,
+  findings,
+  results: run.store,
+  gaps: [],
+  declined_advice: false,
+  escalation: null,
+  memories: [],
+  runId: "t",
+  ...extra,
+});
+
+/** A model whose replies are scripted, one per call, in order; it records what it was asked. The last reply repeats. */
+function scripted(replies: unknown[], calls: CompleteOptions[] = []) {
+  return async (options: CompleteOptions): Promise<CompleteResult> => {
+    const reply = replies[Math.min(calls.length, replies.length - 1)];
+    calls.push(options);
+    return { text: JSON.stringify(reply), json: reply as Record<string, unknown>, usage: { tokens_in: 10, tokens_out: 5 }, duration_ms: 1, model_id: "stub", source: "sample-model" };
+  };
+}
+
+const writerLines = (lines: TraceInput[], action: string) => lines.filter((line) => line.agent_name === "Writer" && line.action === action);
+const reviews = () => openMemory().store.all().filter((memory) => memory.tags.includes("review"));
+
+describe("the Writer with the sample model", () => {
+  it("writes the 1 Oct review: a citation on every bullet above 'What I remembered', BXPHARMA named, the disclaimer last, one review memory", async () => {
+    const { run, findings, gaps, memories } = await accepted();
+    const { lines, tracer } = collector();
+    const outcome = await write(input(run, findings, { gaps, memories }), { tracer, run });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.reason).toBeNull();
+    const text = outcome.review_markdown;
+    const all = text.split("\n");
+    const heading = all.findIndex((line) => line.includes("What I remembered"));
+    expect(heading).toBeGreaterThan(0);
+    const bullets = all.slice(0, heading).filter((line) => line.startsWith("- "));
+    expect(bullets.length).toBeGreaterThanOrEqual(3);
+    const ids = Object.keys(run.store);
+    for (const bullet of bullets) {
+      const tag = bullet.match(/\[q:([^\]]+)\]$/);
+      expect(tag, bullet).not.toBeNull();
+      expect(ids).toContain(tag![1]);
+    }
+    expect(text).toContain("BXPHARMA");
+    expect(outcome.summary).toContain("BXPHARMA");
+    expect(outcome.summary).toContain("DSEX");
+    expect(all.at(-1)).toBe(DISCLAIMER);
+    expect(text).toContain("Last week's review (2026-09-24): Week to 2026-09-24");
+    // The largest move leads the body, with its announcement folded in; the memory note names the week and the rule.
+    expect(bullets[1]).toMatch(/^- BXPHARMA fell 14\.9% over the week.*It came after ".*" on 2026-09-27\./);
+    expect(outcome.memory_note).toMatch(/^Week to 2026-10-01: SQURPHARMA .*% of the portfolio, above the 25% limit; BXPHARMA fell 14\.9%, the largest move\.$/);
+
+    const stored = reviews();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ id: outcome.memory_id, content: outcome.memory_note });
+    expect(stored[0].tags).toEqual(["review", "explain_week", AS_OF, "run:t"]);
+    expect(writerLines(lines, "code_check")).toEqual([expect.objectContaining({ status: "ok" })]);
+    expect(writerLines(lines, "write")).toEqual([expect.objectContaining({ status: "ok", target_agent: "Orchestrator", model: "sample-model" })]);
+    expect(writerLines(lines, "retry")).toHaveLength(0);
+    expect(lines.filter((line) => line.agent_name === "Memory" && line.action === "remember")).toHaveLength(1);
+    expect(outcome).toMatchObject({ attempts: 1, memory_reason: null });
+    expect(run.usage.model_calls).toBe(3);
+  });
+
+  it("sends the prompt file as-is and one JSON user message with the findings and their cited rows, the memories and the corrections", async () => {
+    const { run, findings, gaps } = await accepted();
+    const calls: CompleteOptions[] = [];
+    const { tracer } = collector();
+    const moves = Object.values(run.store).find((result) => result.query_id === "week_moves")!;
+    const good = {
+      summary: "Your portfolio moved this week.",
+      review_markdown: `Your portfolio moved this week.\n\n- The data shows the portfolio moved. [q:${moves.run_query_id}]\n\n${DISCLAIMER}`,
+      memory_note: "Week to 2026-10-01: no rule broken.",
+    };
+    const outcome = await write(input(run, findings, { gaps, memories: [REVIEW_MEMORY, CORRECTION], declined_advice: true }), { tracer, run, remember: false, complete: scripted([good], calls) });
+    expect(outcome).toMatchObject({ ok: true, ...good, memory_id: null, memory_reason: expect.stringMatching(/no memory write/) });
+    expect(reviews()).toHaveLength(0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].system).toBe(readFileSync(path.join(__dirname, "../prompts/writer.md"), "utf8"));
+    expect(calls[0]).toMatchObject({ model: "strong", json: true, agent: "Writer" });
+    const user = JSON.parse(calls[0].user) as Record<string, unknown>;
+    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "findings", "gaps", "declined_advice", "escalation", "memories", "applied_corrections", "retry_reason"]);
+    expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, gaps, declined_advice: true, escalation: null, retry_reason: null });
+    expect(user.memories).toEqual([REVIEW_MEMORY, CORRECTION].map(({ id, tags, content }) => ({ id, tags, content })));
+    expect(user.applied_corrections).toEqual([{ id: CORRECTION.id, tags: CORRECTION.tags, content: CORRECTION.content }]);
+    const sent = user.findings as (Finding & { cited_rows: { run_query_id: string; query_id: string; rows: Record<string, unknown>[] }[] })[];
+    expect(sent).toHaveLength(findings.length);
+    const bxpharma = sent.find((f) => f.kind === "move" && f.subject === "BXPHARMA")!;
+    expect(bxpharma.cited_rows).toEqual([{ run_query_id: moves.run_query_id, query_id: "week_moves", rows: [expect.objectContaining({ symbol: "BXPHARMA" })] }]);
+    const portfolio = sent.find((f) => f.kind === "move" && f.subject === "PORTFOLIO")!;
+    expect(portfolio.cited_rows[0].rows).toEqual([expect.objectContaining({ symbol: "PORTFOLIO" })]);
+  });
+});
+
+describe("the Writer on a stubbed reply", () => {
+  it("validates a good reply and refuses one without a memory_note", () => {
+    const good = { summary: "s", review_markdown: `r\n\n${DISCLAIMER}`, memory_note: "m" };
+    expect(writerReplySchema.parse(good)).toEqual(good);
+    expect(writerReplySchema.safeParse({ summary: "s", review_markdown: "r" }).success).toBe(false);
+    expect(writerReplySchema.safeParse({ summary: "s", review_markdown: "r", memory_note: "  " }).success).toBe(false);
+  });
+
+  it("retries once with retry_reason when the review has a made-up number, then returns ok false with the reason and the draft", async () => {
+    const { run, findings, gaps } = await accepted();
+    const calls: CompleteOptions[] = [];
+    const { lines, tracer } = collector();
+    const moves = Object.values(run.store).find((result) => result.query_id === "week_moves")!;
+    const madeUp = {
+      summary: "Your portfolio lost Tk 98765.4 this week.",
+      review_markdown: `Your portfolio lost Tk 98765.4 this week.\n\n- The data shows the portfolio lost Tk 98765.4. [q:${moves.run_query_id}]\n\n${DISCLAIMER}`,
+      memory_note: "Week to 2026-10-01: lost 98765.4.",
+    };
+    const outcome = await write(input(run, findings, { gaps }), { tracer, run, complete: scripted([madeUp], calls) });
+
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(calls[0].user).retry_reason).toBeNull();
+    const retryReason = JSON.parse(calls[1].user).retry_reason as string;
+    expect(retryReason).toMatch(/98765\.4/);
+    expect(retryReason).toMatch(/in no accepted finding, cited row or recalled memory/);
+    // The rest of the input is the same on the retry.
+    const strip = (user: string) => {
+      const parsed = JSON.parse(user) as Record<string, unknown>;
+      delete parsed.retry_reason;
+      return parsed;
+    };
+    expect(strip(calls[1].user)).toEqual(strip(calls[0].user));
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toMatch(/summary has the number 98765\.4/);
+    expect(outcome.reason).toMatch(/review_markdown has the number 98765\.4/);
+    expect(outcome.reason).toMatch(/memory_note has the number 98765\.4/);
+    expect(outcome).toMatchObject({ ...madeUp, memory_id: null, attempts: 2 });
+    expect(reviews()).toHaveLength(0);
+    expect(writerLines(lines, "retry")).toEqual([expect.objectContaining({ status: "retry", why: expect.stringMatching(/98765\.4/) })]);
+    expect(writerLines(lines, "code_check").map((line) => line.status)).toEqual(["rejected", "rejected"]);
+    expect(writerLines(lines, "write")).toEqual([expect.objectContaining({ status: "needs_human", why: outcome.reason })]);
+    expect(run.usage.model_calls).toBe(4);
+  });
+
+  it("refuses a review without the disclaimer on its last line, then one that tells the owner what to trade", async () => {
+    const { run, findings, gaps } = await accepted();
+    const { lines, tracer } = collector();
+    const noDisclaimer = { summary: "Your portfolio moved.", review_markdown: `Your portfolio moved.\n\n- The data shows the portfolio moved. [q:x]\n\n${DISCLAIMER}\n\nThanks for reading.`, memory_note: "Week to 2026-10-01: no rule broken." };
+    const advice = { summary: "Your portfolio moved.", review_markdown: `You should sell BXPHARMA now.\n\n${DISCLAIMER}`, memory_note: "Week to 2026-10-01: no rule broken." };
+    const outcome = await write(input(run, findings, { gaps }), { tracer, run, complete: scripted([noDisclaimer, advice]) });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toMatch(/tells the owner what to trade/);
+    expect(writerLines(lines, "retry")[0].why).toMatch(/the last line of review_markdown must be/);
+    expect(reviews()).toHaveLength(0);
+  });
+
+  it("retries a reply that fails the schema and keeps what parsed as the draft", async () => {
+    const { run, findings, gaps } = await accepted();
+    const { tracer } = collector();
+    const outcome = await write(input(run, findings, { gaps }), { tracer, run, complete: scripted([{ summary: "Only a summary." }]) });
+    expect(outcome).toMatchObject({ ok: false, summary: "Only a summary.", review_markdown: "", memory_note: "", attempts: 2 });
+    expect(outcome.reason).toMatch(/Writer schema/);
+  });
+
+  it("checkReview allows rounded figures from the rows, a memory's figure and digits in dates, ids and [q:...] tags", async () => {
+    const { run, findings, gaps } = await accepted();
+    const moves = Object.values(run.store).find((result) => result.query_id === "week_moves")!;
+    const bxpharma = moves.rows.find((row) => row.symbol === "BXPHARMA")!;
+    const change = Math.round(Math.abs(Number(bxpharma.change_pct)) * 10) / 10;
+    const reply = {
+      summary: `BXPHARMA fell ${change}% in the week to 1 Oct 2026, as the review of 2026-09-24 (memory mem-review) said the portfolio rose 0.9%.`,
+      review_markdown: `BXPHARMA fell ${change}%.\n\n- BXPHARMA fell ${change}% over the week. [q:${moves.run_query_id}]\n\n${DISCLAIMER}`,
+      memory_note: `Week to 2026-10-01: BXPHARMA fell ${change}%; thesis j-013 open.`,
+    };
+    expect(checkReview(reply, { findings, results: run.store, memories: [REVIEW_MEMORY], task: "explain_week" })).toEqual({ ok: true });
+    expect(checkReview({ ...reply, memory_note: "Week to 2026-10-01: a loss of Tk 98765.4." }, { findings, results: run.store, memories: [REVIEW_MEMORY], task: "explain_week" })).toMatchObject({ ok: false, reason: expect.stringMatching(/memory_note has the number 98765\.4/) });
+    expect(gaps.length).toBeGreaterThanOrEqual(0);
+  });
+});

@@ -94,7 +94,7 @@ describe("the sample model", () => {
     expect(gaps).toEqual(['rule_findings {"as_of":"2026-10-01"} returned no rows, so this review says nothing it would have shown.']);
   });
 
-  it("scores from simple checks: a cited, cause-free draft passes and one that claims a cause does not", async () => {
+  it("scores from simple checks: a cited draft with two findings passes and one finding with no cite does not", async () => {
     const good = [
       { kind: "move", subject: "PORTFOLIO", claim: "The data shows the portfolio fell.", cites: ["q-1"], verdict: null },
       { kind: "rule", subject: null, claim: "The data shows no rule was broken.", cites: ["q-3"], verdict: null },
