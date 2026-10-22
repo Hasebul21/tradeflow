@@ -3,7 +3,7 @@
 // Reads Claude Code's hook JSON on stdin. Prints nothing to allow, so Claude Code's own permission prompts still apply.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const kind = process.argv[2];
@@ -21,7 +21,10 @@ const MAX_CHECKS = 12;
 const SAFE_GLOB = /^[A-Za-z0-9_.\-/*{},]+$/;
 
 // A Grep glob as a regular expression, matching dotfiles the way ripgrep does. Throws on a malformed glob.
-function globToRegExp(glob) {
+// It matches at least what ripgrep would: a leading / (anchored to the search folder) is dropped and the pattern
+// may start at any folder, and a trailing / (a folder) matches everything inside it.
+function globToRegExp(raw) {
+  const glob = raw.replace(/^\/+/, "").replace(/\/$/, "/**");
   let re = "";
   let braces = 0;
   for (let i = 0; i < glob.length; i++) {
@@ -51,9 +54,23 @@ const isFolder = (p) => {
   }
 };
 
-// A path, absolute or relative to the repo, as the repo-relative form PROTECTED is written for.
-const fromRoot = (full) => relative(root, full).split(sep).join("/");
+// The repo as given and as its real path, so a symlinked project folder can't make a path look outside it.
+const roots = (() => {
+  try {
+    return [...new Set([root, realpathSync(root)])];
+  } catch {
+    return [root];
+  }
+})();
+// An absolute path as the repo-relative forms PROTECTED is written for; empty when it is outside the repo.
+const fromRoot = (full) =>
+  roots
+    .map((r) => relative(r, full).split(sep).join("/"))
+    .filter((rel) => rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
 const isProtected = (rel) => PROTECTED.test(rel) && !/(^|\/)\.env\.example$/i.test(rel);
+// The repo-relative forms and the absolute path, so a key file outside the repo is caught as well.
+const forms = (full) => [...fromRoot(full), full.split(sep).join("/")];
+const isProtectedPath = (full) => forms(full).some(isProtected);
 
 // Every protected file under dir, as [path relative to dir, path relative to the repo]; throws when there are
 // too many files to walk in time. node_modules, .git and .next are not walked: globs that name them are refused.
@@ -66,7 +83,7 @@ function protectedFiles(dir) {
       const path = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name)) walk(path);
-      } else if (isProtected(fromRoot(join(dir, path)))) found.push(path);
+      } else if (isProtectedPath(join(dir, path))) found.push(path);
     }
   };
   walk("");
@@ -95,7 +112,9 @@ function globProblem(event) {
   } catch {
     return "The search folder is too big to check against the glob. Set path to a smaller folder, such as src.";
   }
-  const hit = files.find((file) => match.test(file));
+  // A glob that matches a folder can bring in the files under it, so each file's parent folders are tried too.
+  const withParents = (file) => file.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"));
+  const hit = files.find((file) => withParents(file).some((p) => match.test(p)));
   return hit ? `The Grep glob also matches ${hit}, which holds secrets or is hidden from the agent. Narrow the glob, or set path to src.` : null;
 }
 
@@ -112,8 +131,8 @@ function pathProblem(event) {
       // Unresolvable: the path as given is still checked.
     }
     for (const candidate of [full, real]) {
-      const rel = fromRoot(candidate);
-      if (!rel.startsWith("..") && (isProtected(rel) || ((isFolder(candidate) || !existsSync(candidate)) && isProtected(`${rel}/`))))
+      const asFolder = isFolder(candidate) || !existsSync(candidate);
+      if (forms(candidate).some((rel) => isProtected(rel) || (asFolder && isProtected(`${rel}/`))))
         return `${p} holds secrets or is hidden from the agent (.cursorignore). Use an endpoint or a command instead.`;
     }
   }

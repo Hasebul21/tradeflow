@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -81,6 +81,8 @@ describe("cursor-adapter.mjs", () => {
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "secrets/" } }))).toBe("deny");
     // At the repo root these globs can reach .env, because a glob overrides Grep's skipping of ignored files.
     const refused = ["?env", "*env", "*", "**/*", ".e[n]v", ".env.production", "[env", "[]env]", "\\.env", "!*.md", "*.ts .env", "node_modules/**"];
+    // Anchored globs, and globs that name a protected folder rather than a file in it.
+    refused.push("/.hackathon-prep/*", ".hackathon-prep", ".hackathon-prep/", "/.env");
     for (const glob of refused) {
       expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob } }))).toBe("deny");
     }
@@ -107,6 +109,23 @@ describe("cursor-adapter.mjs", () => {
     expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/logs/trace-week-40.jsonl` } }))).toBe("deny");
     expect(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/AGENTS.md` } }).out).toBeNull();
     expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "data" } }).out).toBeNull();
+  });
+
+  it("still denies when the project folder is reached through a symlink", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
+    try {
+      const link = path.join(dir, "repo");
+      symlinkSync(root, link);
+      const run = spawnSync(process.execPath, [".claude/hooks/cursor-adapter.mjs", "read"], {
+        input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: path.join(realpathSync(root), ".hackathon-prep", "README.md") } }),
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, CLAUDE_PROJECT_DIR: link },
+      });
+      expect(JSON.parse(run.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("denies a Grep over a folder named secrets", () => {
