@@ -3,7 +3,7 @@
 // Reads Claude Code's hook JSON on stdin. Prints nothing to allow, so Claude Code's own permission prompts still apply.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const kind = process.argv[2];
@@ -16,6 +16,10 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next"]);
 const MAX_FILES = 20000;
 const MAX_CHECKS = 12;
 
+// Only these glob characters are translated; any other glob is refused, so the check can't read it differently
+// from ripgrep (no [classes], ?, \, !, spaces or several patterns in one).
+const SAFE_GLOB = /^[A-Za-z0-9_.\-/*{},]+$/;
+
 // A Grep glob as a regular expression, matching dotfiles the way ripgrep does. Throws on a malformed glob.
 function globToRegExp(glob) {
   let re = "";
@@ -26,13 +30,7 @@ function globToRegExp(glob) {
       re += glob[i + 2] === "/" ? "(?:.*/)?" : ".*";
       i += glob[i + 2] === "/" ? 2 : 1;
     } else if (c === "*") re += "[^/]*";
-    else if (c === "?") re += "[^/]";
-    else if (c === "[") {
-      const end = glob.indexOf("]", i + 1);
-      if (end < 0) throw new Error("unclosed [");
-      re += `[${glob.slice(i + 1, end).replace(/^!/, "^")}]`;
-      i = end;
-    } else if (c === "{") {
+    else if (c === "{") {
       braces++;
       re += "(?:";
     } else if (c === "}" && braces > 0) {
@@ -53,7 +51,12 @@ const isFolder = (p) => {
   }
 };
 
-// Paths, relative to dir, of every protected file under it; throws when there are too many files to walk in time.
+// A path, absolute or relative to the repo, as the repo-relative form PROTECTED is written for.
+const fromRoot = (full) => relative(root, full).split(sep).join("/");
+const isProtected = (rel) => PROTECTED.test(rel) && !/(^|\/)\.env\.example$/i.test(rel);
+
+// Every protected file under dir, as [path relative to dir, path relative to the repo]; throws when there are
+// too many files to walk in time. node_modules, .git and .next are not walked: globs that name them are refused.
 function protectedFiles(dir) {
   const found = [];
   let seen = 0;
@@ -63,7 +66,7 @@ function protectedFiles(dir) {
       const path = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name)) walk(path);
-      } else if (PROTECTED.test(path) && !/(^|\/)\.env\.example$/i.test(path)) found.push(path);
+      } else if (isProtected(fromRoot(join(dir, path)))) found.push(path);
     }
   };
   walk("");
@@ -76,7 +79,8 @@ function globProblem(event) {
   const tool = event.tool_input ?? {};
   const glob = tool.glob;
   if (typeof glob !== "string" || glob === "") return null;
-  if (glob.includes("\\") || glob.startsWith("!")) return "The Grep glob uses \\ or a leading !, which this guard can't check. Use a plain glob, such as *.ts.";
+  if (!SAFE_GLOB.test(glob)) return "The Grep glob uses characters this guard can't check (allowed: letters, digits, - _ . /, * and {a,b}). Use a plain glob, such as *.ts.";
+  if ([...SKIP_DIRS].some((dir) => glob.includes(dir))) return "The Grep glob names node_modules, .git or .next, which this guard doesn't check. Search the project's own folders.";
   let match;
   try {
     match = globToRegExp(glob);
@@ -93,6 +97,27 @@ function globProblem(event) {
   }
   const hit = files.find((file) => match.test(file));
   return hit ? `The Grep glob also matches ${hit}, which holds secrets or is hidden from the agent. Narrow the glob, or set path to src.` : null;
+}
+
+// A read or search inside a folder that .cursorignore hides (or of a secret file) is refused, whatever guard-read says.
+function pathProblem(event) {
+  const tool = event.tool_input ?? {};
+  for (const p of [tool.file_path, tool.notebook_path, tool.path]) {
+    if (typeof p !== "string" || p === "") continue;
+    const full = resolve(event.cwd ?? root, p);
+    let real = full;
+    try {
+      if (existsSync(full)) real = realpathSync(full);
+    } catch {
+      // Unresolvable: the path as given is still checked.
+    }
+    for (const candidate of [full, real]) {
+      const rel = fromRoot(candidate);
+      if (!rel.startsWith("..") && (isProtected(rel) || ((isFolder(candidate) || !existsSync(candidate)) && isProtected(`${rel}/`))))
+        return `${p} holds secrets or is hidden from the agent (.cursorignore). Use an endpoint or a command instead.`;
+    }
+  }
+  return null;
 }
 
 // guard-read matches names, so every name a read could reach is checked: the path as given, where a symlink
@@ -161,7 +186,7 @@ process.stdin.on("end", () => {
     // Unreadable input: the guard gets empty fields, as in Cursor.
   }
   if (kind === "read") {
-    const problem = globProblem(event);
+    const problem = pathProblem(event) ?? globProblem(event);
     if (problem) return deny(problem);
   }
   const payloads = cursorPayloads(event);

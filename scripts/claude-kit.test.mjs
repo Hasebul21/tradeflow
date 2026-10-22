@@ -80,7 +80,8 @@ describe("cursor-adapter.mjs", () => {
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob: "{.env,README.md}" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "secrets/" } }))).toBe("deny");
     // At the repo root these globs can reach .env, because a glob overrides Grep's skipping of ignored files.
-    for (const glob of ["?env", "*env", "*", "**/*", ".e[n]v", ".env.production", "[env", "\\.env", "!*.md"]) {
+    const refused = ["?env", "*env", "*", "**/*", ".e[n]v", ".env.production", "[env", "[]env]", "\\.env", "!*.md", "*.ts .env", "node_modules/**"];
+    for (const glob of refused) {
       expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "KEY", glob } }))).toBe("deny");
     }
     for (const glob of ["*", "*.ts", "**/*.test.ts", "*.{ts,tsx}", ".env.example"]) {
@@ -98,6 +99,14 @@ describe("cursor-adapter.mjs", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("denies reads and searches inside the folders .cursorignore hides", () => {
+    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: ".hackathon-prep" } }))).toBe("deny");
+    expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "data/memory" } }))).toBe("deny");
+    expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/logs/trace-week-40.jsonl` } }))).toBe("deny");
+    expect(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/AGENTS.md` } }).out).toBeNull();
+    expect(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "data" } }).out).toBeNull();
   });
 
   it("denies a Grep over a folder named secrets", () => {
