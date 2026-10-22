@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -129,18 +129,34 @@ describe("cursor-adapter.mjs", () => {
     }
   });
 
-  it("lets a plain push to origin main through only when the owner's switch file exists", () => {
+  it("lets a plain push to origin main through only with the owner's switch holding origin's push URL", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
     try {
+      const url = spawnSync("git", ["remote", "get-url", "--push", "origin"], { cwd: root, encoding: "utf8" }).stdout.trim();
       const sw = path.join(dir, "allow-push");
-      writeFileSync(sw, "");
       const on = { CLAUDE_KIT_ALLOW_PUSH_FILE: sw };
-      expect(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin main" } }, on).out).toBeNull();
-      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin feature" } }, on))).toBe("ask");
-      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push --force origin main" } }, on))).toBe("deny");
-      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin main" } }))).toBe("ask");
+      const push = (command) => adapter("shell", { tool_name: "Bash", tool_input: { command }, cwd: root }, on);
+      writeFileSync(sw, `${url}\n`);
+      expect(push("git push origin main").out).toBeNull();
+      expect(decision(push("git push origin feature"))).toBe("ask");
+      expect(decision(push("git push --force origin main"))).toBe("deny");
+      writeFileSync(sw, "https://example.test/someone-else.git\n");
+      expect(decision(push("git push origin main"))).toBe("ask");
+      writeFileSync(sw, "");
+      expect(decision(push("git push origin main"))).toBe("ask");
+      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command: "git push origin main" }, cwd: root }))).toBe("ask");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("denies the agent any way to fake the owner's push consent or move the remote", () => {
+    for (const command of ["touch ~/.config/tradeflow-kit/allow-push", "echo x > .run/allow-push", "git remote set-url origin https://example.test/x.git",
+      "git remote add other https://example.test/x.git", "git config remote.origin.pushurl https://example.test/x.git", "git config core.hooksPath /tmp"]) {
+      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command } }))).toBe("deny");
+    }
+    for (const file_path of [`${homedir()}/.config/tradeflow-kit/allow-push`, `${root}/.run/allow-push`]) {
+      expect(decision(adapter("read", { tool_name: "Write", tool_input: { file_path } }))).toBe("deny");
     }
   });
 

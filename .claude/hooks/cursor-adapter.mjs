@@ -2,7 +2,8 @@
 // Usage (from .claude/settings.json): node .claude/hooks/cursor-adapter.mjs read | shell | prompt
 // Reads Claude Code's hook JSON on stdin. Prints nothing to allow, so Claude Code's own permission prompts still apply.
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,10 +16,24 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next"]);
 // Past these limits the hook could run out of time, which would let the call through, so it denies instead.
 const MAX_FILES = 20000;
 const MAX_CHECKS = 12;
-// The owner can let an unattended run push without a question: create .run/allow-push (git-ignored).
-// Only the exact plain push to origin main is let through; force pushes stay denied by guard-shell.
-const PUSH_SWITCH = process.env.CLAUDE_KIT_ALLOW_PUSH_FILE || join(root, ".run", "allow-push");
-const pushAllowed = (command) => /^\s*git push origin main\s*$/.test(command ?? "") && existsSync(PUSH_SWITCH);
+// The owner can let an unattended run push without a question. The switch lives outside the repo, holds the exact
+// push URL of origin, and the agent may not read, write or touch it (below), so the agent can't approve itself.
+// Only the plain push to origin main, from the repo, to that URL, with no mirror setting, is let through.
+const PUSH_SWITCH = process.env.CLAUDE_KIT_ALLOW_PUSH_FILE || join(homedir(), ".config", "tradeflow-kit", "allow-push");
+const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", timeout: 3000 }).stdout?.trim() ?? "";
+function pushAllowed(command, cwd) {
+  if (!/^\s*git push origin main\s*$/.test(command ?? "") || !existsSync(PUSH_SWITCH)) return false;
+  if (cwd && !fromRoot(resolve(cwd)).includes("")) return false;
+  let pinned = "";
+  try {
+    pinned = readFileSync(PUSH_SWITCH, "utf8").trim();
+  } catch {
+    return false;
+  }
+  return pinned !== "" && pinned === git("remote", "get-url", "--push", "origin") && git("config", "--get", "remote.origin.mirror") === "";
+}
+// Shell commands that could fake the owner's consent or move where a push goes.
+const CONSENT_TAMPER = /allow-push|tradeflow-kit|\bgit\s+remote\s+(add|set-url|rename|remove|rm)\b|\bgit\s+config\b[^\n]*\b(remote\.|url\.|core\.hookspath|pushurl)/i;
 
 // Only these glob characters are translated; any other glob is refused, so the check can't read it differently
 // from ripgrep (no [classes], ?, \, !, spaces or several patterns in one).
@@ -209,9 +224,15 @@ process.stdin.on("end", () => {
     // Unreadable input: the guard gets empty fields, as in Cursor.
   }
   if (kind === "read") {
+    const tool = event.tool_input ?? {};
+    const touchesSwitch = [tool.file_path, tool.notebook_path, tool.path, tool.glob].some(
+      (p) => typeof p === "string" && /allow-push|tradeflow-kit/i.test(p));
+    if (touchesSwitch) return deny("The push switch is the owner's consent; only the owner may create or change it.");
     const problem = pathProblem(event) ?? globProblem(event);
     if (problem) return deny(problem);
   }
+  if (kind === "shell" && CONSENT_TAMPER.test(event.tool_input?.command ?? ""))
+    return deny("That command touches the owner's push switch or git remotes, which only the owner may change.");
   const payloads = cursorPayloads(event);
   if (payloads.length > MAX_CHECKS) return deny(`Too many paths to check (${payloads.length}); split the request.`);
   let ask = null;
@@ -220,7 +241,7 @@ process.stdin.on("end", () => {
     if (!out) return deny(`The ${kind} guard gave no answer, so this was stopped. Run: node .cursor/hooks/${guards[kind]}`);
     if (kind === "prompt" && out.continue === false) return process.stdout.write(JSON.stringify(reply("block", out.user_message)));
     if (out.permission === "deny") return deny(out.agent_message ?? out.user_message);
-    if (out.permission === "ask" && !(kind === "shell" && pushAllowed(payload.command))) ask ??= out.agent_message ?? out.user_message;
+    if (out.permission === "ask" && !(kind === "shell" && pushAllowed(payload.command, payload.cwd))) ask ??= out.agent_message ?? out.user_message;
   }
   if (ask) process.stdout.write(JSON.stringify(reply("ask", ask)));
 });
