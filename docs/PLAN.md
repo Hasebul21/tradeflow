@@ -860,3 +860,22 @@ The planted cases map to the input examples as follows:
 - **Nightshift:** no documentation exists in the local Meterless clone (`/Users/cefalo/sandbox/meterless`). Unknown: tool passthrough, the reasoning-off switch, the name of the completion-token field, and where the served lane appears.
 - **Zetaris:** the run endpoint returns rows as positional string arrays, and column names for that route weren't found. Also unknown: two-part or three-part table names, and how `timestamptz` arrives.
 - **H-MEM wording:** "user_correction" isn't a memory type in the reference. `mine("user_correction", text)` stores type `preference` with the tag `event:user_correction` (`engines/hmem/reference/src/memoryMining.ts:33-43`), so the README must not call it a separate type.
+
+## 8. Answers to section 7 (22 Oct)
+
+1. **Zetaris:** the two datasources are not registered yet. The owner registers `tradeflow_ledger` and `tradeflow_external` in the Zetaris SQL editor (`CREATE DATASOURCE` with `host.docker.internal` and the `zetaris_ro` password) right before the Zetaris adapter step; until then every named query uses its local version. `.env` holds `ZETARIS_REST_URL`, `ZETARIS_ORG_ID`, `ZETARIS_API_KEY`, `ZETARIS_USERNAME`, `ZETARIS_PASSWORD` and `ZETARIS_DB_PASSWORD` (organisation id 1).
+2. **Reconciliation fixes:** approved fixes write only to a working copy under `TRADEFLOW_DATA_DIR`, never to `data/`, so the story tests stay green. For `t-030` the agent proposes removing it and lists every journal entry that references it; the owner decides.
+3. **Model ids:** `config.ts` reads `NEMOTRON_MODEL_STRONG`, `NEMOTRON_MODEL_MAIN` and `NEMOTRON_MODEL_FAST` from `.env`, with no model id hardcoded; any empty one means sample mode (rule 11). Tested 21 Oct: strong = `meterless/deep`, main = `meterless/auto`, fast = `meterless/fast`.
+4. **Token variable:** `METERLESS_RUNTIME_TOKEN` is unused; `METERLESS_API_KEY` holds the Nightshift runtime token. Both names stay in the hooks' lists.
+5. **Thesis-check scope:** the journal ids or symbols the input names; when it names none, the entries for the symbols currently held.
+6. **Pre-trade check:** it runs on the Explain page and `POST /run`, before the owner saves on `/transactions`. The frozen save files stay unchanged.
+7. **metadata.json:** the organisers publish no format. Use the participants' community draft (github.com/saphan-ai/proven, `schema_version` 0.1-community); the README step writes it. `.hackathon-prep/` is hidden from the coding agent on purpose.
+8. **Cursor evidence:** until the promised Cursor credit arrives, the coding agent is Claude Code in Cursor's terminal; later steps may run in Cursor's own Agent chat. `CURSOR.md` records truthfully which tool did each step.
+9. **Output examples:** yes, `output_examples/` holds only real runs through Nightshift. The video leads with the week explanation, the thesis check and the pre-trade check.
+10. **File roles:** follow the build steps' prompts. `proof.ts` = citation proof cards for the Explain page; `router.ts` = the Router agent; `registry.ts` = the run registry (cancel a run, cap the server); `concurrency.ts` = the cap on parallel briefing children; `metrics.ts` = metrics across runs; `prompts.ts` = prompt versions recorded in every trace; `policy.ts` = tool policy, which agent may call which tool.
+11. **Committed traces:** commit copies of chosen traces under `output_examples/traces/`; `logs/` stays ignored.
+12. **example_8:** until the reconcile task exists, the eval reports `example_8` as "not built yet" without failing; from the reconcile step on it must pass. The expectation itself never changes.
+13. **Tuesday:** no extra time. Tuesday evening is checks only. Optional steps run only when a day's list is pushed early; otherwise they ship simplified or not at all.
+14. **Limits:** `MAX_TOOL_ROUNDS` 2, `MAX_TOKENS_PER_RUN` 120000, `MAX_PROMPT_CHARS` 60000, `MAX_COMPLETION_TOKENS` 4096.
+
+Where this plan's step numbers differ from the build file's prompts, the prompt wins (the `run-step` skill, item 2).
