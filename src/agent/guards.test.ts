@@ -129,6 +129,37 @@ describe("numbersIn, numberMatchesIn and dayRangesIn", () => {
     ]);
   });
 
+  describe("in checkCitations", () => {
+    // example_4's announcements_between result, reduced to one row: its window is 2026-09-11 to 2026-09-17.
+    const r = (run_query_id: string, query_id: QueryResult["query_id"], params: Record<string, unknown>, rows: Row[]): QueryResult => ({ run_query_id, query_id, params, rows, source: "zetaris", sql_head: null });
+    const ANN = r("4627a537-84eb-4202-9c8c-7eb49d09f029", "announcements_between", { from: "2026-09-11", to: "2026-09-17" }, [{ id: "a-064", symbol: "GP", title: "Record date for the cash dividend", published_on: "2026-09-17" }]);
+    const claim = (text: string, cites: string[] = [ANN.run_query_id]): Finding => ({ kind: "announcement", subject: "GP", claim: text, numbers: [], cites, verdict: null, proposed_fix: null, memory_ids: [] });
+    const results = { [ANN.run_query_id]: ANN };
+
+    it("allows a claim with the window the run queried, 11-17 Sept 2026, with or without as_of", () => {
+      expect(checkCitations([claim("The data shows one announcement for GP in the window 11-17 Sept 2026.")], results, [], undefined, "2026-09-17").ok).toBe(true);
+      expect(checkCitations([claim("The data shows one announcement for GP in the window 11-17 Sept 2026.")], results).ok).toBe(true);
+    });
+
+    it("refuses the same claim with 13-17 Sept 2026: the run never had 13 Sep", () => {
+      const result = checkCitations([claim("The data shows one announcement for GP in the window 13-17 Sept 2026.")], results, [], undefined, "2026-09-17");
+      expect(result).toMatchObject({ ok: false, reason: "finding 1: the claim has 13, which is not in its numbers or the cited rows" });
+    });
+
+    it("refuses a day that only the claim itself names", () => {
+      const result = checkCitations([claim("Since 2026-09-13, in the window 13-17 Sept 2026, GP had one announcement.")], results, [], undefined, "2026-09-17");
+      expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 13/) });
+    });
+
+    it("refuses a day that only an uncited row holds, and allows it once the finding cites that row", () => {
+      const other = r("00000000-0000-4000-8000-0000000000aa", "rule_findings", { as_of: "2026-09-17" }, [{ rule: "position_limit", checked_on: "2026-09-13" }]);
+      const both = { ...results, [other.run_query_id]: other };
+      const text = "GP had one announcement in the window 13-17 Sept 2026.";
+      expect(checkCitations([claim(text)], both, [], undefined, "2026-09-17")).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 13/) });
+      expect(checkCitations([claim(text, [ANN.run_query_id, other.run_query_id])], both, [], undefined, "2026-09-17").ok).toBe(true);
+    });
+  });
+
   it("finds no range in a backwards range, a decimal or plain numbers", () => {
     expect(dayRangesIn("17-11 Sept")).toEqual([]);
     expect(dayRangesIn("5.11-17 Sept")).toEqual([]);

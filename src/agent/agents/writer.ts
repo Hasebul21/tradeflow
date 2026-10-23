@@ -3,10 +3,11 @@
 // rows it cites, the gaps, declined_advice, the escalation, the recalled memories and the applied corrections. Code
 // checks the reply: every number in the summary, the review and the memory note is in an accepted finding's
 // numbers, in a cited row, in a recalled memory, in the question or in a gap code wrote (rounding to one decimal
-// place; digits in dates, years, ids and [q:...] tags are not numbers, and a day range such as 11-17 Sept is a date
-// only when both its days are dates of this run); the last line of the review is the disclaimer; guards.afterModel
-// passes. A failure gets one retry with the same input plus retry_reason (each refused number with the words around
-// it, then what to fix); a second failure returns ok false with the draft, which the
+// place; digits in dates, years, ids and [q:...] tags are not numbers, as before, and a same-month day range such as
+// 11-17 Sept is a date only when both its days are dates of this run); the last line of the review is the disclaimer;
+// guards.afterModel passes. When the disclaimer line is the only problem, code puts it last and checks again, with no
+// model call (traced as disclaimer_added). Any other failure gets one retry with the same input plus retry_reason (each
+// refused number with the words around it, then what to fix); a second failure returns ok false with the draft, which the
 // loop turns into needs_human. An accepted review's memory_note goes to memory.remember, so through
 // guards.beforeRemember with kind "review"; when afterModel saw injection wording in the reply, the memory_note is
 // not stored at all (traced as memory_skipped), so instruction-like text never reaches a later run. Server only
@@ -14,7 +15,7 @@
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResultsForSubjects, forModel, type ResultForModel, type ResultStore, type Task } from "../context";
-import { afterModel, dayRangesIn, numberMatchesIn, numbersIn, type Finding } from "../guards";
+import { afterModel, numberMatchesIn, numbersIn, runDates, withoutRunRanges, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import { MemoryBlockedError, remember, type RecalledMemory } from "../memory";
@@ -251,50 +252,6 @@ export function allowedNumbers(findings: readonly Finding[], store: ResultStore,
   return out;
 }
 
-const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})/g;
-
-function isoDatesIn(value: unknown, out: Set<string>, depth = 0): Set<string> {
-  if (depth > 8) return out;
-  if (typeof value === "string") for (const m of value.matchAll(ISO_DATE)) out.add(`${m[1]}-${m[2]}-${m[3]}`);
-  else if (Array.isArray(value)) for (const item of value) isoDatesIn(item, out, depth + 1);
-  else if (isRecord(value)) for (const item of Object.values(value)) isoDatesIn(item, out, depth + 1);
-  return out;
-}
-
-/**
- * The dates this run worked with, as yyyy-mm-dd: as_of, every date a query of the run was given (its window), and
- * every date in the rows the accepted findings cite. Code-made values only, never model text.
- */
-export function runDates(asOf: string | undefined, findings: readonly Finding[], store: ResultStore): Set<string> {
-  const out = isoDatesIn(asOf ?? "", new Set<string>());
-  for (const result of Object.values(store)) isoDatesIn(result.params, out);
-  for (const finding of findings) for (const cite of finding.cites) if (store[cite] !== undefined) isoDatesIn(store[cite].rows, out);
-  return out;
-}
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-function isRunDate(dates: ReadonlySet<string>, year: number | null, month: number, day: number): boolean {
-  const monthDay = `-${pad2(month)}-${pad2(day)}`;
-  return year === null ? [...dates].some((date) => date.endsWith(monthDay)) : dates.has(`${year}${monthDay}`);
-}
-
-/**
- * The text with every day range (11-17 Sept 2026) whose first and last day are both dates of this run blanked out,
- * keeping each position, so the range reads as the date it is. A range with a day the run never had is left as it
- * is, and its loose day stays a number the check must find in the data.
- */
-function withoutRunRanges(text: string, dates: ReadonlySet<string>): { text: string; unproven: { index: number; end: number; text: string }[] } {
-  let out = text;
-  const unproven: { index: number; end: number; text: string }[] = [];
-  for (const range of dayRangesIn(text)) {
-    const proven = isRunDate(dates, range.year, range.month, range.firstDay) && isRunDate(dates, range.year, range.month, range.lastDay);
-    if (proven) out = `${out.slice(0, range.index)}${" ".repeat(range.text.length)}${out.slice(range.index + range.text.length)}`;
-    else unproven.push({ index: range.index, end: range.index + range.text.length, text: range.text });
-  }
-  return { text: out, unproven };
-}
-
 const SNIPPET_CHARS = 30;
 
 /** The words around position `index` of `text`, on one line, for a reason the model can act on. */
@@ -305,16 +262,18 @@ function around(text: string, index: number, length: number): string {
   return `${from > 0 ? "..." : ""}${body}${to < text.length ? "..." : ""}`;
 }
 
-/** What a retry asks of the model, after the reasons. Fixed text written by code. */
+/** What a retry asks of the model after the reasons, when they name a refused number. Fixed text written by code. */
 export const RETRY_ASK =
   "Write the whole reply again with each problem above fixed: remove every number named here, or replace it with the figure an accepted finding or a cited row gives, and change nothing else.";
+/** What a retry asks when no number was refused (the schema, the disclaimer or the guard). */
+export const RETRY_ASK_PLAIN = "Write the whole reply again with each problem above fixed, and change nothing else.";
 
 /** The retry_reason the model gets: why the last reply failed, then what to do about it. */
 export function retryMessage(reason: string): string {
-  return `${reason} ${RETRY_ASK}`;
+  return `${reason} ${/ has the number /.test(reason) ? RETRY_ASK : RETRY_ASK_PLAIN}`;
 }
 
-export type ReviewCheck = ({ ok: true } | { ok: false; reason: string }) & {
+export type ReviewCheck = ({ ok: true } | { ok: false; reason: string; /** True when the disclaimer line is the only problem, which write() fixes in code. */ only_disclaimer?: true }) & {
   /** Present, and true, only when guards.afterModel saw injection wording in the reply; write() then stores no memory. */
   injection_seen?: true;
 };
@@ -323,8 +282,10 @@ export type ReviewCheck = ({ ok: true } | { ok: false; reason: string }) & {
  * The three checks, in order: every number in the summary, the review and the memory note is allowed; the last
  * line of the review is the disclaimer; guards.afterModel passes. Every problem found goes into one reason, so a
  * retry can fix them all at once: each refused number with the words around it, and whether it was copied from a
- * gap the Analyst wrote or sits in a date range the run never had. A day range whose days are both dates of this run
- * (as_of, a query's window, a cited row's date) reads as a date, like "17 Sep"; nothing else is let through.
+ * gap the Analyst wrote or sits in a date range the run never had (no words are quoted when afterModel saw injection
+ * wording). A same-month day range whose days are both dates of this run (as_of, a query's window, a cited row's
+ * date) reads as a date, like "17 Sep"; the single-date patterns of numbersIn are unchanged, and nothing else is let
+ * through.
  * Traced as agent "Writer", action "code_check". Injection wording the guard sees does not fail the check (the guard
  * does not block on it); it is passed on as injection_seen.
  */
@@ -354,6 +315,8 @@ export function checkReview(
   const quoted = [allowed.question ?? "", ...codeGaps].flatMap((text) => numbersIn(text, ignore));
   const candidates = [...allowedNumbers(allowed.findings, allowed.results, allowed.memories), ...countNumbers(allowed.counts), ...quoted];
   const dates = runDates(allowed.as_of, allowed.findings, allowed.results);
+  // The guard runs first so that a reply with injection wording is never quoted back to the model in a reason.
+  const guard = afterModel(AGENT, reply, { task: allowed.task }, tracer);
   const analystGaps = (allowed.gaps ?? []).filter((gap) => !codeGaps.includes(gap));
   for (const [field, text] of [
     ["summary", reply.summary],
@@ -365,22 +328,21 @@ export function checkReview(
     for (const { value, index } of numberMatchesIn(masked.text, ignore)) {
       if (matches(value, candidates) || seen.has(value)) continue;
       seen.add(value);
-      const where = around(text, index, String(value).length);
       const range = masked.unproven.find((r) => index >= r.index && index < r.end);
       const gap = analystGaps.find((g) => matches(value, numbersIn(g, ignore)));
       const notes = [
-        `in "${where}"`,
+        ...(guard.injection_seen ? [] : [`in "${around(text, index, String(value).length)}"`]),
         ...(range === undefined ? [] : [`"${range.text}" is a date range this run never had, so its day ${value} counts as a number`]),
         ...(gap === undefined ? [] : [`copied from a gap the Analyst wrote, whose figures count only when a finding, a cited row or a memory holds them`]),
       ];
-      problems.push(`${field} has the number ${value}, which is in no accepted finding, cited row or recalled memory (${notes.join("; ")})`);
+      problems.push(`${field} has the number ${value}, which is in no accepted finding, cited row or recalled memory${notes.length > 0 ? ` (${notes.join("; ")})` : ""}`);
     }
   }
 
   const last = reply.review_markdown.trimEnd().split("\n").at(-1)?.trim();
-  if (last !== DISCLAIMER) problems.push(`the last line of review_markdown must be "${DISCLAIMER}"`);
+  const noDisclaimer = last !== DISCLAIMER;
+  if (noDisclaimer) problems.push(`the last line of review_markdown must be "${DISCLAIMER}"`);
 
-  const guard = afterModel(AGENT, reply, { task: allowed.task }, tracer);
   if (!guard.ok) problems.push(guard.reason.replace(/\.$/, ""));
   const seen = guard.injection_seen ? { injection_seen: true as const } : {};
 
@@ -395,7 +357,26 @@ export function checkReview(
     why: ok ? "every number is allowed, the last line is the disclaimer, the guard allows it" : reason,
     retry_count: round,
   });
-  return ok ? { ok: true, ...seen } : { ok: false, reason, ...seen };
+  const onlyDisclaimer = noDisclaimer && problems.length === 1 ? { only_disclaimer: true as const } : {};
+  return ok ? { ok: true, ...seen } : { ok: false, reason, ...onlyDisclaimer, ...seen };
+}
+
+/**
+ * The review with the disclaimer as its last line: each line that is exactly the disclaimer (a misplaced or duplicate
+ * copy) is moved to the end, or the sentence is added when there is none. No other model text is removed or changed.
+ */
+export function withDisclaimerLast(review: string): string {
+  const lines = review.split("\n");
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim() !== DISCLAIMER) {
+      kept.push(lines[i]);
+      continue;
+    }
+    // The blank line that separated the moved copy goes with it, so no paragraph gap doubles.
+    if (kept.length > 0 && kept[kept.length - 1].trim() === "" && lines[i + 1]?.trim() === "") i += 1;
+  }
+  return `${kept.join("\n").trimEnd()}\n\n${DISCLAIMER}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -412,7 +393,8 @@ function draftOf(raw: unknown): WriterReply {
 }
 
 /**
- * Writes the review for one run: the strong model with writer.md, the code check, one retry with retry_reason, then
+ * Writes the review for one run: the strong model with writer.md, the code check (a missing or misplaced disclaimer,
+ * when it is the only problem, put last by code and checked again: disclaimer_added), one retry with retry_reason, then
  * ok false with the draft and the reason. On success the memory_note is stored through memory.remember (and so
  * guards.beforeRemember); a refused memory write leaves the review ok and names the reason in memory_reason. When
  * guards.afterModel saw injection wording in the accepted reply, remember is not called at all: the review stays
@@ -477,6 +459,17 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     return { ok: true, ...review, reason: null, memory_id: memoryId, memory_reason: memoryReason, injection_seen: injectionSeen, attempts, model };
   };
 
+  const allowed = {
+    findings: input.findings,
+    results: input.results,
+    memories,
+    task: input.task,
+    question: input.question,
+    code_gaps: input.code_gaps ?? [],
+    gaps: input.gaps ?? [],
+    as_of: input.as_of,
+    ...(input.counts === undefined ? {} : { counts: input.counts }),
+  };
   let draft: WriterReply = EMPTY;
   let reason = "";
   let injectionSeen = false;
@@ -520,22 +513,24 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     const parsed = writerReplySchema.safeParse(result.json ?? {});
     if (parsed.success) {
       draft = parsed.data;
-      const check = checkReview(
-        draft,
-        {
-          findings: input.findings,
-          results: input.results,
-          memories,
-          task: input.task,
-          question: input.question,
-          code_gaps: input.code_gaps ?? [],
-          gaps: input.gaps ?? [],
-          as_of: input.as_of,
-          ...(input.counts === undefined ? {} : { counts: input.counts }),
-        },
-        tracer,
-        round,
-      );
+      let check = checkReview(draft, allowed, tracer, round);
+      // A missing or misplaced disclaimer, and nothing else wrong, is a fixed sentence: code puts it last and runs
+      // every check again, instead of a slow retry. Any other problem (advice wording included) still retries.
+      if (!check.ok && check.only_disclaimer === true) {
+        const had = draft.review_markdown.split("\n").filter((line) => line.trim() === DISCLAIMER).length;
+        draft = { ...draft, review_markdown: withDisclaimerLast(draft.review_markdown) };
+        tracer.log({
+          agent_name: AGENT,
+          action: "disclaimer_added",
+          input_summary: capped(`review ${parsed.data.review_markdown.length} chars, ${had} disclaimer lines, none last`),
+          output_summary: had === 0 ? "the disclaimer added as the last line" : "the disclaimer moved to the last line",
+          status: "ok",
+          why: "the disclaimer line was the only problem; it is a fixed sentence, so code puts it last and checks the review again instead of asking the model",
+          model: result.model_id,
+          retry_count: round,
+        });
+        check = checkReview(draft, allowed, tracer, round);
+      }
       injectionSeen = check.injection_seen === true;
       if (check.ok) return accepted(draft, attempt, injectionSeen);
       reason = check.reason;

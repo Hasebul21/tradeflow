@@ -296,6 +296,53 @@ export function dayRangesIn(text: string): DayRange[] {
   return out.sort((a, b) => a.index - b.index);
 }
 
+const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})/g;
+
+function isoDatesIn(value: unknown, out: Set<string>, depth = 0): Set<string> {
+  if (depth > 8) return out;
+  if (typeof value === "string") for (const m of value.matchAll(ISO_DATE)) out.add(`${m[1]}-${m[2]}-${m[3]}`);
+  else if (Array.isArray(value)) for (const item of value) isoDatesIn(item, out, depth + 1);
+  else if (isRecord(value)) for (const item of Object.values(value)) isoDatesIn(item, out, depth + 1);
+  return out;
+}
+
+/**
+ * The dates a run worked with, as yyyy-mm-dd: as_of, every date a query of the run was given (its window), and every
+ * date in the rows the given findings cite. Code-made values only: never a claim, a gap or any other model text.
+ */
+export function runDates(asOf: string | undefined, findings: readonly Pick<Finding, "cites">[], results: Record<string, QueryResult>): Set<string> {
+  const out = isoDatesIn(asOf ?? "", new Set<string>());
+  for (const result of Object.values(results)) isoDatesIn(result.params, out);
+  for (const finding of findings) for (const cite of finding.cites) if (results[cite] !== undefined) isoDatesIn(results[cite].rows, out);
+  return out;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+function isRunDate(dates: ReadonlySet<string>, year: number | null, month: number, day: number): boolean {
+  const monthDay = `-${pad2(month)}-${pad2(day)}`;
+  return year === null ? [...dates].some((date) => date.endsWith(monthDay)) : dates.has(`${year}${monthDay}`);
+}
+
+/** A same-month day range left in the text because one of its days is not a date of the run; end is exclusive. */
+export type UnprovenRange = { index: number; end: number; text: string };
+
+/**
+ * The text with every same-month day range (11-17 Sept 2026) whose first and last day are both in `dates` blanked
+ * out, keeping each position, so the range reads as the date it is. A range with a day the run never had is left as
+ * it is, and its loose day stays a number the caller must find in the data. Single dates are numbersIn's, unchanged.
+ */
+export function withoutRunRanges(text: string, dates: ReadonlySet<string>): { text: string; unproven: UnprovenRange[] } {
+  let out = text;
+  const unproven: UnprovenRange[] = [];
+  for (const range of dayRangesIn(text)) {
+    const proven = isRunDate(dates, range.year, range.month, range.firstDay) && isRunDate(dates, range.year, range.month, range.lastDay);
+    if (proven) out = `${out.slice(0, range.index)}${" ".repeat(range.text.length)}${out.slice(range.index + range.text.length)}`;
+    else unproven.push({ index: range.index, end: range.index + range.text.length, text: range.text });
+  }
+  return { text: out, unproven };
+}
+
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 /** Same number, allowing the sign (a fall written as 14.9 or -14.9) and rounding to one decimal place. */
@@ -324,13 +371,16 @@ export type CitationResult = GuardResult & { failures: CitationFailure[] };
 /**
  * Every finding cites at least one run_query_id that exists in this run; every value in its numbers list, and every
  * number in its claim, is in the cited rows (or in a recalled memory the finding lists in memory_ids). The claim's
- * numbers may also be in the numbers list. A finding with no numbers passes when its cites exist.
+ * numbers may also be in the numbers list. A finding with no numbers passes when its cites exist. A same-month day
+ * range in a claim (11-17 Sept 2026) reads as a date only when both its days are dates of the run (`asOf`, a query's
+ * window, a row the finding cites); otherwise its loose day is a number like any other.
  */
 export function checkCitations(
   findings: readonly Finding[],
   results: Record<string, QueryResult>,
   memories: readonly RecalledMemory[] = [],
   tracer?: Tracer,
+  asOf?: string,
 ): CitationResult {
   const failures: CitationFailure[] = [];
   const knownIds = Object.keys(results);
@@ -364,7 +414,8 @@ export function checkCitations(
       if (!matches(value, candidates)) failures.push({ finding: index + 1, problem: `the number ${value} (${label}) is not in the cited rows` });
     }
     const listed = finding.numbers.map((entry) => entry.value);
-    for (const n of numbersIn(finding.claim, [...knownIds, ...finding.cites])) {
+    const claim = withoutRunRanges(finding.claim, runDates(asOf, [finding], results)).text;
+    for (const n of numbersIn(claim, [...knownIds, ...finding.cites])) {
       if (!matches(n, listed) && !matches(n, candidates)) failures.push({ finding: index + 1, problem: `the claim has ${n}, which is not in its numbers or the cited rows` });
     }
   });
