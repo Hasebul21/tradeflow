@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { afterModel, beforeQuery, beforeRemember, checkCitations, type Finding } from "./guards";
+import { afterModel, beforeQuery, beforeRemember, checkCitations, dayRangesIn, numberMatchesIn, numbersIn, type Finding } from "./guards";
 import { loadQueryData, runLocal, type QueryData, type QueryResult, type Row } from "./queries";
 import type { TraceInput, Tracer } from "./trace";
 
@@ -98,6 +98,80 @@ describe("checkCitations", () => {
     expect(!result.ok && result.failures[0].finding).toBe(1);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "block", status: "blocked" });
+  });
+});
+
+describe("numbersIn, numberMatchesIn and dayRangesIn", () => {
+  // The words of example_4's Analyst gap (real-model run, 23 Oct 2026): numbersIn strips "17 Sept 2026" as a date,
+  // but the first day of the range has no month next to it and reads as the number 11.
+  const GAP = "the data shows no price-sensitive announcements for the bank holdings in the window 11-17 Sept 2026.";
+
+  it("reads the first day of a day range as a number, as before", () => {
+    expect(numbersIn(GAP)).toEqual([11]);
+    expect(numbersIn("Dividends between 11-17 Sept returned no rows")).toEqual([11]);
+    expect(numbersIn("the week of Sep 11-17")).toEqual([17]);
+  });
+
+  it("gives each number with its position, and the same values as numbersIn", () => {
+    const text = "Tk 3,000 on 2026-09-11, 5.4% on 17 Sep, id j-013, then 11-17 Sept and 0.92 [q:abc-1]";
+    const found = numberMatchesIn(text, ["[q:abc-1]"]);
+    expect(found.map((n) => n.value)).toEqual(numbersIn(text, ["[q:abc-1]"]));
+    expect(found.map((n) => n.value)).toEqual([3000, 5.4, 11, 0.92]);
+    expect(found.map((n) => n.index)).toEqual([text.indexOf("3,000"), text.indexOf("5.4"), text.indexOf("11-17"), text.indexOf("0.92")]);
+  });
+
+  it("finds day ranges with the month after or before, with or without a year", () => {
+    expect(dayRangesIn(GAP)).toEqual([{ text: "11-17 Sept 2026", index: GAP.indexOf("11-17"), month: 9, year: 2026, firstDay: 11, lastDay: 17 }]);
+    expect(dayRangesIn("between 11\u201317 Sep, then")).toEqual([expect.objectContaining({ month: 9, year: null, firstDay: 11, lastDay: 17 })]);
+    expect(dayRangesIn("Sept 11-17, 2026 and Oct 1-2")).toEqual([
+      expect.objectContaining({ text: "Sept 11-17, 2026", month: 9, year: 2026, firstDay: 11, lastDay: 17 }),
+      expect.objectContaining({ text: "Oct 1-2", month: 10, year: null, firstDay: 1, lastDay: 2 }),
+    ]);
+  });
+
+  describe("in checkCitations", () => {
+    // example_4's announcements_between result, reduced to one row: its window is 2026-09-11 to 2026-09-17.
+    const r = (run_query_id: string, query_id: QueryResult["query_id"], params: Record<string, unknown>, rows: Row[]): QueryResult => ({ run_query_id, query_id, params, rows, source: "zetaris", sql_head: null });
+    const ANN = r("4627a537-84eb-4202-9c8c-7eb49d09f029", "announcements_between", { from: "2026-09-11", to: "2026-09-17" }, [{ id: "a-064", symbol: "GP", title: "Record date for the cash dividend", published_on: "2026-09-17" }]);
+    const claim = (text: string, cites: string[] = [ANN.run_query_id]): Finding => ({ kind: "announcement", subject: "GP", claim: text, numbers: [], cites, verdict: null, proposed_fix: null, memory_ids: [] });
+    const results = { [ANN.run_query_id]: ANN };
+
+    it("allows a claim with the window the run queried, 11-17 Sept 2026, with or without as_of", () => {
+      expect(checkCitations([claim("The data shows one announcement for GP in the window 11-17 Sept 2026.")], results, [], undefined, "2026-09-17").ok).toBe(true);
+      expect(checkCitations([claim("The data shows one announcement for GP in the window 11-17 Sept 2026.")], results).ok).toBe(true);
+    });
+
+    it("refuses the same claim with 13-17 Sept 2026: the run never had 13 Sep", () => {
+      const result = checkCitations([claim("The data shows one announcement for GP in the window 13-17 Sept 2026.")], results, [], undefined, "2026-09-17");
+      expect(result).toMatchObject({ ok: false, reason: "finding 1: the claim has 13, which is not in its numbers or the cited rows" });
+    });
+
+    it("refuses a day that only the claim itself names", () => {
+      const result = checkCitations([claim("Since 2026-09-13, in the window 13-17 Sept 2026, GP had one announcement.")], results, [], undefined, "2026-09-17");
+      expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 13/) });
+    });
+
+    it("with as_of absent, proves a range only by a query's params or a cited row", () => {
+      const text = "GP had one announcement in the window 11-17 Sept 2026.";
+      const rowsOnly = r("00000000-0000-4000-8000-0000000000cc", "announcements_between", { symbol: "GP" }, [{ id: "a-1", published_on: "2026-09-11" }, { id: "a-2", published_on: "2026-09-17" }]);
+      expect(checkCitations([claim(text, [rowsOnly.run_query_id])], { [rowsOnly.run_query_id]: rowsOnly }).ok).toBe(true);
+      const lastDayOnly = r("00000000-0000-4000-8000-0000000000dd", "rule_findings", { as_of: "2026-09-17" }, [{ rule: "position_limit", checked_on: "2026-09-17" }]);
+      expect(checkCitations([claim(text, [lastDayOnly.run_query_id])], { [lastDayOnly.run_query_id]: lastDayOnly })).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 11/) });
+    });
+
+    it("refuses a day that only an uncited row holds, and allows it once the finding cites that row", () => {
+      const other = r("00000000-0000-4000-8000-0000000000aa", "rule_findings", { as_of: "2026-09-17" }, [{ rule: "position_limit", checked_on: "2026-09-13" }]);
+      const both = { ...results, [other.run_query_id]: other };
+      const text = "GP had one announcement in the window 13-17 Sept 2026.";
+      expect(checkCitations([claim(text)], both, [], undefined, "2026-09-17")).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 13/) });
+      expect(checkCitations([claim(text, [ANN.run_query_id, other.run_query_id])], both, [], undefined, "2026-09-17").ok).toBe(true);
+    });
+  });
+
+  it("finds no range in a backwards range, a decimal or plain numbers", () => {
+    expect(dayRangesIn("17-11 Sept")).toEqual([]);
+    expect(dayRangesIn("5.11-17 Sept")).toEqual([]);
+    expect(dayRangesIn("rose 5.4% on 11 trades, 17 Sep")).toEqual([]);
   });
 });
 

@@ -434,7 +434,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   // The three code checks always all run, in this order, before any model call: a draft that fails more than one is
   // rejected once with every problem named.
   // 1. Every number is in a cited row of this run (or in a listed memory).
-  const citations = checkCitations(findings, input.results, memories, tracer);
+  const citations = checkCitations(findings, input.results, memories, tracer, input.as_of);
   const citationCheck: CodeCheck = citations.ok
     ? { check: "citations", ok: true, reason: "every finding cites a result of this run and every number is in the cited rows", fix: null }
     : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures, input.results) };
