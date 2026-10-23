@@ -1,8 +1,160 @@
-# Tradeflow
+# Tradeflow review agents
 
-A small stock portfolio ledger for the Dhaka Stock Exchange (DSE). You record buys and sells, and it shows open positions, average cost, break-even, unrealised and realised profit or loss, what moved the portfolio this week against the market and its sectors, dividends and bonus shares, and whether the portfolio still follows the rules you set for yourself. It can preview a trade before you make it, and reconcile the ledger against a broker statement and a bank file.
+Agents that explain a Dhaka Stock Exchange portfolio, check the reasons behind each trade and review a trade before it is saved, citing the query behind every number, so each answer can be audited. A review tool, never trading advice.
 
-It runs on **synthetic data**. Every price, trade, deposit, announcement and company figure in `data/` is made up by `scripts/seed.mjs`. The trading codes are real DSE symbols so the pages read naturally, but nothing here came from a market, a broker or a bank. There is no login, and Postgres is optional. The base ledger pages read local data. The agents call the Nemotron model through Meterless Nightshift (`METERLESS_BASE_URL`, `src/agent/llm.ts`) and can query Postgres through Zetaris (`src/agent/zetaris.ts`), falling back to local rows; in sample mode they make no network call. Every named query except `what_if` has one Lightning SQL statement in `src/agent/queries.ts`, and `reconciliation`'s statement joins `tradeflow_ledger` and `tradeflow_external` in one query; `npm run parity` compares each with `local()` and writes [`docs/zetaris-queries.md`](docs/zetaris-queries.md).
+Track: Wildcard [Tinkerer]. Built in the window: `src/agent` and `vendor`; the coding-agent kit (`.claude`, `evals`, `src/agent/prompts`) was drafted on 5 Oct and copied in when the window opened; pre-existing: see [PRE-EXISTING.md](PRE-EXISTING.md).
+
+| What | Where |
+|---|---|
+| The traces | [output_examples/traces/](output_examples/traces/) |
+| The results | [evals/RESULTS.md](evals/RESULTS.md), [evals/E2E.md](evals/E2E.md) |
+| Before the window | [the pre-hackathon tag](https://github.com/Hasebul21/tradeflow/tree/pre-hackathon) |
+
+![The Explain page, where each run's steps are shown](docs/explain.png)
+
+## The problem
+
+A Dhaka Stock Exchange investor sees the week's move and the broken rules, but not why they happened, and never rechecks the reason recorded behind each trade. An answer about money is only worth acting on if you can check it, so every number here cites the query that produced it.
+
+### Why you can check every answer
+
+| What you can check | How | Where to see it |
+|---|---|---|
+| The query behind each number | A citation opens its rows and, for Zetaris, its SQL | The `[q:…]` tags in a review, `output_examples/` |
+| The Evaluator rejecting claims the rows cannot support | The code check rejects a finding whose number is not in the rows it cites | `output_examples/traces/`, as below |
+| The guards refusing advice and injected instructions | The red-team cases try both | `evals/RESULTS.md` |
+| The owner deciding | A refusal ends `needs_human`, and nothing is saved | `output_examples/`, `/explain/queue` |
+
+One real rejection, copied from `output_examples/traces/trace-example_2.jsonl`:
+
+> `reject` — "Explain BXPHARMA: it is the largest move of the week and has no finding."
+
+### What it does
+
+| Task | The question it answers | A real result |
+|---|---|---|
+| Explain my week | Why did my portfolio move this week, and which rules are broken? | [example_1](output_examples/example_1.json) |
+| The thesis check | Does each trade's recorded reason still hold? | [example_5](output_examples/example_5.json) |
+| The pre-trade check | What would this trade do to weights and rules, before it is saved? | [example_6a](output_examples/example_6a.json) |
+| The reconciliation agent | Why do the ledger and the broker or bank differ? | [example_8](output_examples/example_8.json) |
+
+## Try it in 60 seconds
+
+1. Clone and enter the project:
+
+   ```sh
+   git clone https://github.com/Hasebul21/tradeflow
+   cd tradeflow
+   ```
+
+2. Build and run the judges' container (no `.env` and no keys are needed: sample mode runs the real agent code on local data with an offline stand-in model):
+
+   ```sh
+   docker compose -f docker-compose.judge.yml up --build
+   ```
+
+   Wait until the container is healthy.
+
+3. Ask the first question:
+
+   ```sh
+   curl -s -X POST http://localhost:8000/run \
+     -H "Content-Type: application/json" \
+     --data-binary @input_examples/example_1.json
+   ```
+
+### What you get back
+
+| Field | What it is |
+|---|---|
+| `summary` and `review_markdown` | The answer, with a `[q:…]` tag after each cited fact |
+| `scores` | The Evaluator's three scores out of 3 each |
+| `usage` | Model calls, query calls and tokens |
+| `trace_id` and `log_file` | Where the run's step-by-step trace is written |
+
+### Look next
+
+- `GET /run/<run_id>` — the run's trace lines.
+- http://localhost:8000/explain — run each task from the browser and watch the steps.
+- http://localhost:8000/explain/queue — the runs waiting for the owner's decision.
+
+### Using real models
+
+Real models need Meterless Nightshift running on the same machine: its Console URL in `METERLESS_BASE_URL`, its runtime token in `METERLESS_API_KEY`, the `meterless/*` ids from `GET <base>/models` in the three model names, and the NVIDIA key set in Nightshift's Setup > Providers (never in `.env`). Nightshift is the primary provider; a direct NVIDIA or OpenRouter URL in `METERLESS_BASE_URL` is for development only and is not eligible.
+
+| Variable (in `.env.example`) | What it switches on |
+|---|---|
+| `METERLESS_API_KEY` | The Nightshift runtime token; without it, sample mode |
+| `METERLESS_BASE_URL` | The Nightshift runtime URL, normalised to end in `/v1` |
+| `NEMOTRON_MODEL_STRONG`, `NEMOTRON_MODEL_MAIN`, `NEMOTRON_MODEL_FAST` | The three `meterless/*` routing ids |
+| `ZETARIS_REST_URL`, `ZETARIS_ORG_ID`, `ZETARIS_API_KEY` | Queries through Zetaris; without any of them, local rows |
+
+Zetaris falls back to local rows for anyone without the owner's Zetaris account. These aliases are accepted but are listed only here, not in `.env.example`; the `METERLESS_` or `NEMOTRON_` name wins when both are set, and `NVIDIA_API_KEY` is not read:
+
+| Accepted alias | The name the organisers use |
+|---|---|
+| `MODEL_BASE_URL` | `METERLESS_BASE_URL` |
+| `METERLESS_RUNTIME_TOKEN`, then `MODEL_API_KEY` | `METERLESS_API_KEY` |
+| `METERLESS_MODEL`, `NEMOTRON_MODEL`, `MODEL_NAME` | `NEMOTRON_MODEL_MAIN` |
+
+`METERLESS_BASE_URL` is normalised to end in `/v1`, so a pasted URL with or without a trailing slash or `/v1` works.
+
+## How it works
+
+```mermaid
+flowchart LR
+  Request[Request] --> Recall[Memory recall]
+  Recall --> Planner[Planner]
+  Planner --> Queries[Queries: Zetaris or local]
+  Queries --> Analyst[Analyst]
+  Analyst --> Evaluator[Evaluator: code checks and score]
+  Evaluator -- below 7 --> Planner
+  Evaluator -- 7 or more --> Writer[Writer]
+  Writer --> Writes[Memory and World Model writes]
+  Writes --> Trace[Trace file]
+  Planner --> Trace
+```
+
+| Agent | Role | Model | File |
+|---|---|---|---|
+| Router | Picks the task for a question that names none; never answers | fast | `src/agent/agents/router.ts` |
+| Planner | Chooses at most 5 named queries with a why for each | strong | `src/agent/agents/planner.ts` |
+| Analyst | Turns the query rows into findings, each citing its query | main | `src/agent/agents/analyst.ts` |
+| Evaluator | Checks citations, the guard and coverage in code, then scores out of 9 | fast | `src/agent/agents/evaluator.ts` |
+| Writer | Writes the review; code checks every number against the rows | strong | `src/agent/agents/writer.ts` |
+
+| Task | Planner? | The queries it runs |
+|---|---|---|
+| Explain my week | Planned | `week_moves`, `sector_vs_stock`, `announcements_between`, `dividends_between`, `rule_findings` |
+| The thesis check | Planned | `journal_for_symbol`, `week_moves` |
+| The pre-trade check | Fixed plan | `what_if`, `journal_for_symbol`, `rule_findings`, `announcements_between`, `fundamentals_latest` |
+| The reconciliation agent | Fixed plan | `reconciliation`, then `journal_for_symbol` for each symbol a difference names |
+
+The `pre_trade` and `reconcile` tasks use a fixed plan built in code, not the Planner. Every agent's system prompt is the matching file in `src/agent/prompts/`, loaded as-is.
+
+## A judge's tour
+
+| Pattern | File and function | Where to see it working |
+|---|---|---|
+| The planner delegates | `src/agent/agents/planner.ts`, `plan()` | A `plan_step` trace line; `npm run agent` |
+| The specialist uses tools | `src/agent/agents/analyst.ts`, `toolsFor()` | A `tool_call` trace line |
+| The evaluator critiques | `src/agent/agents/evaluator.ts`, `coverage()` | A `reject` trace line; `npm run eval` |
+| The agent revises | `src/agent/revision.ts`, `mergeRevision()` | `carry_forward` and `restore_finding` trace lines |
+| Risk check on claims | `src/agent/guards.ts`, `checkCitations()` | A `code_check` trace line |
+| Shared memory | `src/agent/memory.ts`, `recall()` and `remember()` | A `Memory.recall` trace line |
+| Branching and escalation | `src/agent/orchestrator.ts`, `run()` | Status `needs_human`; `/explain/queue` |
+| Fallback | `src/agent/llm.ts`, `src/agent/default-plan.ts` | `planner_fallback` and `local-fallback` trace lines |
+| Traceable evidence | `src/agent/trace.ts`, `startRun()` | `logs/trace-<run_id>.jsonl`; `GET /run/<run_id>` |
+
+Two real lines, copied from `output_examples/traces/`:
+
+A query through Zetaris (from `trace-example_1.jsonl`):
+
+> `{"agent_name":"Query","action":"query","input_summary":"week_moves {\"as_of\":\"2026-10-01\",\"sessions\":5} source=zetaris sql: SELECT symbol, from_close, to_close, …","output_summary":"14 rows","status":"ok","source":"zetaris","usage":{"query_calls":1}}`
+
+A memory recall with its reason (from `trace-example_1.jsonl`):
+
+> `{"agent_name":"Memory","action":"recall","input_summary":"question of 36 chars, as_of 2026-10-01","output_summary":"by_tag=none; by_query=none; corrections=none","status":"ok","retrievalReason":"hybrid ranking for \"Why did my portfolio move this week?\" (domain: general)","strategy":"minimal"}`
 
 ## Run it locally
 
