@@ -13,7 +13,7 @@ import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, checkCitations, type Finding } from "../guards";
-import { complete as completeModel, ModelHttpError, type CompleteOptions, type CompleteResult } from "../llm";
+import { complete as completeModel, failedCallUsage, ModelHttpError, type CompleteOptions, type CompleteResult } from "../llm";
 import type { RecalledMemory } from "../memory";
 import type { QueryId, QueryResult, Row } from "../queries";
 import type { RunState } from "../run-state";
@@ -64,11 +64,13 @@ export type EvaluatorInput = {
 export type EvaluateDeps = {
   tracer: Tracer;
   /** The run's budget: when given, each model call goes through beforeModelCall and afterModelCall, and its config and sample mode are the defaults. */
-  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "config" | "sampleMode">;
+  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "afterFailedModelCall" | "modelCallsLeft" | "config" | "sampleMode">;
   config?: Config;
   sampleMode?: boolean;
   /** The time left in the run for the model call. */
   timeoutMs?: number;
+  /** When the round ends; passed on to llm.ts for its empty_response retries. */
+  roundDeadlineMs?: number;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** For tests: a stand-in for llm.ts's complete. */
@@ -362,9 +364,13 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       config: cfg,
       sampleMode,
       ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+      ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+      ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft() }),
     });
   } catch (error) {
-    // The model returned no answer even after llm.ts's one retry (its model_call line says why). The three code
+    // A failed scoring call still counts: every request it made is a model call.
+    run?.afterFailedModelCall(failedCallUsage(error));
+    // The model returned no answer even after llm.ts's retries (its model_call line says why). The three code
     // checks passed, so the draft goes to the Writer unscored. Any other error passes through as before.
     if (!(error instanceof ModelHttpError) || error.status !== 502) throw error;
     tracer.log({

@@ -5,7 +5,7 @@
 // other call goes through queries.runQuery, and so through guards.beforeQuery. Server only (queries.ts reads data/).
 import { loadConfig, type Config } from "./config";
 import type { ResultStore } from "./context";
-import type { CompleteResult } from "./llm";
+import type { CompleteResult, FailedCallUsage } from "./llm";
 import { QUERIES, isQueryId, loadQueryData, runQuery, type QueryData, type QueryResult } from "./queries";
 import type { Tracer } from "./trace";
 import type { ZetarisClient } from "./zetaris";
@@ -170,12 +170,24 @@ export class RunState {
     }
   }
 
-  /** Counts one model call and the tokens it reports. */
-  afterModelCall(result: Pick<CompleteResult, "usage">): void {
-    this.usage.model_calls += 1;
+  /** The model calls left before MAX_MODEL_CALLS; llm.ts sends no request past it (modelCallsLeft). */
+  modelCallsLeft(): number {
+    return Math.max(0, this.config.MAX_MODEL_CALLS - this.usage.model_calls);
+  }
+
+  /** Counts the call's requests (one model call each, retries included; 1 when it does not say) and its tokens. */
+  afterModelCall(result: Pick<CompleteResult, "usage" | "model_calls">): void {
+    this.usage.model_calls += result.model_calls ?? 1;
     if (result.usage !== null) {
       this.usage.tokens_in += result.usage.tokens_in;
       this.usage.tokens_out += result.usage.tokens_out;
     }
+  }
+
+  /** Counts what a failed call spent: every request it made (it may be billed) and the tokens they reported. */
+  afterFailedModelCall(spent: FailedCallUsage): void {
+    this.usage.model_calls += spent.model_calls;
+    this.usage.tokens_in += spent.tokens_in;
+    this.usage.tokens_out += spent.tokens_out;
   }
 }

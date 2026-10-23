@@ -159,9 +159,9 @@ describe("complete with the openai client mocked", () => {
   it("sends TEMPERATURE and MAX_COMPLETION_TOKENS from config.ts", async () => {
     mocks.create.mockResolvedValueOnce(reply("ok"));
     await complete(base);
-    expect(mocks.create.mock.calls[0][0]).toMatchObject({ temperature: 0.2, max_tokens: 8000 });
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({ temperature: 0.2, max_tokens: 24000 });
     expect(config.TEMPERATURE).toBe(0.2);
-    expect(config.MAX_COMPLETION_TOKENS).toBe(8000);
+    expect(config.MAX_COMPLETION_TOKENS).toBe(24000);
   });
 
   it("builds the client with the two Meterless headers, no SDK retries and the config's URL", async () => {
@@ -306,7 +306,7 @@ describe("complete: paths beyond the eleven cases", () => {
     expect(main).not.toHaveProperty("chat_template_kwargs");
   });
 
-  it("retries a 502 empty_response once as the same request at max_tokens 8000, traced as empty_response_retry", async () => {
+  it("retries a 502 empty_response once as the same request at max_tokens 32000, traced as empty_response_retry", async () => {
     const small = configFor("http://127.0.0.1:8088/v1", { MAX_COMPLETION_TOKENS: "4000" });
     mocks.create
       .mockRejectedValueOnce(httpError(502, '502 {"error":{"type":"empty_response","message":"no content"}}'))
@@ -317,7 +317,7 @@ describe("complete: paths beyond the eleven cases", () => {
     const [first] = mocks.create.mock.calls[0] as [Record<string, unknown>];
     const [second] = mocks.create.mock.calls[1] as [Record<string, unknown>];
     expect(first.max_tokens).toBe(4000);
-    expect(second.max_tokens).toBe(8000);
+    expect(second.max_tokens).toBe(32000);
     for (const request of [first, second]) {
       expect(request).not.toHaveProperty("reasoning");
       expect(request).not.toHaveProperty("chat_template_kwargs");

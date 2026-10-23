@@ -390,6 +390,44 @@ describe("a run whose scoring call returns no answer", () => {
   });
 });
 
+describe("every model call attempt counts toward model_calls", () => {
+  const failScoring = async (options: CompleteOptions): Promise<CompleteResult | null> => {
+    if (options.agent !== "Evaluator") return null;
+    throw new ModelHttpError("The fast model call failed: 3 tries failed with HTTP 502 empty_response", 502);
+  };
+  const modelCallsOnLines = (lines: TraceLine[]) =>
+    lines.filter((line) => line.action !== "run_end").reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0);
+
+  it("counts a failed scoring call once, on its model_call line, and the lines still add up to usage", async () => {
+    stubs.override = failScoring;
+    const result = await explainWeek("orch-failed-scoring-counted");
+    expect(result.status).toBe("success");
+    const lines = trace(result);
+    const failed = by(lines, "Evaluator", "model_call");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ status: "error", usage: { model_calls: 1 } });
+    expect(failed[0].output_summary).toContain("counted as a model call");
+    expect(result.usage.model_calls).toBe(lines.filter((line) => line.action === "model_call").length);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
+  });
+
+  it("stops with the model_calls budget stop when a failed scoring call spends the last of MAX_MODEL_CALLS", async () => {
+    stubs.override = failScoring;
+    const probe = trace(await explainWeek("orch-failed-scoring-probe"));
+    const firstWriter = probe.findIndex((line) => line.agent_name === "Writer" && line.action === "model_call");
+    // The calls made before the Writer's, the failed scoring call included: a budget of exactly that leaves none for the Writer.
+    const before = probe.slice(0, firstWriter).filter((line) => line.action === "model_call").length;
+    const limited = loadConfig({ SAMPLE_MODE: "true", MAX_MODEL_CALLS: String(before) }, () => {});
+    const result = await explainWeek("orch-failed-scoring-budget", { config: limited });
+    expect(result.status).toBe("needs_human");
+    expect(result.output).toMatchObject({ stop_reason: "model_calls", partial: true });
+    expect(result.usage.model_calls).toBe(before);
+    const lines = trace(result);
+    expect(by(lines, "Writer", "model_call")).toHaveLength(0);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
+  });
+});
+
 describe("a model that fails after the queries ran", () => {
   const fail502 = (agent: AgentName) => async (options: CompleteOptions): Promise<CompleteResult | null> => {
     if (options.agent !== agent) return null;

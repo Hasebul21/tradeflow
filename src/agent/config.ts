@@ -58,10 +58,19 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 
 /** The organisers' maximum for one model call (guide of 19 Oct). */
-const MODEL_TIMEOUT_CAP_MS = 180000;
+export const MODEL_TIMEOUT_CAP_MS = 180000;
 
-/** max_tokens for llm.ts's one retry after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
-export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 8000;
+/** max_tokens for llm.ts's retries after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
+export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 32000;
+
+/**
+ * Tries in total for one model call whose replies are 502 "empty_response", when the caller passes the round's end
+ * (roundDeadlineMs). A retry starts only while at least MODEL_TIMEOUT_CAP_MS of the round is left after its wait.
+ */
+export const EMPTY_RESPONSE_MAX_TRIES = 3;
+
+/** The wait before try 2 and before try 3 of an empty_response retry; it comes out of the round's time left. */
+export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000];
 
 /** The Nightshift placeholder token; it is never a real credential. */
 const REJECTED_KEYS = new Set(["rt-local"]);
@@ -74,7 +83,7 @@ const limitsSchema = z.object({
   MAX_MODEL_CALLS: positiveInt(12),
   MAX_PLAN_STEPS: positiveInt(5),
   MAX_TOOL_ROUNDS: positiveInt(2),
-  MAX_TOKENS_PER_RUN: positiveInt(150000),
+  MAX_TOKENS_PER_RUN: positiveInt(250000),
   QUERY_TIMEOUT_MS: positiveInt(20000),
   MODEL_TIMEOUT_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
   MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
@@ -84,7 +93,7 @@ const limitsSchema = z.object({
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),
   TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
-  MAX_COMPLETION_TOKENS: positiveInt(8000),
+  MAX_COMPLETION_TOKENS: positiveInt(24000),
   PORT: z.coerce.number().int().min(1).max(65535).default(8000),
 });
 

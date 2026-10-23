@@ -4,7 +4,17 @@
 // openai-node retries by itself (maxRetries 2 by default). It is switched off here (maxRetries 0) so the retry
 // count, the backoff and the trace lines are ours, and so one call makes at most the requests this file counts.
 import OpenAI from "openai";
-import { ConfigError, EMPTY_RESPONSE_RETRY_MAX_TOKENS, loadConfig, type Config, type Tier } from "./config";
+import {
+  ConfigError,
+  EMPTY_RESPONSE_MAX_TRIES,
+  EMPTY_RESPONSE_RETRY_MAX_TOKENS,
+  EMPTY_RESPONSE_RETRY_WAITS_MS,
+  loadConfig,
+  MODEL_TIMEOUT_CAP_MS,
+  type Config,
+  type Tier,
+} from "./config";
+import { BudgetExhaustedError } from "./run-state";
 import { complete as completeWithSampleModel } from "./sample-model";
 import type { Tracer, TraceInput } from "./trace";
 
@@ -30,6 +40,17 @@ export type CompleteOptions = {
   sampleMode?: boolean;
   /** The time left for this call; the orchestrator passes it. Default: the tier's timeout from config. */
   timeoutMs?: number;
+  /**
+   * When the round ends (Date.now() milliseconds; the run's end when that comes first); the orchestrator passes it.
+   * With it, a 502 empty_response gets up to EMPTY_RESPONSE_MAX_TRIES tries, each retry only while
+   * MODEL_TIMEOUT_CAP_MS of the round is left after its wait. Without it, one retry, as before.
+   */
+  roundDeadlineMs?: number;
+  /**
+   * The model calls left in the run's budget (MAX_MODEL_CALLS minus those used). Every request counts as one model
+   * call, retries included; a request past this number is not made: BudgetExhaustedError("max_model_calls").
+   */
+  modelCallsLeft?: number;
 };
 
 export type ToolCallResult = {
@@ -55,7 +76,19 @@ export type CompleteResult = {
   routed_model?: string;
   cost_usd?: number;
   tool_calls?: ToolCallResult[];
+  /** The requests this call made, retries included; each counts as one model call. Absent means 1. */
+  model_calls?: number;
 };
+
+/** What a failed complete() spent: its requests (each one model call) and the tokens they reported. */
+export type FailedCallUsage = { model_calls: number; tokens_in: number; tokens_out: number };
+const FAILED_USAGE = Symbol("failedCallUsage");
+
+/** The model calls and tokens a complete() that threw had spent; all zero for an error complete() did not throw. */
+export function failedCallUsage(error: unknown): FailedCallUsage {
+  const usage = error !== null && typeof error === "object" ? (error as { [FAILED_USAGE]?: FailedCallUsage })[FAILED_USAGE] : undefined;
+  return usage ?? { model_calls: 0, tokens_in: 0, tokens_out: 0 };
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Typed errors. None of the messages holds the key.
@@ -186,6 +219,10 @@ type CallState = {
   deadline: number | undefined;
   /** Requests made beyond the first one, apart from the strong-to-main fallback itself. */
   retries: number;
+  /** Requests sent, retries and the fallback included: each one counts as a model call. */
+  attempts: number;
+  /** The attempts already counted on a retry trace line (usage.model_calls 1 each). */
+  countedOnLines: number;
   usage: { tokens_in: number; tokens_out: number } | null;
 };
 
@@ -217,7 +254,25 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
   }
 
   if (sampleMode) {
-    const result = await completeWithSampleModel(options);
+    let result: CompleteResult;
+    try {
+      result = await completeWithSampleModel(options);
+    } catch (error) {
+      // A stand-in that throws (a test's failing model) is one failed request: it counts as a model call.
+      if (error !== null && typeof error === "object") {
+        Object.defineProperty(error, FAILED_USAGE, { value: { model_calls: 1, tokens_in: 0, tokens_out: 0 }, configurable: true });
+      }
+      options.tracer?.log({
+        ...baseLine(),
+        output_summary: `${error instanceof Error ? error.name : "Error"}: ${scrub(error instanceof Error ? error.message : String(error), cfg)}; 1 request counted as a model call`,
+        status: "error",
+        why: error instanceof ModelError ? error.name : "unexpected error",
+        duration_ms: Date.now() - started,
+        usage: { model_calls: 1 },
+        model_retries: 0,
+      });
+      throw error;
+    }
     options.tracer?.log({
       ...baseLine(),
       output_summary: `sample model answered, ${result.tool_calls?.length ?? 0} tool calls`,
@@ -249,6 +304,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
     host: new URL(cfg.METERLESS_BASE_URL).hostname,
     deadline: options.timeoutMs === undefined ? undefined : started + options.timeoutMs,
     retries: 0,
+    attempts: 0,
+    countedOnLines: 0,
     usage: null,
   };
 
@@ -273,8 +330,9 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
         options.tracer?.log({
           ...baseLine(),
           action: "model_retry",
-          output_summary: "the reply is empty or not JSON; asking once more",
+          output_summary: "the reply is empty or not JSON; asking once more (that reply counted as a model call)",
           status: "retry",
+          usage: countAttemptOnLine(state),
           why: "unparseable JSON reply",
           model: answered.requested,
         });
@@ -298,6 +356,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       ...(message.routedModel === undefined ? {} : { routed_model: message.routedModel }),
       ...(message.costUsd === undefined ? {} : { cost_usd: message.costUsd }),
       ...(toolCalls === undefined ? {} : { tool_calls: toolCalls }),
+      model_calls: state.attempts,
     };
 
     options.tracer?.log({
@@ -311,7 +370,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       ...(fellBack ? { why: "strong model unavailable" } : {}),
       model: result.model_id,
       duration_ms: result.duration_ms,
-      usage: { ...(state.usage === null ? {} : { tokens_in: state.usage.tokens_in, tokens_out: state.usage.tokens_out }), model_calls: 1 },
+      usage: { ...(state.usage === null ? {} : { tokens_in: state.usage.tokens_in, tokens_out: state.usage.tokens_out }), model_calls: uncounted(state) },
       model_retries: state.retries,
       ...(fellBack ? { fallback: "strong->main" as const } : {}),
       requested_model: answered.requested,
@@ -322,10 +381,17 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
     });
     return result;
   } catch (error) {
+    // A failed call still counts: every request it made is a model call (it may be billed), with the tokens reported.
+    const spent: FailedCallUsage = { model_calls: state.attempts, tokens_in: state.usage?.tokens_in ?? 0, tokens_out: state.usage?.tokens_out ?? 0 };
+    if (error !== null && typeof error === "object") Object.defineProperty(error, FAILED_USAGE, { value: spent, configurable: true });
+    const onLine = uncounted(state);
     options.tracer?.log({
       ...baseLine(),
-      output_summary: `${error instanceof Error ? error.name : "Error"}: ${scrub(error instanceof Error ? error.message : String(error), cfg)}`,
+      output_summary: `${error instanceof Error ? error.name : "Error"}: ${scrub(error instanceof Error ? error.message : String(error), cfg)}; ${state.attempts === 1 ? "1 request counted as a model call" : `${state.attempts} requests counted as model calls`}`,
       status: "error",
+      ...(onLine > 0 || state.usage !== null
+        ? { usage: { ...(state.usage === null ? {} : { tokens_in: state.usage.tokens_in, tokens_out: state.usage.tokens_out }), model_calls: onLine } }
+        : {}),
       why: error instanceof ModelError ? error.name : "unexpected error",
       model: lastRequested,
       duration_ms: Date.now() - started,
@@ -497,6 +563,27 @@ function buildParams(
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** Throws BudgetExhaustedError("max_model_calls") when the next request would pass the caller's modelCallsLeft. */
+function ensureModelCallLeft(state: CallState): void {
+  const left = state.options.modelCallsLeft;
+  if (left === undefined || state.attempts < left) return;
+  throw new BudgetExhaustedError(
+    "max_model_calls",
+    `The run's model budget is spent: ${state.attempts} ${state.attempts === 1 ? "request" : "requests"} of this call used the last of it, so no retry was sent.`,
+  );
+}
+
+/** The usage of a retry line: the failed request before it, counted as one model call. */
+function countAttemptOnLine(state: CallState): { model_calls: number } {
+  state.countedOnLines += 1;
+  return { model_calls: 1 };
+}
+
+/** The requests not yet counted on a retry line: the final model_call line carries them. */
+function uncounted(state: CallState): number {
+  return Math.max(0, state.attempts - state.countedOnLines);
+}
+
 /** No retry is made with less than this left before the deadline: the retry would time out at once. */
 const RETRY_FLOOR_MS = 1000;
 
@@ -522,11 +609,15 @@ async function sendWithRetry(
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const { options, cfg } = state;
   let transportRetried = false;
-  // Raised for the one retry after a 502 "empty_response": the same request with a larger token budget.
+  // Tries that ended in a 502 "empty_response", counted when the caller passed the round's end.
+  let emptyTries = 0;
+  // Raised for a retry after a 502 "empty_response": the same request with a larger token budget.
   let maxTokens = cfg.MAX_COMPLETION_TOKENS;
   for (;;) {
     const params = buildParams(state, tier, requested, messages, maxTokens);
     const timeout = attemptTimeoutMs(state, tier);
+    ensureModelCallLeft(state);
+    state.attempts += 1;
     try {
       return await state.client.chat.completions.create(params, { timeout, maxRetries: 0 });
     } catch (error) {
@@ -536,8 +627,9 @@ async function sendWithRetry(
           agent_name: options.agent,
           action: "model_retry",
           input_summary: `${tier} model request`,
-          output_summary: `${why}; trying once more`,
+          output_summary: `${why}; trying once more (the failed request counted as a model call)`,
           status: "retry",
+          usage: countAttemptOnLine(state),
           why,
           model: requested,
         });
@@ -563,6 +655,40 @@ async function sendWithRetry(
         case "rate_limit":
         case "server":
         case "network": {
+          if (failure.kind === "server" && isEmptyResponse(error) && options.roundDeadlineMs !== undefined) {
+            // The lane gives no answer about one time in two: up to EMPTY_RESPONSE_MAX_TRIES tries, each retry after
+            // its wait, and only while a whole model call (MODEL_TIMEOUT_CAP_MS) still fits in the round after it.
+            emptyTries += 1;
+            const wait = EMPTY_RESPONSE_RETRY_WAITS_MS[emptyTries - 1];
+            const roomAfterWait = wait === undefined ? 0 : options.roundDeadlineMs - Date.now() - wait;
+            if (emptyTries < EMPTY_RESPONSE_MAX_TRIES && wait !== undefined && roomAfterWait >= MODEL_TIMEOUT_CAP_MS) {
+              // No wait for a retry the run's model-call budget would refuse.
+              ensureModelCallLeft(state);
+              state.retries += 1;
+              maxTokens = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
+              options.tracer?.log({
+                agent_name: options.agent,
+                action: "empty_response_retry",
+                input_summary: `${tier} model request`,
+                output_summary: `HTTP 502 empty_response; try ${emptyTries + 1} of ${EMPTY_RESPONSE_MAX_TRIES} after ${wait / 1000} s, max_tokens ${maxTokens} (the empty reply counted as a model call)`,
+                status: "retry",
+                why: "the model returned no content (HTTP 502 empty_response)",
+                model: requested,
+                usage: countAttemptOnLine(state),
+              });
+              await sleep(wait);
+              // The retry gets a whole attempt again, inside the round.
+              const tierTimeout = tier === "strong" ? cfg.MODEL_TIMEOUT_STRONG_MS : cfg.MODEL_TIMEOUT_MS;
+              state.deadline = Date.now() + Math.min(tierTimeout, options.roundDeadlineMs - Date.now());
+              continue;
+            }
+            const tries = `${emptyTries} ${emptyTries === 1 ? "try" : "tries"} failed with HTTP 502 empty_response`;
+            const reason =
+              emptyTries >= EMPTY_RESPONSE_MAX_TRIES
+                ? ""
+                : `; under MODEL_TIMEOUT_CAP_MS (${MODEL_TIMEOUT_CAP_MS} ms) of the round was left for try ${emptyTries + 1} of ${EMPTY_RESPONSE_MAX_TRIES}`;
+            throw new ModelHttpError(`The ${tier} model call failed: ${tries}${reason}: ${scrub(failure.message, cfg)}`, failure.status);
+          }
           const why =
             failure.kind === "timeout" ? "timeout" : failure.kind === "network" ? "network error" : `HTTP ${failure.kind === "rate_limit" ? 429 : failure.status}`;
           // One retry, unless the caller's deadline leaves under a second: that retry would only time out.
@@ -577,10 +703,11 @@ async function sendWithRetry(
                 agent_name: options.agent,
                 action: "empty_response_retry",
                 input_summary: `${tier} model request`,
-                output_summary: `HTTP 502 empty_response; trying once more with max_tokens ${maxTokens}`,
+                output_summary: `HTTP 502 empty_response; trying once more with max_tokens ${maxTokens} (the empty reply counted as a model call)`,
                 status: "retry",
                 why: "the model returned no content (HTTP 502 empty_response)",
                 model: requested,
+                usage: countAttemptOnLine(state),
               });
               await sleep(BACKOFF_MS);
               continue;
@@ -616,8 +743,9 @@ function dropRejectedParam(state: CallState, tier: Tier, requested: string, mess
       agent_name: options.agent,
       action: "json_mode_unsupported",
       input_summary: `${tier} model request with response_format json_object`,
-      output_summary: "the API rejected response_format; resent without it",
+      output_summary: "the API rejected response_format; resent without it (the rejected request counted as a model call)",
       status: "retry",
+      usage: countAttemptOnLine(state),
       why: "response_format rejected with HTTP 400",
       model: requested,
     });
@@ -629,8 +757,9 @@ function dropRejectedParam(state: CallState, tier: Tier, requested: string, mess
       agent_name: options.agent,
       action: "reasoning_switch_unsupported",
       input_summary: `${tier} model request with the reasoning switch off`,
-      output_summary: "the API rejected the reasoning switch; resent without it",
+      output_summary: "the API rejected the reasoning switch; resent without it (the rejected request counted as a model call)",
       status: "retry",
+      usage: countAttemptOnLine(state),
       why: "reasoning switch rejected with HTTP 400",
       model: requested,
     });

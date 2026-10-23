@@ -53,6 +53,10 @@ export type PlanDeps = {
   sampleMode?: boolean;
   /** The time left in the run for this call. */
   timeoutMs?: number;
+  /** When the round ends; passed on to llm.ts for its empty_response retries. */
+  roundDeadlineMs?: number;
+  /** The model calls left in the run's budget; passed on to llm.ts, which sends no request past it. */
+  modelCallsLeft?: number;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** For tests: a stand-in for llm.ts's complete. */
@@ -77,6 +81,8 @@ export type PlanOutcome = {
     usage: CompleteResult["usage"];
     duration_ms: number;
     fallback?: CompleteResult["fallback"];
+    /** The requests the call made, retries included; each counts as one model call. */
+    model_calls?: number;
   };
 };
 
@@ -182,6 +188,8 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
     config: cfg,
     ...(deps.sampleMode === undefined ? {} : { sampleMode: deps.sampleMode }),
     ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+    ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+    ...(deps.modelCallsLeft === undefined ? {} : { modelCallsLeft: deps.modelCallsLeft }),
   });
 
   const raw = result.json ?? {};
@@ -280,6 +288,7 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
       usage: result.usage,
       duration_ms: result.duration_ms,
       ...(result.fallback === undefined ? {} : { fallback: result.fallback }),
+      ...(result.model_calls === undefined ? {} : { model_calls: result.model_calls }),
     },
   };
   tracer.log({

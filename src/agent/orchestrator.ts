@@ -10,13 +10,13 @@
 import path from "node:path";
 import { analyse, type AnalysisOutcome } from "./agents/analyst";
 import { evaluate, type Scores } from "./agents/evaluator";
-import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade } from "./agents/planner";
+import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome } from "./agents/planner";
 import { DISCLAIMER, write } from "./agents/writer";
 import { ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
-import { ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
+import { failedCallUsage, ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, recall, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource } from "./queries";
@@ -480,6 +480,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     const runLeft = () => runDeadline - Date.now();
     const roundLeft = () => roundStarted + config.ROUND_TIMEOUT_MS - Date.now();
     const timeLeft = (tier: Tier) => Math.max(0, Math.min(tier === "strong" ? config.MODEL_TIMEOUT_STRONG_MS : config.MODEL_TIMEOUT_MS, roundLeft(), runLeft()));
+    // When the round ends, or the run if sooner: llm.ts retries a 502 empty_response only while a whole call still fits.
+    const roundDeadline = () => Math.min(roundStarted + config.ROUND_TIMEOUT_MS, runDeadline);
     const budgetStop = (needsQueries: boolean): StopReason | null => {
       if (runLeft() <= 0) return "run_timeout";
       if (roundLeft() <= 0) return "round_timeout";
@@ -616,10 +618,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
             if (stop !== null) break;
             state.beforeModelCall();
             calling = "Planner";
-            const planned = await plan(
+            const planned: PlanOutcome = await plan(
               { task, question, as_of: asOf, trade: null, memories, world, feedback },
-              { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
-            );
+              { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
+            ).catch((error: unknown): never => {
+              // plan() has no run of its own: a failed Planner call is counted here, every request it made.
+              state.afterFailedModelCall(failedCallUsage(error));
+              throw error;
+            });
             state.afterModelCall(planned.model);
             modelIds.add(planned.model.model_id);
             if (planned.injection_seen) flags.injection = true;
@@ -660,7 +666,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             calling = "Analyst";
             const analysis = await analyse(
               { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
-              { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+              { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
             );
             modelIds.add(analysis.model.model_id);
             if (!analysis.ok) {
@@ -687,7 +693,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
             { task, question, as_of: asOf, trade, focus: PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
-            { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+            { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
           if (!analysis.ok) {
@@ -704,10 +710,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
           if (stop !== null) break;
           state.beforeModelCall();
           calling = "Planner";
-          const planned = await plan(
+          const planned: PlanOutcome = await plan(
             { task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback },
-            { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), round },
-          );
+            { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
+          ).catch((error: unknown): never => {
+            // plan() has no run of its own: a failed Planner call is counted here, every request it made.
+            state.afterFailedModelCall(failedCallUsage(error));
+            throw error;
+          });
           state.afterModelCall(planned.model);
           modelIds.add(planned.model.model_id);
           if (planned.injection_seen) flags.injection = true;
@@ -720,7 +730,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
             { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, world, previous_findings: previous, feedback },
-            { run: state, sampleMode, timeoutMs: timeLeft("main"), round },
+            { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
           if (!analysis.ok) {
@@ -747,7 +757,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         calling = "Evaluator";
         const verdict = await evaluate(
           { task, question, as_of: asOf, findings, gaps, memories, results: state.store },
-          { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("fast"), round },
+          { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), round },
         );
         if (verdict.model !== null) modelIds.add(verdict.model.model_id);
         lastConfidence = verdict.model === null ? null : verdict.confidence;
@@ -784,7 +794,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           memories,
           runId,
         },
-        { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("strong"), round: accepted.round },
+        { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), round: accepted.round },
       );
       modelIds.add(written.model.model_id);
       if (written.injection_seen) flags.injection = true;

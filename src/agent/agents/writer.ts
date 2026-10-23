@@ -15,7 +15,7 @@ import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResultsForSubjects, forModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, numbersIn, type Finding } from "../guards";
-import { complete as completeModel, type CompleteOptions, type CompleteResult } from "../llm";
+import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult } from "../llm";
 import { MemoryBlockedError, remember, type RecalledMemory } from "../memory";
 import type { QueryId, Row } from "../queries";
 import type { RunState } from "../run-state";
@@ -77,11 +77,13 @@ export type WriterInput = {
 export type WriteDeps = {
   tracer: Tracer;
   /** The run's budget: when given, each model call goes through beforeModelCall and afterModelCall, and its config and sample mode are the defaults. */
-  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "config" | "sampleMode">;
+  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "afterFailedModelCall" | "modelCallsLeft" | "config" | "sampleMode">;
   config?: Config;
   sampleMode?: boolean;
   /** The time left in the run for each model call. */
   timeoutMs?: number;
+  /** When the round ends; passed on to llm.ts for its empty_response retries. */
+  roundDeadlineMs?: number;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** Default true. False keeps the memory_note out of memory, for a run that ends as needs_human. */
@@ -352,17 +354,26 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const user = writerInput(input, cfg, attempt === 1 ? null : reason);
     run?.beforeModelCall();
-    const result = await call({
-      system: writerPrompt(),
-      user: JSON.stringify(user),
-      model: "strong",
-      json: true,
-      agent: AGENT,
-      tracer,
-      config: cfg,
-      sampleMode,
-      ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
-    });
+    let result: CompleteResult;
+    try {
+      result = await call({
+        system: writerPrompt(),
+        user: JSON.stringify(user),
+        model: "strong",
+        json: true,
+        agent: AGENT,
+        tracer,
+        config: cfg,
+        sampleMode,
+        ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+        ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+        ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft() }),
+      });
+    } catch (error) {
+      // A failed call still counts: every request it made is a model call.
+      run?.afterFailedModelCall(failedCallUsage(error));
+      throw error;
+    }
     run?.afterModelCall(result);
     model.calls += 1;
     model.model_id = result.model_id;

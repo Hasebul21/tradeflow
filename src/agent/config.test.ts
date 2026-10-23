@@ -15,7 +15,7 @@ describe("limits and defaults", () => {
       MAX_MODEL_CALLS: 12,
       MAX_PLAN_STEPS: 5,
       MAX_TOOL_ROUNDS: 2,
-      MAX_TOKENS_PER_RUN: 150000,
+      MAX_TOKENS_PER_RUN: 250000,
       QUERY_TIMEOUT_MS: 20000,
       MODEL_TIMEOUT_MS: 180000,
       MODEL_TIMEOUT_STRONG_MS: 180000,
@@ -25,7 +25,7 @@ describe("limits and defaults", () => {
       MAX_MEMORIES: 5,
       MAX_PROMPT_CHARS: 40000,
       TEMPERATURE: 0.2,
-      MAX_COMPLETION_TOKENS: 8000,
+      MAX_COMPLETION_TOKENS: 24000,
       PORT: 8000,
       LOG_LEVEL: "info",
     });

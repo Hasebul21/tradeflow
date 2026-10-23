@@ -10,7 +10,7 @@ import path from "node:path";
 import { z } from "zod";
 import { catalogueFor, forModel, memoriesForModel, type MemoryForModel, type ResultForModel, type Task } from "../context";
 import { afterModel, findingSchema, type Finding } from "../guards";
-import { complete as completeModel, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
+import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
 import type { RecalledMemory } from "../memory";
 import { QueryBlockedError, QueryError, isQueryId, type QueryResult } from "../queries";
 import type { RunState } from "../run-state";
@@ -94,6 +94,8 @@ export type AnalyseDeps = {
   sampleMode?: boolean;
   /** The time left in the run for each model call. */
   timeoutMs?: number;
+  /** When the round ends; passed on to llm.ts for its empty_response retries. */
+  roundDeadlineMs?: number;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** For tests: a stand-in for llm.ts's complete. */
@@ -234,19 +236,27 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   for (;;) {
     const withTools = tools.length > 0 && toolRounds < cfg.MAX_TOOL_ROUNDS;
     run.beforeModelCall();
-    result = await call({
-      system: analystPrompt(),
-      user: JSON.stringify(input),
-      model: "main",
-      json: true,
-      ...(withTools ? { tools } : {}),
-      ...(history.length === 0 ? {} : { history: [...history] }),
-      agent: AGENT,
-      tracer,
-      config: cfg,
-      sampleMode,
-      ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
-    });
+    try {
+      result = await call({
+        system: analystPrompt(),
+        user: JSON.stringify(input),
+        model: "main",
+        json: true,
+        ...(withTools ? { tools } : {}),
+        ...(history.length === 0 ? {} : { history: [...history] }),
+        agent: AGENT,
+        tracer,
+        config: cfg,
+        sampleMode,
+        ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+        ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+        modelCallsLeft: run.modelCallsLeft(),
+      });
+    } catch (error) {
+      // A failed call still counts: every request it made is a model call.
+      run.afterFailedModelCall(failedCallUsage(error));
+      throw error;
+    }
     run.afterModelCall(result);
     model.calls += 1;
     model.model_id = result.model_id;

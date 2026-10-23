@@ -285,7 +285,7 @@ describe("the Evaluator on a stubbed reply", () => {
 });
 
 describe("the Evaluator when the fast model returns no answer", () => {
-  // What llm.ts throws after a 502 empty_response and its one retry at max_tokens 8000.
+  // What llm.ts throws after a 502 empty_response and its one retry at max_tokens 32000.
   const noAnswer = (calls: CompleteOptions[] = []) => async (options: CompleteOptions): Promise<CompleteResult> => {
     calls.push(options);
     throw new ModelHttpError("The fast model call failed twice: 502 empty_response", 502);

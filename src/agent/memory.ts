@@ -10,7 +10,7 @@ import { HMEM } from "../../vendor/hmem/src/index";
 import type { MemoryRecord, MemoryType } from "../../vendor/hmem/src/types";
 import { loadConfig, type Config } from "./config";
 import { beforeRemember } from "./guards";
-import { complete } from "./llm";
+import { complete, failedCallUsage } from "./llm";
 import type { Tracer } from "./trace";
 import type { JournalEntry, Profile, Rules } from "@/lib/data-types";
 import type { TransactionRow } from "@/lib/portfolio";
@@ -47,8 +47,19 @@ async function minerFn(prompt: string): Promise<string> {
   if (run.usage.model_calls >= config.MAX_MODEL_CALLS) {
     throw new Error(`The memory miner would pass MAX_MODEL_CALLS (${config.MAX_MODEL_CALLS}).`);
   }
-  run.usage.model_calls += 1;
-  const result = await complete({ system: "", user: prompt, model: "fast", agent: "Memory", tracer: run.tracer, config, ...(run.sampleMode === undefined ? {} : { sampleMode: run.sampleMode }) });
+  // Every request counts as a model call, a failed one and each retry included.
+  const modelCallsLeft = config.MAX_MODEL_CALLS - run.usage.model_calls;
+  let result: Awaited<ReturnType<typeof complete>>;
+  try {
+    result = await complete({ system: "", user: prompt, model: "fast", agent: "Memory", tracer: run.tracer, config, modelCallsLeft, ...(run.sampleMode === undefined ? {} : { sampleMode: run.sampleMode }) });
+  } catch (error) {
+    const spent = failedCallUsage(error);
+    run.usage.model_calls += spent.model_calls;
+    run.usage.tokens_in += spent.tokens_in;
+    run.usage.tokens_out += spent.tokens_out;
+    throw error;
+  }
+  run.usage.model_calls += result.model_calls ?? 1;
   run.usage.tokens_in += result.usage?.tokens_in ?? 0;
   run.usage.tokens_out += result.usage?.tokens_out ?? 0;
   return result.text ?? "";

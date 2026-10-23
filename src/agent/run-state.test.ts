@@ -56,6 +56,14 @@ describe("RunState.query", () => {
 });
 
 describe("the model budget", () => {
+  it("counts every request of a call, a failed call's included, and says how many calls are left", () => {
+    const { run } = state({ MAX_MODEL_CALLS: "5" });
+    run.afterModelCall({ usage: { tokens_in: 30, tokens_out: 10 }, model_calls: 2 });
+    run.afterFailedModelCall({ model_calls: 2, tokens_in: 5, tokens_out: 0 });
+    expect(run.usage).toMatchObject({ model_calls: 4, tokens_in: 35, tokens_out: 10 });
+    expect(run.modelCallsLeft()).toBe(1);
+  });
+
   it("counts calls and tokens, and refuses the call after MAX_MODEL_CALLS or MAX_TOKENS_PER_RUN", () => {
     const { run } = state({ MAX_MODEL_CALLS: "2", MAX_TOKENS_PER_RUN: "100" });
     run.beforeModelCall();
