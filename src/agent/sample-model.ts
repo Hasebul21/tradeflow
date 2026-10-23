@@ -1,6 +1,7 @@
 // The offline stand-in for Nightshift. Deterministic code: no network, no clock in the content, no stored answers.
 // It dispatches on the agent parameter of complete(), never on the system text, and builds each reply only from the
-// facts in the user message. Each agent's own step refines its rule here as that agent's file is added.
+// facts in the user message (the Planner also reads the data's instrument symbols, the list the queries check). Each agent's own step refines its rule here as that agent's file is added.
+import { loadInstruments } from "@/lib/data";
 import { defaultPlan } from "./default-plan";
 import type { AgentName, CompleteOptions, CompleteResult } from "./llm";
 import { proposedFix } from "./reconcile-fix";
@@ -45,7 +46,7 @@ const DATE_TAG = /^\d{4}-\d{2}-\d{2}$/;
 // ---------------------------------------------------------------------------------------------------------------
 // Planner: the task's default plan (default-plan.ts, shared with the orchestrator's Planner fallback), plus the two flags.
 
-function planner(input: Obj): Obj {
+function planner(input: Obj, symbols: ReadonlySet<string>): Obj {
   const memories = objs(input.memories);
   const { focus, steps } = defaultPlan({
     task: str(input.task) || "explain_week",
@@ -53,6 +54,7 @@ function planner(input: Obj): Obj {
     trade: isObj(input.trade) ? input.trade : null,
     feedback: str(input.feedback),
     catalogue: objs(input.catalogue).map((entry) => str(entry.id)),
+    symbols,
   });
   return {
     focus,
@@ -923,7 +925,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
   let reply: unknown;
   switch (agent) {
     case "Planner":
-      reply = planner(parseUser(options.user));
+      // The instrument symbols in the data dir: the only words in the feedback the plan takes as symbols.
+      reply = planner(parseUser(options.user), new Set((await loadInstruments()).keys()));
       break;
     case "Analyst":
       reply = analyst(parseUser(options.user));

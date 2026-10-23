@@ -5,11 +5,11 @@
 // step is dropped and traced, never run. A reply with no valid step is asked for again by llm.ts (planReplyProblem);
 // when none can be read, the orchestrator uses defaultPlanFor, the task's default plan built in code. Server only (node:fs reads the prompt).
 import { z } from "zod";
-import { loadConfig, type Config } from "../config";
+import { loadConfig, MODEL_TIMEOUT_CAP_MS, type Config } from "../config";
 import { catalogueFor, memoriesForModel, type MemoryForModel, type Task } from "../context";
 import { defaultPlan } from "../default-plan";
 import { afterModel } from "../guards";
-import { complete as completeModel, type CompleteOptions, type CompleteResult } from "../llm";
+import { complete as completeModel, safeName, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import { QUERIES, isQueryId, type CatalogueEntry, type QueryId } from "../queries";
@@ -125,15 +125,24 @@ export function planReplyProblem(json: Record<string, unknown>, allowed: Readonl
   if (steps.length === 0) return "steps is empty: plan at least one query from the catalogue";
   const checked = steps.map((step, index) => checkStep(step, index, allowed));
   if (checked.some((result) => result.ok)) return null;
-  const first = checked[0];
-  return `no step is valid; step 1: ${first.ok ? "valid" : first.dropped.reason}`;
+  // The reason goes back to the model, so it is built from zod paths and issue codes, and a model-chosen query id
+  // appears only when it is a plain lowercase name (safeName).
+  const raw: unknown = steps[0];
+  const shape = planStepSchema.safeParse(raw);
+  if (!shape.success) return `no step is valid; step 1: ${schemaReason(shape.error.issues[0])}`;
+  if (!allowed.has(shape.data.query_id) || !isQueryId(shape.data.query_id)) return `no step is valid; step 1: query_id ${safeName(shape.data.query_id)} is not in the catalogue`;
+  const params = QUERIES[shape.data.query_id].params.safeParse(shape.data.params);
+  return `no step is valid; step 1: params of ${shape.data.query_id}: ${params.success ? "valid" : schemaReason(params.error.issues[0])}`;
 }
 
-/** The task's default plan (default-plan.ts) through the same step checks and MAX_PLAN_STEPS cut as a model's plan. */
-export function defaultPlanFor(request: PlanRequest, config?: Config): { focus: string; steps: PlannedStep[]; dropped: DroppedStep[] } {
+/**
+ * The task's default plan (default-plan.ts) through the same step checks and MAX_PLAN_STEPS cut as a model's plan.
+ * `symbols`: the data's instrument symbols; only these, named in the feedback, get a fundamentals_latest step.
+ */
+export function defaultPlanFor(request: PlanRequest, config?: Config, symbols?: ReadonlySet<string>): { focus: string; steps: PlannedStep[]; dropped: DroppedStep[] } {
   const input = plannerInput(request, config);
   const allowed = new Set(input.catalogue.map((entry) => entry.id));
-  const planned = defaultPlan({ task: input.task, as_of: input.as_of, trade: input.trade, feedback: input.feedback, catalogue: [...allowed] });
+  const planned = defaultPlan({ task: input.task, as_of: input.as_of, trade: input.trade, feedback: input.feedback, catalogue: [...allowed], ...(symbols === undefined ? {} : { symbols }) });
   const steps: PlannedStep[] = [];
   const dropped: DroppedStep[] = [];
   planned.steps.forEach((step, index) => {
@@ -227,6 +236,8 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
     // llm.ts asks again when the reply has no usable step, saying why and restating the shape.
     validate: (json) => planReplyProblem(json, allowed),
     replyShape: PLANNER_REPLY_SHAPE,
+    // A timeout retry must leave a whole model call of the round for the Analyst; otherwise the code plan comes at once.
+    reserveAfterMs: MODEL_TIMEOUT_CAP_MS,
     agent: AGENT,
     tracer,
     config: cfg,

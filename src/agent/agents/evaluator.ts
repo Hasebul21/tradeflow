@@ -12,7 +12,7 @@ import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, checkCitations, type Finding } from "../guards";
-import { BadJson, complete as completeModel, failedCallUsage, ModelHttpError, type CompleteOptions, type CompleteResult } from "../llm";
+import { BadJson, complete as completeModel, failedCallUsage, ModelHttpError, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import type { QueryId, QueryResult, Row } from "../queries";
@@ -44,8 +44,7 @@ export const EVALUATOR_REPLY_SHAPE = '{"accuracy": 0, "appropriateness": 0, "act
 export function scoreReplyProblem(json: Record<string, unknown>): string | null {
   const parsed = scoreSchema.safeParse(json);
   if (parsed.success) return null;
-  const issue = parsed.error.issues[0];
-  return `${issue.path.join(".") || "reply"}: ${issue.message}`;
+  return schemaReason(parsed.error.issues[0]);
 }
 
 /** What the orchestrator hands the Evaluator: the draft and the run's result store. */

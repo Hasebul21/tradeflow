@@ -67,6 +67,12 @@ export type CompleteOptions = {
   validate?: (json: Record<string, unknown>) => string | null;
   /** json calls only: the reply's shape in one line, restated in the message that asks again after a bad reply. */
   replyShape?: string;
+  /**
+   * Time the round must keep for the agents after this one. With it, a timeout gets its retry only when, after the
+   * retry's worst case (MODEL_TIMEOUT_CAP_MS), this much of the round is still left; otherwise ModelTimeout at once.
+   * The Planner passes MODEL_TIMEOUT_CAP_MS, so a slow Planner never takes the Analyst's time.
+   */
+  reserveAfterMs?: number;
 };
 
 export type ToolCallResult = {
@@ -182,6 +188,8 @@ function closingBrace(text: string, start: number): number {
 export function parseJsonReply(text: string): Record<string, unknown> {
   const cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    // A reasoning block that never closes runs to the end of the reply: none of it is the answer.
+    .replace(/<think>[\s\S]*$/i, "")
     .replace(/```[A-Za-z0-9_-]*/g, "")
     .trim();
   if (cleaned === "") throw new BadJson(text, "the reply is empty");
@@ -192,13 +200,14 @@ export function parseJsonReply(text: string): Record<string, unknown> {
     if (end === -1) throw new BadJson(text, "the JSON object is cut off: a { is never closed");
     try {
       const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+      // An empty {} is skipped: prose such as "Shape: {}" is never taken for the reply.
+      if (value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0) return value as Record<string, unknown>;
     } catch {
       // Not JSON (prose in braces, or a malformed object): try the next outermost span.
     }
     start = cleaned.indexOf("{", end + 1);
   }
-  throw new BadJson(text, "no {...} span in the reply parses as JSON");
+  throw new BadJson(text, "no {...} span in the reply parses as a non-empty JSON object");
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -395,14 +404,18 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
         break;
       }
       const problem = bad.error;
-      const correction = retryMessage(problem, options.replyShape);
+      // A reply that stopped at the token limit is asked for again with the larger budget; any other keeps the normal cap.
+      const cutAtLimit = answered.message.finishReason === "length";
+      const retryTokens = cutAtLimit ? Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS) : undefined;
+      const correction = retryMessage(problem, options.replyShape, cutAtLimit);
       if (tries >= maxTries || !structuredRetryFits(state, promptChars + correction.length)) throw problem;
       state.retries += 1;
       options.tracer?.log({
         ...baseLine(),
         action: "model_retry",
+        // The counter comes first: scrub() keeps 300 characters.
         output_summary: scrub(
-          `${problem.kind === "schema" ? "the reply fails the schema" : "the reply is empty or not JSON"} (${problem.reason}); try ${tries + 1} of ${maxTries}, saying what was wrong (that reply counted as a model call)`,
+          `try ${tries + 1} of ${maxTries}${retryTokens === undefined ? "" : `, max_tokens ${retryTokens} (the reply stopped at the token limit)`}: ${problem.kind === "schema" ? "the reply fails the schema" : "the reply is empty or not JSON"} (${problem.reason}); asking again with what was wrong (that reply counted as a model call)`,
           cfg,
         ),
         status: "retry",
@@ -413,7 +426,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       // The retry stays on the model that answered: no second fallback. The original messages stay as they were; the
       // correction is one more user message at the end.
       renewDeadlineInRound(state, answered.tier);
-      const again = await callTier(state, answered.tier, options.user, [{ role: "user", content: correction }]);
+      const again = await callTier(state, answered.tier, options.user, [{ role: "user", content: correction }], retryTokens);
       answered = { ...answered, message: again.message };
     }
 
@@ -483,6 +496,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
 
 type ParsedMessage = {
   text: string;
+  /** The choice's finish_reason: "length" means the reply stopped at max_tokens. */
+  finishReason: string | undefined;
   toolCalls: ToolCallResult[] | undefined;
   reportedModel: string | undefined;
   routedModel: string | undefined;
@@ -520,8 +535,8 @@ async function callWithFallback(state: CallState, tier: Tier, user: string): Pro
   }
 }
 
-/** `tail`: messages after the history, such as the correction a structured retry sends. */
-async function callTier(state: CallState, tier: Tier, user: string, tail: HistoryMessage[] = []): Promise<{ message: ParsedMessage; requested: string }> {
+/** `tail`: messages after the history, such as the correction a structured retry sends. `maxTokens`: the first request's budget (default MAX_COMPLETION_TOKENS). */
+async function callTier(state: CallState, tier: Tier, user: string, tail: HistoryMessage[] = [], maxTokens?: number): Promise<{ message: ParsedMessage; requested: string }> {
   const { options, cfg } = state;
   const requested = cfg.models[tier];
   if (requested === undefined) throw new ConfigError(`NEMOTRON_MODEL_${SOURCE_TIERS[tier].toUpperCase()} is empty.`);
@@ -532,7 +547,7 @@ async function callTier(state: CallState, tier: Tier, user: string, tail: Histor
     ...(options.history ?? []),
     ...tail,
   ];
-  const response = await sendWithRetry(state, tier, requested, messages);
+  const response = await sendWithRetry(state, tier, requested, messages, maxTokens);
 
   const usage = response.usage;
   if (usage && typeof usage.prompt_tokens === "number" && typeof usage.completion_tokens === "number") {
@@ -563,8 +578,10 @@ function parseMessage(response: OpenAI.Chat.Completions.ChatCompletion): ParsedM
   const receipt = (response as unknown as MeterlessReceipt).meterless;
   const routed = receipt?.routed_model;
   const cost = receipt?.cost?.actual_usd;
+  const finish = response.choices?.[0]?.finish_reason;
   return {
     text,
+    finishReason: typeof finish === "string" ? finish : undefined,
     toolCalls,
     reportedModel: typeof response.model === "string" && response.model !== "" ? response.model : undefined,
     routedModel: typeof routed === "string" && routed !== "" ? routed : undefined,
@@ -690,10 +707,32 @@ function structuralProblem(text: string, validate: CompleteOptions["validate"]):
   return reason === null ? { json } : { error: new BadJson(text, reason.slice(0, 300), "schema") };
 }
 
-/** The user message a structured retry adds: what was wrong, briefly, and the shape again. Code text, never reply text. */
-function retryMessage(problem: BadJson, shape: string | undefined): string {
+/**
+ * The user message a structured retry adds: what was wrong, briefly, and the shape again. The reason is code text: a
+ * parse reason written here, or a schema reason the agent's validate built from the zod path and issue code
+ * (schemaReason), where a model-chosen name appears only when it matches SAFE_NAME. No other reply text goes back.
+ */
+function retryMessage(problem: BadJson, shape: string | undefined, cutAtLimit = false): string {
   const what = problem.kind === "schema" ? `Your last reply did not match the required shape: ${problem.reason}.` : `Your last reply could not be read as JSON: ${problem.reason}.`;
-  return `${what} ${JSON_ONLY_SENTENCE}${shape === undefined ? "" : ` The shape: ${shape}`}`;
+  const limit = cutAtLimit ? " It stopped at the token limit; keep the reply short." : "";
+  return `${what}${limit} ${JSON_ONLY_SENTENCE}${shape === undefined ? "" : ` The shape: ${shape}`}`;
+}
+
+/** A model-chosen name that may be echoed back in a retry message: a short lowercase identifier and nothing else. */
+const SAFE_NAME = /^[a-z_]{1,40}$/;
+
+/** A model-chosen name as a retry message may show it: itself when it matches SAFE_NAME, else "(a name not shown)". */
+export function safeName(value: unknown): string {
+  return typeof value === "string" && SAFE_NAME.test(value) ? value : "(a name not shown)";
+}
+
+/**
+ * A zod issue as a retry reason, from its path and code only: "findings.0.kind: invalid_value". Path keys a model
+ * chose (a record key, say) are shown only when they match SAFE_NAME; numbers (array indexes) always are.
+ */
+export function schemaReason(issue: { path: readonly PropertyKey[]; code: string }): string {
+  const path = issue.path.map((key) => (typeof key === "number" ? String(key) : safeName(key))).join(".");
+  return `${path || "reply"}: ${issue.code}`;
 }
 
 /**
@@ -733,13 +772,14 @@ async function sendWithRetry(
   tier: Tier,
   requested: string,
   messages: HistoryMessage[],
+  firstMaxTokens?: number,
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const { options, cfg } = state;
   let transportRetried = false;
   // Tries that ended in a 502 "empty_response", counted when the caller passed the round's end.
   let emptyTries = 0;
   // Raised for a retry after a 502 "empty_response": the same request with a larger token budget.
-  let maxTokens = cfg.MAX_COMPLETION_TOKENS;
+  let maxTokens = firstMaxTokens ?? cfg.MAX_COMPLETION_TOKENS;
   for (;;) {
     const params = buildParams(state, tier, requested, messages, maxTokens);
     const timeout = attemptTimeoutMs(state, tier);
@@ -823,13 +863,20 @@ async function sendWithRetry(
             failure.kind === "timeout" ? "timeout" : failure.kind === "network" ? "network error" : `HTTP ${failure.kind === "rate_limit" ? 429 : failure.status}`;
           // A timeout used the whole attempt, so the call's own deadline has passed. With the round's end given, it
           // gets its one retry as a whole new attempt when a whole model call (MODEL_TIMEOUT_CAP_MS) still fits in the round.
-          if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= MODEL_TIMEOUT_CAP_MS) {
+          // With reserveAfterMs (the Planner), the retry's worst case must also leave that much of the round for the agents
+          // after it; otherwise the timeout stands at once and the caller falls back (the code plan).
+          if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= MODEL_TIMEOUT_CAP_MS + (options.reserveAfterMs ?? 0)) {
             transportRetried = true;
             state.retries += 1;
             retryTrace(why);
             await sleep(BACKOFF_MS, options.signal);
             renewDeadlineInRound(state, tier);
             continue;
+          }
+          if (failure.kind === "timeout" && !transportRetried && options.reserveAfterMs !== undefined && options.roundDeadlineMs !== undefined) {
+            throw new ModelTimeout(
+              `The ${tier} model call timed out once (${timeout} ms at most for the attempt); no retry, because its worst case would leave under ${MODEL_TIMEOUT_CAP_MS + options.reserveAfterMs} ms of the round for it and the agents after it.`,
+            );
           }
           // One retry, unless the caller's deadline leaves under a second: that retry would only time out.
           if (!transportRetried && timeLeftMs(state) >= RETRY_FLOOR_MS) {

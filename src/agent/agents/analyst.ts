@@ -8,7 +8,7 @@
 import { z } from "zod";
 import { catalogueFor, forModel, memoriesForModel, type MemoryForModel, type ResultForModel, type Task } from "../context";
 import { afterModel, findingSchema, type Finding } from "../guards";
-import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
+import { complete as completeModel, failedCallUsage, schemaReason, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import { QueryBlockedError, QueryError, type QueryResult } from "../queries";
@@ -51,8 +51,7 @@ export const ANALYST_REPLY_SHAPE =
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
   const parsed = analystReplySchema.safeParse(json);
   if (parsed.success) return null;
-  const issue = parsed.error.issues[0];
-  return `${issue.path.join(".") || "reply"}: ${issue.message}`;
+  return schemaReason(parsed.error.issues[0]);
 }
 
 /** What the orchestrator hands the Analyst: the task, the plan (its focus and steps) and the round's context. */

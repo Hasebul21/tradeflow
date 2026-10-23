@@ -14,7 +14,7 @@ import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResultsForSubjects, forModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, numbersIn, type Finding } from "../guards";
-import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult } from "../llm";
+import { complete as completeModel, failedCallUsage, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import { MemoryBlockedError, remember, type RecalledMemory } from "../memory";
 import type { QueryId, Row } from "../queries";
@@ -125,8 +125,7 @@ export const WRITER_REPLY_SHAPE = '{"summary": "...", "review_markdown": "...", 
 export function writerReplyProblem(json: Record<string, unknown>): string | null {
   const parsed = writerReplySchema.safeParse(json);
   if (parsed.success) return null;
-  const issue = parsed.error.issues[0];
-  return `${issue.path.join(".") || "reply"}: ${issue.message}`;
+  return schemaReason(parsed.error.issues[0]);
 }
 
 export type WriteOutcome = {

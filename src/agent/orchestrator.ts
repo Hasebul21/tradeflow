@@ -780,7 +780,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         state.afterFailedModelCall(failedCallUsage(error));
         const cause = signal.aborted ? null : plannerFallbackCause(error, runLeft() > 0 && roundLeft() > 0);
         if (cause === null) throw error;
-        const fallback = defaultPlanFor(request, config);
+        const fallback = defaultPlanFor(request, config, new Set(data.portfolio.instruments.keys()));
         const ids = fallback.steps.map((step) => step.query_id);
         const note = `${PLANNER_FALLBACK_LABEL} (${PLANNER_FALLBACK_WORDS[cause.kind]}; queries: ${ids.join(", ")}); the review covers those, not a plan made for this question.`;
         tracer.log({

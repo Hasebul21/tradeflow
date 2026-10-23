@@ -17,6 +17,11 @@ export type DefaultPlanInput = {
   feedback?: string | null;
   /** The query ids the task's catalogue offers; when given, every other step is left out. */
   catalogue?: readonly string[];
+  /**
+   * The instrument symbols in the data, the list the queries check a symbol against. A word in the feedback is taken
+   * as a symbol only when it is in this list, so PORTFOLIO, EPS or any other all-caps word never is. Without it, none is.
+   */
+  symbols?: ReadonlySet<string>;
 };
 
 /** At most this many steps, as the Planner's prompt asks; callers still cut to MAX_PLAN_STEPS. */
@@ -61,7 +66,7 @@ function stepsFor(task: string, asOf: string, trade: Obj | null): DefaultStep[] 
   }
 }
 
-/** The task's default plan: its standard steps, a feedback symbol's fundamentals, only catalogue ids, at most five. */
+/** The task's default plan: its standard steps, a feedback instrument symbol's fundamentals, only catalogue ids, at most five. */
 export function defaultPlan(input: DefaultPlanInput): DefaultPlan {
   const task = input.task || "explain_week";
   const asOf = input.as_of;
@@ -70,9 +75,10 @@ export function defaultPlan(input: DefaultPlanInput): DefaultPlan {
 
   let steps = stepsFor(task, asOf, input.trade ?? null);
 
-  // Rounds 2 and 3: a symbol the Evaluator named gets its fundamentals, so the plan answers the feedback.
+  // Rounds 2 and 3: a symbol the Evaluator named gets its fundamentals, so the plan answers the feedback. The feedback
+  // may be model text, so only a real instrument symbol counts.
   const named = feedback.match(/\b[A-Z][A-Z0-9]{2,}\b/g) ?? [];
-  const symbol = named.find((token) => token !== "DSEX" && token !== "BDT");
+  const symbol = named.find((token) => input.symbols?.has(token) === true);
   if (symbol !== undefined && !steps.some((step) => step.query_id === "fundamentals_latest")) {
     const extra: DefaultStep = { query_id: "fundamentals_latest", params: { symbol, as_of: asOf }, why: `${symbol}'s latest quarters, which the Evaluator asked for.` };
     const rules = steps.findIndex((step) => step.query_id === "rule_findings");
