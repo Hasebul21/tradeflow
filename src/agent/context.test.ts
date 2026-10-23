@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { catalogueFor, citedResults, citedResultsForSubjects, forModel, MAX_CITED_ROWS, memoriesForModel, type ResultStore } from "./context";
+import { catalogueFor, citedResults, citedResultsForSubjects, forModel, MAX_CITED_ROWS, memoriesForModel, trimCitedResultsToSize, type ResultStore } from "./context";
 import { checkCitations, type Finding } from "./guards";
 import type { RecalledMemory } from "./memory";
 import { loadQueryData, runLocal, type QueryData, type QueryResult, type Row } from "./queries";
@@ -210,6 +210,30 @@ describe("citedResultsForSubjects", () => {
     const cited = citedResultsForSubjects(findings, store);
     expect(cited[0].rows).toHaveLength(MAX_CITED_ROWS);
     expect(cited[0]).toMatchObject({ row_count: 50, truncated: true });
+  });
+
+  it("drops rows from the widest result until the JSON fits, keeping row_count and setting truncated", () => {
+    const store = subjectStore();
+    const findings = [{ cites: ["q-j", "q-1", "q-2"], subject: "ACMEPHARMA" }];
+    const cited = citedResultsForSubjects(findings, store);
+    const full = JSON.stringify(cited).length;
+    const maxChars = Math.floor(full / 2);
+    const trimmed = trimCitedResultsToSize(cited, maxChars);
+    expect(JSON.stringify(trimmed).length).toBeLessThanOrEqual(maxChars);
+    expect(trimmed.length).toBe(cited.length);
+    // No result grew, and every result still reports the full filtered count.
+    for (const result of trimmed) {
+      const before = cited.find((candidate) => candidate.run_query_id === result.run_query_id)!;
+      expect(result.rows.length).toBeLessThanOrEqual(before.rows.length);
+      expect(result.row_count).toBe(before.row_count);
+      if (result.rows.length < before.rows.length) expect(result.truncated).toBe(true);
+    }
+  });
+
+  it("keeps the results unchanged when they already fit", () => {
+    const store = subjectStore();
+    const cited = citedResultsForSubjects([{ cites: ["q-j"], subject: "ACMEPHARMA" }], store);
+    expect(trimCitedResultsToSize(cited, JSON.stringify(cited).length)).toEqual(cited);
   });
 
   it("stays well under MAX_PROMPT_CHARS when many theses over one symbol cite wide results (the real example_5 blow-up)", () => {

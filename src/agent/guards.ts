@@ -210,7 +210,7 @@ export function afterModel(agent: string, reply: unknown, input: unknown, tracer
         return;
       }
       if (task === "thesis_check" && (parsed.data.verdict === null || !THESIS_VERDICTS.includes(parsed.data.verdict))) {
-        problems.push(`finding ${index + 1} has verdict ${JSON.stringify(parsed.data.verdict)}; a thesis verdict is confirmed, contradicted or open`);
+        problems.push(`finding ${index + 1} (${parsed.data.subject}) has verdict ${JSON.stringify(parsed.data.verdict)}; a thesis verdict is confirmed, contradicted or open (use open when no row settles it)`);
       }
     });
   }

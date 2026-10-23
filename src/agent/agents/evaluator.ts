@@ -8,12 +8,14 @@
 // 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's retries
 // (a ModelHttpError 502), or none of its replies can be read as a score after llm.ts's tries (BadJson), the draft is
 // accepted on the code checks alone, with no score: action "score_unavailable".
-// A draft of more than EVALUATOR_BATCH_SIZE findings is scored in consecutive batches, each with only its own findings
-// and cited rows: the lowest score per dimension counts, and a fix names findings by their number in the whole draft.
+// A draft whose one call would cross MAX_PROMPT_CHARS is scored in consecutive batches of at most
+// EVALUATOR_BATCH_SIZE findings, each with only its own findings and cited rows: every prompt (system plus user)
+// stays under the limit, the lowest score per dimension counts, and a fix names findings by their number in the
+// whole draft.
 // Server only (node:fs reads the prompt).
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
-import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
+import { citedResults, citedResultsForSubjects, memoriesForModel, trimCitedResultsToSize, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, checkCitations, numbersIn, type Finding } from "../guards";
 import { BadJson, complete as completeModel, failedCallUsage, ModelHttpError, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
@@ -30,9 +32,9 @@ const PORTFOLIO = "PORTFOLIO";
 export const PASS_TOTAL = 7;
 export const MAX_TOTAL = 9;
 
-/** A draft with more findings than this is scored in batches of this size, so no prompt nears MAX_PROMPT_CHARS. */
+/** A draft is scored in batches of at most this many findings. */
 export const EVALUATOR_BATCH_SIZE = 10;
-/** A draft whose one-call prompt is at most this many characters is scored in one call; a longer one is scored in batches. 30,000 is three quarters of the 40,000-character prompt limit. */
+/** A draft whose one-call user message is at most this many characters is scored in one call; a longer one is scored in batches. 30,000 is three quarters of the 40,000-character prompt limit. Batching also starts whenever system plus user would cross MAX_PROMPT_CHARS, whatever this says. */
 export const EVALUATOR_SINGLE_CALL_MAX_CHARS = 30000;
 
 /** The tasks whose plan comes from the Planner: a rejection goes back there. The others go back to the Analyst. */
@@ -433,6 +435,20 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   const rejectByCode = (failed: readonly CodeCheck[], flagged: number[]): EvaluateOutcome => {
     // Every failed check's fix, in check order, so the Analyst sees every open problem in one round.
     const fix = failed.map((check) => check.fix ?? "").filter((text) => text !== "").join(" ");
+    // What each flagged finding cites, so a trace shows whether a rejected figure's row was cited at all.
+    for (const number of flagged) {
+      const finding = findings[number - 1];
+      if (finding === undefined) continue;
+      tracer.log({
+        agent_name: AGENT,
+        action: "flagged_cites",
+        input_summary: capped(`finding ${number} (${finding.subject})`),
+        output_summary: capped(`cites ${finding.cites.join(", ") || "none"}`),
+        target_agent: target,
+        status: "rejected",
+        retry_count: round,
+      });
+    }
     tracer.log({
       agent_name: AGENT,
       action: "reject",
@@ -484,9 +500,13 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     return rejectByCode(failed, [...flagged].sort((a, b) => a - b));
   }
 
-  // 4. The fast model scores the draft, seeing only the rows the findings cite. A draft of more than
-  // EVALUATOR_BATCH_SIZE findings is scored in consecutive batches, one call after another, so no prompt nears
-  // MAX_PROMPT_CHARS; code combines the batch scores.
+  // 4. The fast model scores the draft, seeing only the rows the findings cite. Code fits every call's prompt
+  // (system plus user) under MAX_PROMPT_CHARS: a draft whose one call would cross it is scored in consecutive
+  // batches, each holding as many findings as fit and at most EVALUATOR_BATCH_SIZE, and a batch that still cannot
+  // fit drops cited rows from its widest result. checkCitations already read the full rows from the store, so
+  // trimming what the model sees never weakens a check. Code combines the batch scores.
+  const systemChars = evaluatorPromptVersion().text.length;
+  const userBudget = Math.max(0, cfg.MAX_PROMPT_CHARS - systemChars);
   const inputFor = (chunk: Finding[], first: boolean): EvaluatorInput => ({
     task: input.task,
     question: input.question,
@@ -496,15 +516,27 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     gaps: first ? gaps : [],
     results: input.task === "thesis_check" ? citedResultsForSubjects(chunk, input.results, cfg.MAX_ROWS_PER_QUERY) : citedResults(chunk, input.results, cfg.MAX_ROWS_PER_QUERY),
   });
+  /** A chunk's user message, with cited rows dropped from the widest result until system plus user fit. */
+  const userFor = (chunk: Finding[], first: boolean): EvaluatorInput => {
+    const user = inputFor(chunk, first);
+    if (JSON.stringify(user).length <= userBudget) return user;
+    const findingsChars = JSON.stringify({ ...user, results: [] }).length;
+    return { ...user, results: trimCitedResultsToSize(user.results, Math.max(0, userBudget - findingsChars)) };
+  };
   // One call while the whole prompt is short; batches only when it is long, so a small draft scores as it always did.
   const oneCallChars = JSON.stringify(inputFor(findings, true)).length;
-  const chunks = oneCallChars <= (deps.batchAboveChars ?? EVALUATOR_SINGLE_CALL_MAX_CHARS) ? [findings] : batchesOf(findings, EVALUATOR_BATCH_SIZE);
+  const oneCallLimit = Math.min(deps.batchAboveChars ?? EVALUATOR_SINGLE_CALL_MAX_CHARS, userBudget);
+  const chunks =
+    oneCallChars <= oneCallLimit
+      ? [findings]
+      : batchesFor(findings, (chunk, first) => JSON.stringify(inputFor(chunk, first)).length <= userBudget);
   const chunkScores: { scores: Scores; total: number; fix: string; offset: number }[] = [];
   let model: NonNullable<EvaluateOutcome["model"]> | null = null;
+  // A batch's finding numbers are global: the count of findings in the batches before it (batches vary in size).
+  let offset = 0;
   for (const [index, chunk] of chunks.entries()) {
     const first = index === 0;
-    const offset = index * EVALUATOR_BATCH_SIZE;
-    const user = inputFor(chunk, first);
+    const user = userFor(chunk, first);
     run?.beforeModelCall();
     let result: CompleteResult;
     try {
@@ -600,6 +632,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
 
     const own: Scores = { accuracy: parsed.data.accuracy, appropriateness: parsed.data.appropriateness, actionability: parsed.data.actionability };
     chunkScores.push({ scores: own, total: own.accuracy + own.appropriateness + own.actionability, fix: parsed.data.fix.trim(), offset });
+    offset += chunk.length;
   }
 
   // The lowest score per dimension across the batches, summed; the pass rule is unchanged.
@@ -635,11 +668,28 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   return { accepted, scores, total, confidence, fix, flagged: accepted ? [] : namedIn(fix, findings), code_checks: checks, target_agent: accepted ? "Writer" : target, model };
 }
 
-/** `items` as consecutive chunks of at most `size`; one chunk (the list itself) when it fits, and for an empty list. */
-function batchesOf<T>(items: readonly T[], size: number): T[][] {
+/**
+ * `items` packed greedily, in order, into consecutive chunks: each takes the next item while it holds at most
+ * `maxSize` and `fits` accepts it. An item that does not fit with any before it starts a new chunk, and a single
+ * item that fits nowhere still gets a chunk of its own (it cannot be split). An empty list is one empty chunk.
+ */
+function batchesFor<T>(items: readonly T[], fits: (chunk: T[], first: boolean) => boolean, maxSize = EVALUATOR_BATCH_SIZE): T[][] {
   const out: T[][] = [];
-  for (let start = 0; start < items.length; start += size) out.push(items.slice(start, start + size));
-  return out.length === 0 ? [[...items]] : out;
+  let current: T[] = [];
+  for (const item of items) {
+    if (current.length === 0) {
+      current = [item];
+      continue;
+    }
+    const candidate = [...current, item];
+    if (candidate.length <= maxSize && fits(candidate, out.length === 0)) current = candidate;
+    else {
+      out.push(current);
+      current = [item];
+    }
+  }
+  if (current.length > 0) out.push(current);
+  return out.length === 0 ? [[]] : out;
 }
 
 /** The outcome's model after one more call: usage and duration summed, id and source from the latest call. */

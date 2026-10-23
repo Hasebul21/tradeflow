@@ -554,6 +554,57 @@ describe("the Evaluator scoring a long draft in batches", () => {
     expect(evaluatorLines(lines, "accept")[0].output_summary).not.toContain("batches");
   });
 
+  /** A run and a store holding one long result that `count` pre_trade findings cite, each claim `claimChars` long. */
+  function bigDraft(count: number, claimChars: number, rows = 4, rowChars = 200) {
+    const { run } = runState();
+    const runQueryId = "q-big";
+    const store = {
+      [runQueryId]: {
+        query_id: "announcements_between" as const,
+        run_query_id: runQueryId,
+        params: {},
+        source: "local" as const,
+        sql_head: null,
+        rows: Array.from({ length: rows }, (_, i) => ({ symbol: `ZZ-${i}`, note: "x".repeat(rowChars) })),
+      },
+    };
+    const findings = Array.from({ length: count }, (_, i) => ({
+      ...finding(`ZZ-${String(i + 1).padStart(3, "0")}`, [runQueryId], [], `The row shows ZZ-${i + 1}. ${"x".repeat(claimChars)}`),
+      kind: "pre_trade" as const,
+    }));
+    return { run, findings, store };
+  }
+
+  it("keeps every batch prompt (system plus user) under MAX_PROMPT_CHARS, splitting by size as well as count", async () => {
+    // 4,000 characters a claim: 10 findings would cross the cap, so the batches are under EVALUATOR_BATCH_SIZE.
+    const { run, findings, store } = bigDraft(30, 4000);
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade", results: store }), { tracer, run, batchAboveChars: 0, complete: sequence([perfect], calls) });
+    expect(outcome).toMatchObject({ accepted: true, total: 9 });
+    expect(calls.length).toBeGreaterThan(3);
+    for (const call of calls) {
+      expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+      expect(subjectsOf(call).length).toBeLessThanOrEqual(EVALUATOR_BATCH_SIZE);
+    }
+    expect(calls.flatMap(subjectsOf)).toHaveLength(30);
+    expect(evaluatorLines(lines, "accept")[0].output_summary).toContain(`scored in ${calls.length} batches`);
+  });
+
+  it("drops cited rows from a single finding's result until its prompt fits, and the store keeps every row", async () => {
+    const { run, findings, store } = bigDraft(1, 100, 8, 6000);
+    const calls: CompleteOptions[] = [];
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade", results: store }), { tracer: collector().tracer, run, batchAboveChars: 0, complete: sequence([perfect], calls) });
+    expect(outcome).toMatchObject({ accepted: true, total: 9 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].system.length + calls[0].user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+    const user = JSON.parse(calls[0].user as string) as { results: { rows: unknown[]; row_count: number; truncated: boolean }[] };
+    expect(user.results[0].rows.length).toBeLessThan(8);
+    expect(user.results[0].row_count).toBe(8);
+    expect(user.results[0].truncated).toBe(true);
+    expect(store["q-big"].rows).toHaveLength(8);
+  });
+
   it("rewrites finding numbers by an offset in the shapes namedIn reads", () => {
     expect(globalFindingNumbers("Rewrite finding 2.", 10)).toBe("Rewrite finding 12.");
     expect(globalFindingNumbers("Check findings 2 and 3.", 10)).toBe("Check findings 12 and 13.");

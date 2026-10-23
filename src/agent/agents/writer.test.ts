@@ -14,7 +14,7 @@ import type { TraceInput, Tracer } from "../trace";
 import { analyse, codeGaps } from "./analyst";
 import { evaluate } from "./evaluator";
 import { plan } from "./planner";
-import { DISCLAIMER, RETRY_ASK, RETRY_ASK_PLAIN, checkReview, countNumbers, withDisclaimerLast, write, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
+import { DISCLAIMER, RETRY_ASK, RETRY_ASK_PLAIN, checkReview, countNumbers, withDisclaimerLast, write, writerInput, writerPrompt, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so the memory it writes lands in that copy and
 // never in data/. A fake tracer keeps every line in memory; the sample model answers unless a test stubs it.
@@ -84,6 +84,32 @@ function scripted(replies: unknown[], calls: CompleteOptions[] = []) {
 
 const writerLines = (lines: TraceInput[], action: string) => lines.filter((line) => line.agent_name === "Writer" && line.action === action);
 const reviews = () => openMemory().store.all().filter((memory) => memory.tags.includes("review"));
+
+// The live run of example_5 on 24 Oct: 30 accepted thesis findings plus the rows of 19 planned queries made the
+// Writer's one-call prompt 43,231 characters, over MAX_PROMPT_CHARS 40,000 (system 4,618). The findings fit; the
+// cited rows, 8 per result across 19 results, did not.
+describe("writerInput on a 30-thesis draft", () => {
+  it("trims the cited rows so system plus user stays within MAX_PROMPT_CHARS", () => {
+    const subjects = Array.from({ length: 30 }, (_, i) => `j-${String(i).padStart(3, "0")}`);
+    const results: ResultStore = {};
+    for (let q = 0; q < 19; q += 1) {
+      results[`q-${q}`] = {
+        query_id: "announcements_between", run_query_id: `q-${q}`, params: {}, source: "local", sql_head: null,
+        rows: Array.from({ length: 50 }, (_, r) => ({ journal_id: subjects[(q + r) % subjects.length], title: "t".repeat(160), body: "b".repeat(180) })),
+      };
+    }
+    const findings: Finding[] = subjects.map((subject) => ({
+      kind: "thesis", subject, claim: "The data shows the thesis holds. ".repeat(16), numbers: [{ value: 12.3, label: "EPS" }],
+      cites: Array.from({ length: 19 }, (_, q) => `q-${q}`), verdict: null, proposed_fix: null, memory_ids: [],
+    }));
+    const user = writerInput({ task: "thesis_check", question: "Do my reasons for each trade still hold?", as_of: AS_OF, findings, results, runId: "t" }, config);
+    expect(writerPrompt().length + JSON.stringify(user).length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+    // The findings, which the Writer needs, are all still there.
+    expect(user.findings).toHaveLength(30);
+    // At least one row was dropped; row_count still reports the full filtered count.
+    expect(user.results?.some((result) => result.truncated)).toBe(true);
+  });
+});
 
 describe("the Writer with the sample model", () => {
   it("writes the 1 Oct review: a citation on every bullet above 'What I remembered', BXPHARMA named, the disclaimer last, one review memory", async () => {

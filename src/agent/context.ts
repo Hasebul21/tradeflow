@@ -145,3 +145,25 @@ export function citedResultsForSubjects(findings: readonly Pick<Finding, "cites"
     return { ...view, row_count: filtered.length, truncated: filtered.length > view.rows.length };
   });
 }
+
+/**
+ * The cited results with rows dropped from the widest result, last row first, until their JSON fits `maxChars`.
+ * The Writer writes the whole review in one call, so a 30-thesis run can still leave its cited rows over
+ * MAX_PROMPT_CHARS even after MAX_CITED_ROWS caps each result: many results, each a legal 8 rows, add up. Dropping
+ * what the model sees never weakens a check (checkCitations reads the full rows from the store); `row_count` stays
+ * the full filtered count and `truncated` says rows were cut.
+ */
+export function trimCitedResultsToSize(results: readonly ResultForModel[], maxChars: number): ResultForModel[] {
+  const out = results.map((result) => ({ ...result, rows: [...result.rows] }));
+  if (JSON.stringify(out).length <= maxChars) return out;
+  for (;;) {
+    let widest = -1;
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i].rows.length > 0 && (widest < 0 || out[i].rows.length > out[widest].rows.length)) widest = i;
+    }
+    if (widest < 0) return out;
+    out[widest].rows.pop();
+    out[widest].truncated = true;
+    if (JSON.stringify(out).length <= maxChars) return out;
+  }
+}

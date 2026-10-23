@@ -43,6 +43,13 @@ describe("afterModel", () => {
     expect(!result.ok && result.reason).toMatch(/finding 1 does not match the finding schema/);
   });
 
+  it("names the thesis and the default when a thesis_check finding has verdict null", () => {
+    const { tracer } = collector();
+    const finding = { kind: "thesis", subject: "j-010", claim: "No row settles it.", numbers: [], cites: ["q-1"], verdict: null, proposed_fix: null, memory_ids: [] };
+    const result = afterModel("Analyst", { findings: [finding], gaps: [] }, { task: "thesis_check" }, tracer);
+    expect(!result.ok && result.reason).toContain("finding 1 (j-010) has verdict null; a thesis verdict is confirmed, contradicted or open (use open when no row settles it)");
+  });
+
   it("allows the owner's own words: an exit condition that starts with Sell", () => {
     const { lines, tracer } = collector();
     const reply = { summary: "Your exit condition 'Sell if two quarters in a row show lower profit' is met for BXPHARMA; you bought 70 WALTONHIL on 1 Sep." };
