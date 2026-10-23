@@ -45,7 +45,7 @@ Labels: **new**, **pre-existing** (unchanged), and **pre-existing, allowed edit*
 ```text
 tradeflow/
   AGENTS.md, CLAUDE.md, .cursor/, .claude/, .githooks/, .cursorignore   pre-existing (kit)
-  CURSOR.md                          pre-existing (kit): one row per step
+  BUILD-LOG.md                          pre-existing (kit): one row per step
   PRE-EXISTING.md                    pre-existing, allowed edit: appended lines only
   README.md                          pre-existing, allowed edit
   package.json                       pre-existing, allowed edit: scripts; zod, tsx, @modelcontextprotocol/sdk
@@ -107,7 +107,7 @@ tradeflow/
 
 ## 3. Steps
 
-Every step also does what `AGENTS.md` "Done means" asks. It runs `npm run check`, adds tests for new behavior, updates the README for what changed, appends one row to `CURSOR.md`, and makes one commit with a one-line conventional message. Tests that run the orchestrator, memory or a route use `TRADEFLOW_DATA_DIR` pointed at a temporary copy of `data/`. Unit tests never touch the network.
+Every step also does what `AGENTS.md` "Done means" asks. It runs `npm run check`, adds tests for new behavior, updates the README for what changed, appends one row to `BUILD-LOG.md`, and makes one commit with a one-line conventional message. Tests that run the orchestrator, memory or a route use `TRADEFLOW_DATA_DIR` pointed at a temporary copy of `data/`. Unit tests never touch the network.
 
 Shared types used in the signatures (defined in `src/agent/types.ts`, step 1, unless noted):
 
@@ -738,7 +738,7 @@ type RunOutput = {
 ### Step 21. README and metadata.json
 
 - **Goal:** the README documents only what the code does, with the organizers' 8 AI-usage disclosures and the sponsor-technology section, and `metadata.json` copies from it. This step runs on Monday (section 4), so it documents steps 1-16 only. Steps 17-20 then add their own README and `metadata.json` lines in their own commits, which keeps every claim behind the code.
-- **Files:** `README.md`, `metadata.json`, `CURSOR.md`.
+- **Files:** `README.md`, `metadata.json`, `BUILD-LOG.md`.
 - **Functions:** none. The README gains the architecture diagram; the agent roles table (Planner strong, Analyst main, Evaluator fast, Writer strong; the Router row comes with step 18); the guard table; how to run (dev on port 8000, the CLI, the one Docker command, `POST /run` JSON in and out, and a note that `npm run agent` and `POST /run` do the job of the organizers' suggested `run.py`); the examples; the sponsor technology section (section 6); the 8 disclosures (models and providers, agent frameworks, partner technologies and where, libraries, data sources, all synthetic, adapted open-source code, known limitations, and fallback and sample-mode behavior); and licenses (Apache-2.0 for `vendor/` and the adapted Zetaris client). It also states the limits: H-MEM's hash embedder isn't semantic search, memory is single-process, and all data is synthetic.
 - **Tests:** the kit's `/pre-submit-check` skill: every README claim maps to code, the secret scan finds 0, required files exist, and nothing under `src/lib/` changed since the tag. Then the read-only `judge` agent for a mock score.
 - **Proves it:** `/pre-submit-check`
@@ -820,7 +820,7 @@ The planted cases map to the input examples as follows:
 | Meterless World Model (working Meterless Engine feature) | Holds holdings, announcements and facts, each with `run_query:<id>` as its source | `vendor/world-model/`; `src/agent/world.ts` `recordFromResults`, `about` | `npx vitest run src/agent/world.test.ts src/agent/corrections.test.ts` |
 | Meterless Nightshift (primary provider) | Every model call goes to the one OpenAI-compatible endpoint in `METERLESS_BASE_URL`, with `meterless-app` and `meterless-scope` headers | `src/agent/llm.ts` `createNightshiftClient` | `npm run try-model`; the `model` field in each trace line; `output.model_source` `"nightshift"` in `output_examples/`; the lane named in the README and shown in the video |
 | NVIDIA Nemotron | Strong for the Planner and the Writer, main for the Analyst, fast for the Evaluator and the Router | `src/agent/config.ts` `models` | The trace's `model` field per agent; `output.models` |
-| Cursor | Not used: the organisers allowed any IDE on 22 Oct, and the Cursor copy of the kit was removed | the kit in `.claude/`, `AGENTS.md`, `CURSOR.md` | `CURSOR.md`; `git log pre-hackathon..HEAD`; the README says Cursor was not used |
+| Cursor | Not used: the organisers allowed any IDE on 22 Oct, and the Cursor copy of the kit was removed | the kit in `.claude/`, `AGENTS.md`, `BUILD-LOG.md` | `BUILD-LOG.md`; `git log pre-hackathon..HEAD`; the README says Cursor was not used |
 
 ## 7. Open questions and conflicts
 
@@ -829,11 +829,11 @@ The planted cases map to the input examples as follows:
 1. Zetaris readiness (blocks step 4): are `tradeflow_ledger` and `tradeflow_external` registered as Zetaris datasources, and can `zetaris_ro` reach Postgres from Zetaris? `CREATE DATASOURCE` is admin-only, and the getting-started repo found no GUI path for it. Which Zetaris variable names does your `.env` hold (names only)? The getting-started client uses `ZETARIS_REST_URL`, `ZETARIS_API_KEY` and `ZETARIS_ORG_ID`.
 2. Approved reconciliation fixes (step 17): should they write to `data/` or to a working copy under `TRADEFLOW_DATA_DIR`? Writing to `data/` fails `src/test/story.data.test.ts:45` (data must equal the seed) and `:191` (exactly four discrepancies), so `npm run check` fails until `npm run seed`. And what fix should the agent propose for the ledger-only trade `t-030`: remove it (which orphans journal entry `j-022`), or only flag it?
 3. Model ids: rule 11 makes sample mode depend on `NEMOTRON_MODEL_*` in `.env`, but your prompt says "model ids only in config.ts". Should `config.ts` read the ids from `.env` with no defaults in code, or hold defaults? Which routing id goes to each tier, as `GET /models` lists them today (for example `meterless/deep` for strong, `meterless/auto` for main, `meterless/fast` for fast)?
-4. Token variable: `.githooks/pre-commit` and `.cursor/hooks/guard-prompt.mjs` check both `METERLESS_API_KEY` and `METERLESS_RUNTIME_TOKEN`. Your prompt puts the Runtime token in `METERLESS_API_KEY`. Is `METERLESS_RUNTIME_TOKEN` unused?
+4. Token variable: `.githooks/pre-commit` and `.claude/hooks/guard-prompt.mjs` check both `METERLESS_API_KEY` and `METERLESS_RUNTIME_TOKEN`. Your prompt puts the Runtime token in `METERLESS_API_KEY`. Is `METERLESS_RUNTIME_TOKEN` unused?
 5. Thesis-check scope: all 30 journal entries, the held symbols' entries, or only the ids or symbols that the input names? `evals/expectations.json` checks only `j-001`, `j-005`, `j-013` and `j-014`.
 6. Where the pre-trade check runs: the save flow is in `src/app/transactions/actions.ts` and `view.tsx`, which rule 1 freezes. Is a check on the Explain page and `POST /run`, which the owner runs before saving on `/transactions`, an acceptable "before a trade is saved"?
 7. `metadata.json`: which fields does the organizers' submission require? The requirements are in `.hackathon-prep/`, which I can't read.
-8. Cursor evidence: `CURSOR.md` says Claude Code does the coding in Cursor's terminal because no Cursor credit was provided. Is that the story for judges, or will some steps run in Cursor's own agent?
+8. Cursor evidence: `BUILD-LOG.md` says Claude Code does the coding in Cursor's terminal because no Cursor credit was provided. Is that the story for judges, or will some steps run in Cursor's own agent?
 9. Output examples: I read rule 11 ("`output_examples/` only results of real runs") as real-model runs through Nightshift, so step 15 needs Nightshift up. Is that right, and which three examples should the video lead with?
 10. New file roles: `AGENTS.md` names `router.ts`, `proof.ts`, `registry.ts`, `policy.ts`, `metrics.ts`, `concurrency.ts` and `prompts.ts` for later steps without saying what they hold. I assigned these roles: the Router agent; citation proof for the page; the agent table; advice, injection and disclaimer patterns; eval checks; the per-directory write lock; and the prompt loader. Are they right?
 11. Committed traces: `pre-submit-check` expects "a logs/ trace from a run", but `.gitignore` ignores `logs/`, and rule 1 allows only new lines there (a negation can't re-include a file inside an ignored folder). May I commit copies under `output_examples/traces/` instead?
@@ -843,12 +843,12 @@ The planted cases map to the input examples as follows:
 
 ### Conflicts found
 
-1. **Reconciliation fixes against the story tests:** `.cursor/skills/pre-submit-check/SKILL.md` item 6 allows `data/` changes from approved fixes, but `src/test/story.data.test.ts:45` and `:191` fail on any change. See question 2.
+1. **Reconciliation fixes against the story tests:** `.claude/skills/pre-submit-check/SKILL.md` item 6 allows `data/` changes from approved fixes, but `src/test/story.data.test.ts:45` and `:191` fail on any change. See question 2.
 2. **"Before a trade is saved" against frozen files:** the save form is pre-existing (`src/app/transactions/actions.ts`). See question 6.
 3. **Model ids:** "only in config.ts" against `AGENTS.md` rule 11 (`NEMOTRON_MODEL_*` in `.env`). See question 3.
 4. **Step order:** H-MEM (step 5) comes before the guards (step 6), but rule 6 sends every memory write through `guards.beforeRemember`. I resolve it by writing `beforeRemember` in step 5.
 5. **Vendored code against frozen configs:** `eslint.config.mjs` and `vitest.config.mts` are frozen, and `tsconfig.json` may gain only `allowImportingTsExtensions`. Lint exclusions for `vendor/` must go through `package.json` scripts. Type errors in `vendor/` can't be excluded from `next build`, which is why step 5 has its fallback.
-6. **Lightning SQL dialect:** `.cursor/rules/data.mdc` says "use Spark date and cast functions", but the getting-started `AGENTS.md:38` says "Use Lightning SQL, not Spark or Hive SQL", and its own guides disagree. Parity decides, statement by statement.
+6. **Lightning SQL dialect:** `.claude/rules/data.md` says "use Spark date and cast functions", but the getting-started `AGENTS.md:38` says "Use Lightning SQL, not Spark or Hive SQL", and its own guides disagree. Parity decides, statement by statement.
 7. **Node version:** the README says Node 20 or newer, but rule 10 runs scripts with `node --env-file-if-exists=.env`, which I believe needs Node 22.9 or newer (unverified for 20.x). The Docker image uses `node:22-slim`. Step 1 checks it, and the README states the real minimum.
 8. **Number of examples:** your prompt asks for at least 3 input examples, but `evals/expectations.json` names 11. The plan writes all 11. `example_8` can't pass before step 17 while `npm run check` runs the eval from step 15. See question 12.
 9. **Port:** README section 4 says to open `http://localhost:3000`, but `AGENTS.md` says port 3000 is the Zetaris console and the app runs on 8000. Step 9 fixes the README.
@@ -870,7 +870,7 @@ The planted cases map to the input examples as follows:
 5. **Thesis-check scope:** the journal ids or symbols the input names; when it names none, the entries for the symbols currently held.
 6. **Pre-trade check:** it runs on the Explain page and `POST /run`, before the owner saves on `/transactions`. The frozen save files stay unchanged.
 7. **metadata.json:** the organisers publish no format. Use the participants' community draft (github.com/saphan-ai/proven, `schema_version` 0.1-community); the README step writes it. `.hackathon-prep/` is hidden from the coding agent on purpose.
-8. **Cursor evidence:** the organisers said on 22 Oct (11:33 AM) that Cursor gives no tokens or credits for this event and that its free version may be used. Later on 22 Oct they allowed any IDE, so Cursor is not used: the coding agent is Claude Code, run in Orca's terminal, for the whole build, and `CURSOR.md` records that truthfully for each step.
+8. **Cursor evidence:** the organisers said on 22 Oct (11:33 AM) that Cursor gives no tokens or credits for this event and that its free version may be used. Later on 22 Oct they allowed any IDE, so Cursor is not used: the coding agent is Claude Code, run in Orca's terminal, for the whole build, and `BUILD-LOG.md` records that truthfully for each step.
 9. **Output examples:** yes, `output_examples/` holds only real runs through Nightshift. The video leads with the week explanation, the thesis check and the pre-trade check.
 10. **File roles:** follow the build steps' prompts. `proof.ts` = citation proof cards for the Explain page; `router.ts` = the Router agent; `registry.ts` = the run registry (cancel a run, cap the server); `concurrency.ts` = the cap on parallel briefing children; `metrics.ts` = metrics across runs; `prompts.ts` = prompt versions recorded in every trace; `policy.ts` = tool policy, which agent may call which tool.
 11. **Committed traces:** commit copies of chosen traces under `output_examples/traces/`; `logs/` stays ignored.

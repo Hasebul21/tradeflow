@@ -14,16 +14,16 @@
     "PreToolUse": [
       {
         "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep",
-        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cursor-adapter.mjs read", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-adapter.mjs read", "timeout": 10 }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cursor-adapter.mjs shell", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-adapter.mjs shell", "timeout": 10 }]
       }
     ],
     "UserPromptSubmit": [
       {
-        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cursor-adapter.mjs prompt", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-adapter.mjs prompt", "timeout": 10 }]
       }
     ]
   }

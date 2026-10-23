@@ -1,6 +1,5 @@
 // Claude Code hook adapter: runs the kit's guards in .claude/hooks/ (guard-read, guard-shell, guard-prompt).
-// The file name is historical (the kit was first written for Cursor); .claude/settings.json calls it by this name.
-// Usage (from .claude/settings.json): node .claude/hooks/cursor-adapter.mjs read | shell | prompt
+// Usage (from .claude/settings.json): node .claude/hooks/guard-adapter.mjs read | shell | prompt
 // Reads Claude Code's hook JSON on stdin. Prints nothing to allow, so Claude Code's own permission prompts still apply.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -238,7 +237,7 @@ let input = "";
 process.stdin.on("data", (chunk) => (input += chunk));
 process.stdin.on("end", () => {
   if (!guards[kind]) {
-    process.stderr.write(`cursor-adapter: unknown guard "${kind}"; expected read, shell or prompt\n`);
+    process.stderr.write(`guard-adapter: unknown guard "${kind}"; expected read, shell or prompt\n`);
     process.exit(2);
   }
   let event = {};

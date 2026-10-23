@@ -1,4 +1,4 @@
-// Cursor beforeSubmitPrompt hook: stops a chat message that contains a key, so it never reaches the model provider.
+// Prompt guard (run before each prompt by guard-adapter.mjs): stops a chat message that contains a key, so it never reaches the model provider.
 // Reads {"prompt", ...} on stdin; prints {"continue": true | false, "user_message"}.
 import { readFileSync } from "node:fs";
 

@@ -2,7 +2,7 @@
 paths:
   - "README.md"
   - "metadata.json"
-  - "CURSOR.md"
+  - "BUILD-LOG.md"
   - "docs/**"
 ---
 - Judges score Sponsor Tech from what we write, and misrepresenting the project is a disqualifier. Claim only what the code does, and point to it.
@@ -12,7 +12,7 @@ paths:
   Meterless World Model: vendor/world-model, src/agent/world.ts, facts with their run_query_id; call it a working Meterless Engine feature and name its passing tests, src/agent/world.test.ts and src/agent/corrections.test.ts.
   Nemotron endpoint: Meterless Nightshift (primary): src/agent/llm.ts, METERLESS_BASE_URL (the Nightshift Runtime URL); every Nemotron call goes through that one endpoint, and name the lane that served the real runs. A direct NVIDIA or OpenRouter endpoint is only a development or secondary provider; the README and the demo must show Nightshift as primary.
   NVIDIA Nemotron: the model id for each agent in src/agent/config.ts.
-  Cursor: not used. The organisers allowed any IDE on 22 Oct, and gave no Cursor credit. The coding agent for the whole build was Claude Code, run in Orca's terminal; say so and point to .claude/, AGENTS.md and CURSOR.md, which records each step. The Cursor copy of the kit was removed on 22 Oct; claim no job for Cursor.
+  Cursor: not used. The organisers allowed any IDE on 22 Oct, and gave no Cursor credit. The coding agent for the whole build was Claude Code, run in Orca's terminal; say so and point to .claude/, AGENTS.md and BUILD-LOG.md, which records each step. The Cursor copy of the kit was removed on 22 Oct; claim no job for Cursor.
 - The README's "Sponsor technology" section is the source; metadata.json and the submission text are copied from it.
 - Say what is synthetic (all of data/), what was pre-existing (everything at the tag, including attribution, what-if and reconciliation), what sample mode does, and the limits. No "real-time", "production-ready" or "semantic" unless true.
 - The README's AI usage section gives the organisers' 8 disclosures: models and providers; agent frameworks; partner technologies and where; external tools and libraries; data sources (all synthetic); open-source code adapted; known limitations; fallback and sample-mode behaviour.

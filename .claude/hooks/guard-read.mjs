@@ -1,4 +1,4 @@
-// Cursor beforeReadFile hook: keeps secret files out of the agent's context.
+// Read guard (run before each file read by guard-adapter.mjs): keeps secret files out of the agent's context.
 // Reads {"file_path", ...} on stdin; prints {"permission": "allow" | "deny", "user_message"}.
 let input = "";
 process.stdin.on("data", (chunk) => (input += chunk));

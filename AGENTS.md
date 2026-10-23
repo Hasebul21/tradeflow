@@ -2,7 +2,7 @@
 
 Instructions for any coding agent working in this repository (Claude Code, or any other). Read it before every task.
 
-Claude Code reads the kit from `.claude/`: the skills, rules and agents, and `.claude/hooks/cursor-adapter.mjs` (the name is historical), which runs the guards in `.claude/hooks/` before every read, shell command and prompt. `scripts/claude-kit.test.mjs` tests the guards.
+Claude Code reads the kit from `.claude/`: the skills, rules and agents, and `.claude/hooks/guard-adapter.mjs`, which runs the guards in `.claude/hooks/` before every read, shell command and prompt. `scripts/claude-kit.test.mjs` tests the guards.
 
 ## What this is
 
@@ -101,5 +101,5 @@ npm run parity       # each named query through Zetaris and locally; must match;
 - `npm run check` passes.
 - New behaviour has a test.
 - The README says what changed, and claims nothing the code doesn't do.
-- One line added to `CURSOR.md`: date, step, what the agent did, what the owner changed.
+- One line added to `BUILD-LOG.md`: date, step, what the agent did, what the owner changed.
 - One commit, conventional prefix, one line. Once every check passes, the agent may stage the changed files by name, commit and push to origin main; the shell hook asks the owner before each push. Never force-push, amend, rebase, `git add -A` or `git add .`, and never touch `.env`.

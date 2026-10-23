@@ -15,7 +15,7 @@ const split = (text) => {
 };
 
 function adapter(kind, event, extraEnv = {}) {
-  const run = spawnSync(process.execPath, [".claude/hooks/cursor-adapter.mjs", kind], {
+  const run = spawnSync(process.execPath, [".claude/hooks/guard-adapter.mjs", kind], {
     input: JSON.stringify(event),
     cwd: root,
     encoding: "utf8",
@@ -52,14 +52,14 @@ describe("the Claude Code kit", () => {
   it("wires the three guards in settings.json", () => {
     const settings = JSON.parse(read(".claude/settings.json"));
     const commands = (event) => settings.hooks[event].flatMap((entry) => entry.hooks.map((hook) => `${entry.matcher ?? ""} ${hook.command}`));
-    expect(commands("PreToolUse").some((c) => c.startsWith("Read|") && c.endsWith("cursor-adapter.mjs read"))).toBe(true);
-    expect(commands("PreToolUse").some((c) => c.startsWith("Bash ") && c.endsWith("cursor-adapter.mjs shell"))).toBe(true);
-    expect(commands("UserPromptSubmit").some((c) => c.endsWith("cursor-adapter.mjs prompt"))).toBe(true);
+    expect(commands("PreToolUse").some((c) => c.startsWith("Read|") && c.endsWith("guard-adapter.mjs read"))).toBe(true);
+    expect(commands("PreToolUse").some((c) => c.startsWith("Bash ") && c.endsWith("guard-adapter.mjs shell"))).toBe(true);
+    expect(commands("UserPromptSubmit").some((c) => c.endsWith("guard-adapter.mjs prompt"))).toBe(true);
     expect(settings.permissions.deny).toContain("Read(./.env)");
   });
 });
 
-describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
+describe("guard-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
   it("denies reading .env and allows .env.example", () => {
     expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/.env` } }))).toBe("deny");
     expect(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/.env.example` } }).out).toBeNull();
@@ -106,7 +106,7 @@ describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
     try {
       const link = path.join(dir, "repo");
       symlinkSync(root, link);
-      const run = spawnSync(process.execPath, [".claude/hooks/cursor-adapter.mjs", "read"], {
+      const run = spawnSync(process.execPath, [".claude/hooks/guard-adapter.mjs", "read"], {
         input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: path.join(realpathSync(root), ".hackathon-prep", "README.md") } }),
         cwd: root,
         encoding: "utf8",
@@ -147,7 +147,7 @@ describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
     for (const file_path of [`${homedir()}/.config/tradeflow-kit/allow-push`, `${root}/.run/allow-push`]) {
       expect(decision(adapter("read", { tool_name: "Write", tool_input: { file_path } }))).toBe("deny");
     }
-    for (const file_path of [".git/config", ".git/hooks/pre-push", ".githooks/pre-commit", ".claude/hooks/cursor-adapter.mjs",
+    for (const file_path of [".git/config", ".git/hooks/pre-push", ".githooks/pre-commit", ".claude/hooks/guard-adapter.mjs",
       ".claude/hooks/guard-shell.mjs", ".CLAUDE/hooks/guard-read.mjs", ".claude/settings.json", ".claude/settings.local.json"]) {
       expect(decision(adapter("read", { tool_name: "Edit", tool_input: { file_path: `${root}/${file_path}` } }))).toBe("deny");
     }
@@ -208,7 +208,7 @@ describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
       "rm .claude/hooks/guard-read.mjs", "tee .git/hooks/pre-push < /tmp/x", "chmod +x .git/hooks/pre-push", "git checkout -- .claude/hooks"]) {
       expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command } }))).toBe("deny");
     }
-    for (const command of ["cat .claude/hooks/guard-read.mjs", "node .claude/hooks/cursor-adapter.mjs read", "git log --oneline -- .claude/hooks"]) {
+    for (const command of ["cat .claude/hooks/guard-read.mjs", "node .claude/hooks/guard-adapter.mjs read", "git log --oneline -- .claude/hooks"]) {
       expect(adapter("shell", { tool_name: "Bash", tool_input: { command } }).out).toBeNull();
     }
   });

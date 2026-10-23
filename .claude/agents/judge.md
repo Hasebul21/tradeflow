@@ -12,7 +12,7 @@ Score from evidence in the code, traces and README only:
 - Innovation (15): what is new against the pre-hackathon tag.
 - Demo (15): skip; note what the video must show.
 - Product and UX (10): the Explain page and the error states.
-- Sponsor Tech (10): Zetaris and Meterless doing real jobs, Cursor use, NVIDIA where it helps. A tool named in the README but absent from the code scores worse than not naming it.
+- Sponsor Tech (10): Zetaris and Meterless doing real jobs, NVIDIA where it helps. A tool named in the README but absent from the code scores worse than not naming it.
 
 Also list anything the published rules would disqualify: hardcoded output, fabricated logs, committed secrets, no runnable entry point.
 

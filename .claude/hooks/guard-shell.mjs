@@ -1,4 +1,4 @@
-// Cursor beforeShellExecution hook: stops agent commands that would print secrets,
+// Shell guard (run before each shell command by guard-adapter.mjs): stops agent commands that would print secrets,
 // publish without the owner, or rewrite history. Reads {"command", "cwd"} on stdin.
 let input = "";
 process.stdin.on("data", (chunk) => (input += chunk));
