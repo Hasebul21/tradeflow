@@ -16,7 +16,7 @@ import { z } from "zod";
 import { loadConfig, WRITER_MAX_ATTEMPTS, type Config } from "../config";
 import { citedResultsForSubjects, forModel, trimCitedResultsToSize, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, numberMatchesIn, numbersIn, runDates, withoutRunRanges, type Finding } from "../guards";
-import { complete as completeModel, failedCallUsage, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
+import { complete as completeModel, failedCallUsage, schemaReason, structuredRetryChars, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import { MemoryBlockedError, remember, type RecalledMemory } from "../memory";
 import type { QueryId, Row } from "../queries";
@@ -210,11 +210,12 @@ export function writerInput(input: WriteInput, config?: Config, retryReason: str
   };
   if (!thesis) return base;
   // The Writer writes the whole review in one call, so its prompt is the largest in a 30-thesis run. Fit the
-  // cited rows under MAX_PROMPT_CHARS (system plus user); the retry_reason above is already counted.
+  // cited rows under MAX_PROMPT_CHARS (system plus user); the retry_reason above is already counted. Keep room for
+  // llm.ts's correction too: without it, a reply that is not the JSON object gets no retry and the run ends needs_human.
   const cfg = config ?? loadConfig(process.env, () => {});
   const results = citedResultsForSubjects(input.findings, input.results, cfg.MAX_ROWS_PER_QUERY);
   const emptyChars = JSON.stringify({ ...base, results: [] }).length;
-  const budget = cfg.MAX_PROMPT_CHARS - writerPromptVersion().text.length - emptyChars + 2;
+  const budget = cfg.MAX_PROMPT_CHARS - writerPromptVersion().text.length - emptyChars + 2 - structuredRetryChars(WRITER_REPLY_SHAPE);
   return { ...base, results: trimCitedResultsToSize(results, Math.max(0, budget)) };
 }
 

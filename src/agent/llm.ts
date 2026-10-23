@@ -778,7 +778,20 @@ function structuralProblem(text: string, validate: CompleteOptions["validate"]):
     throw error;
   }
   const reason = validate?.(json) ?? null;
-  return reason === null ? { json } : { error: new BadJson(text, reason.slice(0, 300), "schema") };
+  return reason === null ? { json } : { error: new BadJson(text, reason.slice(0, SCHEMA_REASON_MAX_CHARS), "schema") };
+}
+
+/** A schema reason from `validate` is cut to this length before a retry message quotes it. */
+const SCHEMA_REASON_MAX_CHARS = 300;
+
+/**
+ * The most characters a structured retry's correction adds to the prompt for this reply shape: the longest reason
+ * (SCHEMA_REASON_MAX_CHARS), the token-limit sentence and the shape. structuredRetryFits refuses a retry that would
+ * cross MAX_PROMPT_CHARS, so a caller that fills its prompt up to the limit keeps this much free, or a reply that is not
+ * its JSON object ends the call with BadJson and no retry.
+ */
+export function structuredRetryChars(shape?: string): number {
+  return retryMessage(new BadJson("", "x".repeat(SCHEMA_REASON_MAX_CHARS), "schema"), shape, true).length;
 }
 
 /**

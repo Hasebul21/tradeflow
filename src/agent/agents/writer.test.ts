@@ -2,19 +2,24 @@ import { readFileSync } from "node:fs";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, type Config } from "../config";
 import type { Finding } from "../guards";
 import { forModel, type ResultStore } from "../context";
 import type { QueryResult, Row } from "../queries";
-import type { CompleteOptions, CompleteResult } from "../llm";
+import { structuredRetryChars, type CompleteOptions, type CompleteResult } from "../llm";
 import { openMemory, type RecalledMemory } from "../memory";
 import { RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
 import { analyse, codeGaps } from "./analyst";
 import { evaluate } from "./evaluator";
 import { plan } from "./planner";
-import { DISCLAIMER, RETRY_ASK, RETRY_ASK_PLAIN, checkReview, countNumbers, withDisclaimerLast, write, writerInput, writerPrompt, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
+import { DISCLAIMER, RETRY_ASK, RETRY_ASK_PLAIN, WRITER_REPLY_SHAPE, checkReview, countNumbers, withDisclaimerLast, write, writerInput, writerPrompt, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
+
+// The openai client, for the tests that run llm.ts's real complete with sampleMode false. The sample model and
+// `scripted` never build a client, so every other test is unchanged.
+const client = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock("openai", () => ({ default: class { chat = { completions: { create: client.create } }; } }));
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so the memory it writes lands in that copy and
 // never in data/. A fake tracer keeps every line in memory; the sample model answers unless a test stubs it.
@@ -56,7 +61,8 @@ async function accepted(memories: RecalledMemory[] = [REVIEW_MEMORY]) {
   if (!outcome.ok) throw new Error(outcome.error.message);
   const verdict = await evaluate({ task: "explain_week", question: QUESTION, as_of: AS_OF, findings: outcome.findings, gaps: outcome.gaps, memories, results: run.store }, { tracer: run.tracer, run });
   if (!verdict.accepted) throw new Error(`not accepted: ${verdict.fix}`);
-  return { run, findings: outcome.findings, gaps: outcome.gaps, memories };
+  // The calls the Analyst and the Evaluator made (the Evaluator's depend on its batching), so a test counts only the Writer's.
+  return { run, findings: outcome.findings, gaps: outcome.gaps, memories, callsBefore: run.usage.model_calls };
 }
 
 const input = (run: RunState, findings: readonly Finding[], extra: Partial<WriteInput> = {}): WriteInput => ({
@@ -88,22 +94,27 @@ const reviews = () => openMemory().store.all().filter((memory) => memory.tags.in
 // The live run of example_5 on 24 Oct: 30 accepted thesis findings plus the rows of 19 planned queries made the
 // Writer's one-call prompt 43,231 characters, over MAX_PROMPT_CHARS 40,000 (system 4,618). The findings fit; the
 // cited rows, 8 per result across 19 results, did not.
+/** `rowText`: the length of each row's title and body; short rows make the trim land close to the limit. */
+function thirtyTheses(rowText: { title: number; body: number } = { title: 160, body: 180 }): WriteInput {
+  const subjects = Array.from({ length: 30 }, (_, i) => `j-${String(i).padStart(3, "0")}`);
+  const results: ResultStore = {};
+  for (let q = 0; q < 19; q += 1) {
+    results[`q-${q}`] = {
+      query_id: "announcements_between", run_query_id: `q-${q}`, params: {}, source: "local", sql_head: null,
+      rows: Array.from({ length: 50 }, (_, r) => ({ journal_id: subjects[(q + r) % subjects.length], title: "t".repeat(rowText.title), body: "b".repeat(rowText.body) })),
+    };
+  }
+  const findings: Finding[] = subjects.map((subject) => ({
+    kind: "thesis", subject, claim: "The data shows the thesis holds. ".repeat(16), numbers: [{ value: 12.3, label: "EPS" }],
+    cites: Array.from({ length: 19 }, (_, q) => `q-${q}`), verdict: null, proposed_fix: null, memory_ids: [],
+  }));
+  return { task: "thesis_check", question: "Do my reasons for each trade still hold?", as_of: AS_OF, findings, results, runId: "t" };
+}
+
 describe("writerInput on a 30-thesis draft", () => {
-  it("trims the cited rows so system plus user stays within MAX_PROMPT_CHARS", () => {
-    const subjects = Array.from({ length: 30 }, (_, i) => `j-${String(i).padStart(3, "0")}`);
-    const results: ResultStore = {};
-    for (let q = 0; q < 19; q += 1) {
-      results[`q-${q}`] = {
-        query_id: "announcements_between", run_query_id: `q-${q}`, params: {}, source: "local", sql_head: null,
-        rows: Array.from({ length: 50 }, (_, r) => ({ journal_id: subjects[(q + r) % subjects.length], title: "t".repeat(160), body: "b".repeat(180) })),
-      };
-    }
-    const findings: Finding[] = subjects.map((subject) => ({
-      kind: "thesis", subject, claim: "The data shows the thesis holds. ".repeat(16), numbers: [{ value: 12.3, label: "EPS" }],
-      cites: Array.from({ length: 19 }, (_, q) => `q-${q}`), verdict: null, proposed_fix: null, memory_ids: [],
-    }));
-    const user = writerInput({ task: "thesis_check", question: "Do my reasons for each trade still hold?", as_of: AS_OF, findings, results, runId: "t" }, config);
-    expect(writerPrompt().length + JSON.stringify(user).length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+  it("trims the cited rows so system plus user stays within MAX_PROMPT_CHARS, with room for llm.ts's correction", () => {
+    const user = writerInput(thirtyTheses(), config);
+    expect(writerPrompt().length + JSON.stringify(user).length + structuredRetryChars(WRITER_REPLY_SHAPE)).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
     // The findings, which the Writer needs, are all still there.
     expect(user.findings).toHaveLength(30);
     // At least one row was dropped; row_count still reports the full filtered count.
@@ -111,9 +122,69 @@ describe("writerInput on a 30-thesis draft", () => {
   });
 });
 
+// example_5, live run of 24 Oct: the Evaluator scored the draft 9 of 9, then the Writer's model replied in Markdown
+// ("## 1. Summary\nYour portfolio has 15 open theses; ...") instead of its JSON object, and the run ended needs_human
+// (model_unavailable). These tests run llm.ts's real complete against a stubbed client, so its structured retry runs.
+describe("the Writer when the model replies in Markdown instead of its JSON object", () => {
+  const WIRE: Config = loadConfig(
+    { METERLESS_API_KEY: "test-key-0123456789", METERLESS_BASE_URL: "https://nightshift.example.test/v1", NEMOTRON_MODEL_STRONG: "lane/strong", NEMOTRON_MODEL_MAIN: "lane/main", NEMOTRON_MODEL_FAST: "lane/fast" },
+    () => {},
+  );
+  const MARKDOWN = "## 1. Summary\nYour theses were checked.\n\n## 2. Theses\n- The data shows the theses hold. [q:q-0]";
+  const THESIS_REPLY = {
+    summary: "The data shows your theses still hold.",
+    review_markdown: `The data shows your theses still hold.\n\n- The data shows the theses hold. [q:q-0]\n\n${DISCLAIMER}`,
+    memory_note: "Thesis check on 2026-10-01: the theses hold.",
+  };
+  const chat = (content: string) => ({ model: "lane/strong", choices: [{ finish_reason: "stop", message: { role: "assistant", content } }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+  const sent = (call: number) => (client.create.mock.calls[call][0] as { messages: { role: string; content: string }[] }).messages;
+  const wire = (tracer: Tracer) => ({ tracer, config: WIRE, sampleMode: false, remember: false, roundDeadlineMs: Date.now() + 900000 });
+  beforeEach(() => client.create.mockReset());
+
+  it("asks again once with a correction that quotes the reply shape, and accepts the JSON object, on a 30-thesis prompt", async () => {
+    const { lines, tracer } = collector();
+    client.create.mockResolvedValueOnce(chat(MARKDOWN)).mockResolvedValueOnce(chat(JSON.stringify(THESIS_REPLY)));
+    // With 50-character titles and bodies, the trimmed prompt without the room for the correction is exactly 40,000.
+    const outcome = await write(thirtyTheses({ title: 50, body: 50 }), wire(tracer));
+
+    expect(outcome).toMatchObject({ ok: true, attempts: 1, ...THESIS_REPLY });
+    expect(outcome.model.calls).toBe(1);
+    expect(client.create).toHaveBeenCalledTimes(2);
+    const correction = sent(1).at(-1)!;
+    expect(correction.role).toBe("user");
+    expect(correction.content).toContain("could not be read as JSON: the reply holds no {...} object");
+    expect(correction.content).toContain(`The shape: ${WRITER_REPLY_SHAPE}`);
+    // The first request is the prompt as built; the retry adds only the correction, and still fits the limit.
+    expect(sent(1).slice(0, -1)).toEqual(sent(0));
+    expect(sent(1).reduce((n, message) => n + message.content.length, 0)).toBeLessThanOrEqual(WIRE.MAX_PROMPT_CHARS);
+    expect(lines.filter((line) => line.agent_name === "Writer" && line.action === "model_retry")).toEqual([expect.objectContaining({ status: "retry", why: "unparseable JSON reply" })]);
+    // The structured retry in llm.ts fixed it; the Writer's own retry, with retry_reason, never ran.
+    expect(writerLines(lines, "retry")).toHaveLength(0);
+    expect(writerLines(lines, "code_check").map((line) => line.status)).toEqual(["ok"]);
+  });
+
+  it("takes a reply that is the JSON object as it is: one model call, no model_retry", async () => {
+    const { run, findings, gaps } = await accepted();
+    const { lines, tracer } = collector();
+    const moves = Object.values(run.store).find((result) => result.query_id === "week_moves")!;
+    const good = {
+      summary: "Your portfolio moved this week.",
+      review_markdown: `Your portfolio moved this week.\n\n- The data shows the portfolio moved. [q:${moves.run_query_id}]\n\n${DISCLAIMER}`,
+      memory_note: "Week to 2026-10-01: no rule broken.",
+    };
+    client.create.mockResolvedValueOnce(chat(JSON.stringify(good)));
+    const outcome = await write(input(run, findings, { gaps }), wire(tracer));
+
+    expect(outcome).toMatchObject({ ok: true, attempts: 1, ...good });
+    expect(client.create).toHaveBeenCalledTimes(1);
+    expect(lines.filter((line) => line.action === "model_retry")).toHaveLength(0);
+    expect(writerLines(lines, "code_check").map((line) => line.status)).toEqual(["ok"]);
+  });
+});
+
 describe("the Writer with the sample model", () => {
   it("writes the 1 Oct review: a citation on every bullet above 'What I remembered', BXPHARMA named, the disclaimer last, one review memory", async () => {
-    const { run, findings, gaps, memories } = await accepted();
+    const { run, findings, gaps, memories, callsBefore } = await accepted();
     const { lines, tracer } = collector();
     const outcome = await write(input(run, findings, { gaps, memories }), { tracer, run });
 
@@ -149,7 +220,7 @@ describe("the Writer with the sample model", () => {
     expect(writerLines(lines, "retry")).toHaveLength(0);
     expect(lines.filter((line) => line.agent_name === "Memory" && line.action === "remember")).toHaveLength(1);
     expect(outcome).toMatchObject({ attempts: 1, memory_reason: null });
-    expect(run.usage.model_calls).toBe(3);
+    expect(run.usage.model_calls - callsBefore).toBe(1);
   });
 
   it("sends the prompt file as-is and one JSON user message with the findings and their cited rows, the memories and the corrections", async () => {
@@ -192,7 +263,7 @@ describe("the Writer on a stubbed reply", () => {
   });
 
   it("retries once with retry_reason when the review has a made-up number, then returns ok false with the reason and the draft", async () => {
-    const { run, findings, gaps } = await accepted();
+    const { run, findings, gaps, callsBefore } = await accepted();
     const calls: CompleteOptions[] = [];
     const { lines, tracer } = collector();
     const moves = Object.values(run.store).find((result) => result.query_id === "week_moves")!;
@@ -225,7 +296,7 @@ describe("the Writer on a stubbed reply", () => {
     expect(writerLines(lines, "retry")).toEqual([expect.objectContaining({ status: "retry", why: expect.stringMatching(/98765\.4/) })]);
     expect(writerLines(lines, "code_check").map((line) => line.status)).toEqual(["rejected", "rejected"]);
     expect(writerLines(lines, "write")).toEqual([expect.objectContaining({ status: "needs_human", why: outcome.reason })]);
-    expect(run.usage.model_calls).toBe(4);
+    expect(run.usage.model_calls - callsBefore).toBe(2);
   });
 
   it("moves a disclaimer in the middle of the review to the end in code, with no retry", async () => {
