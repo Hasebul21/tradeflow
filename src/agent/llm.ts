@@ -204,7 +204,7 @@ function closingBrace(text: string, start: number): number {
  * "{" never closes. Nothing can follow "{" or `{"` directly in valid JSON except a key, so the "{" after a stray
  * opener is never a nested value: it starts the reply.
  */
-const STRAY_OPENER = /^\{\s*"?\s*$/;
+const STRAY_OPENER = /^\{\s*(?:"\s*)?$/;
 
 /** The index of the "{" that follows a stray opener at `start`, or -1. */
 function afterStrayOpener(text: string, start: number): number {
@@ -231,6 +231,9 @@ export function parseJsonReply(text: string): Record<string, unknown> {
   if (cleaned === "") throw new BadJson(text, "the reply is empty");
   let start = cleaned.indexOf("{");
   if (start === -1) throw new BadJson(text, "the reply holds no {...} object");
+  // True while reading from a stray opener's "{" inside a span that closed: a "{" that then never closes says nothing
+  // about a cut-off reply, so the reason stays NO_SPAN_PARSES.
+  let insideClosedSpan = false;
   while (start !== -1) {
     const end = closingBrace(cleaned, start);
     const inner = afterStrayOpener(cleaned, start);
@@ -239,7 +242,7 @@ export function parseJsonReply(text: string): Record<string, unknown> {
         start = inner;
         continue;
       }
-      throw new BadJson(text, "the JSON object is cut off: a { is never closed");
+      throw new BadJson(text, insideClosedSpan ? NO_SPAN_PARSES : "the JSON object is cut off: a { is never closed");
     }
     try {
       const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
@@ -249,10 +252,13 @@ export function parseJsonReply(text: string): Record<string, unknown> {
       // Not JSON (prose in braces, or a malformed object): try the next outermost span.
     }
     // A span that starts with a stray opener, such as `{{...}}`, is read again from the "{" after it.
-    start = inner !== -1 && inner < end ? inner : cleaned.indexOf("{", end + 1);
+    insideClosedSpan = inner !== -1 && inner < end;
+    start = insideClosedSpan ? inner : cleaned.indexOf("{", end + 1);
   }
-  throw new BadJson(text, "no {...} span in the reply parses as a non-empty JSON object");
+  throw new BadJson(text, NO_SPAN_PARSES);
 }
+
+const NO_SPAN_PARSES = "no {...} span in the reply parses as a non-empty JSON object";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Per-model-id memory of what the provider rejected. Keyed by model id only: one model's quirk says nothing
@@ -788,9 +794,9 @@ export function safeName(value: unknown): string {
  * reply, it also says what the field should be (issueDetail): "findings.0.subject: invalid_type (expected string, got
  * null)", so the model is told exactly what to change.
  */
-export function schemaReason(issue: SchemaIssue, reply?: unknown): string {
+export function schemaReason(issue: SchemaIssue, reply?: unknown, schema?: unknown): string {
   const path = issue.path.map((key) => (typeof key === "number" ? String(key) : safeName(key))).join(".");
-  return `${path || "reply"}: ${issue.code}${reply === undefined ? "" : issueDetail(issue, reply)}`;
+  return `${path || "reply"}: ${issue.code}${reply === undefined ? "" : issueDetail(issue, reply, schema)}`;
 }
 
 /** The parts of a zod issue a retry reason may use: the path, the code, and the schema's own expected type or values. */
@@ -814,17 +820,44 @@ function valueAt(reply: unknown, path: readonly PropertyKey[]): unknown {
   return value;
 }
 
+/** The zod internals the field lookup reads: a schema's def (its type, shape, element or inner type) and safeParse. */
+type ZodLike = { _zod?: { def?: { type?: unknown; shape?: unknown; element?: unknown; innerType?: unknown } }; safeParse?: (value: unknown) => { success: boolean } };
+
+/** zod wrappers whose inner type holds the object or array a path goes through. */
+const ZOD_WRAPPERS = new Set(["default", "prefault", "nullable", "optional", "nonoptional", "catch", "readonly"]);
+
+/** The schema of the field at a zod path, through objects, arrays and wrappers; undefined when the path leaves it. */
+function fieldSchema(schema: unknown, path: readonly PropertyKey[]): ZodLike | undefined {
+  let current = schema as ZodLike | undefined;
+  for (const key of path) {
+    let def = current?._zod?.def;
+    for (let depth = 0; def !== undefined && ZOD_WRAPPERS.has(String(def.type)) && depth < 10; depth += 1) def = (def.innerType as ZodLike | undefined)?._zod?.def;
+    if (def?.type === "object" && typeof key === "string" && def.shape !== null && typeof def.shape === "object") current = (def.shape as Record<string, ZodLike>)[key];
+    else if (def?.type === "array" && typeof key === "number") current = def.element as ZodLike | undefined;
+    else return undefined;
+  }
+  return current;
+}
+
+/** True when the field's own schema takes null, such as verdict and proposed_fix; false when it is not known. */
+function takesNull(schema: unknown, path: readonly PropertyKey[]): boolean {
+  const field = fieldSchema(schema, path);
+  return typeof field?.safeParse === "function" && field.safeParse(null).success;
+}
+
 /**
  * What the field should be, for a retry reason: " (expected string, got null)" for a wrong type, or " (one of move,
- * sector, ...)" for a value outside an enum. Built from the schema (zod's expected type and enum values) and the
- * reply's JSON type name only, so no text the model wrote goes back; "" for other issue codes.
+ * sector, ...)" for a value outside an enum, with "or null" when the field's schema takes null. Built from the schema
+ * (zod's expected type and enum values, and `schema` when given) and the reply's JSON type name only, so no text the
+ * model wrote goes back; "" for other issue codes.
  */
-function issueDetail(issue: SchemaIssue, reply: unknown): string {
+function issueDetail(issue: SchemaIssue, reply: unknown, schema: unknown): string {
+  const nullable = schema !== undefined && takesNull(schema, issue.path);
   if (issue.code === "invalid_type" && typeof issue.expected === "string") {
-    return ` (expected ${issue.expected}, got ${jsonTypeOf(valueAt(reply, issue.path))})`;
+    return ` (expected ${issue.expected}${nullable ? " or null" : ""}, got ${jsonTypeOf(valueAt(reply, issue.path))})`;
   }
   if (issue.code === "invalid_value" && Array.isArray(issue.values) && issue.values.every((value) => typeof value === "string")) {
-    return ` (one of ${issue.values.join(", ")})`;
+    return ` (one of ${issue.values.join(", ")}${nullable ? ", or null" : ""})`;
   }
   return "";
 }

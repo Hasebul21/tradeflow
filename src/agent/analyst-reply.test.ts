@@ -3,7 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { analystReplyProblem } from "./agents/analyst";
+import { ANALYST_REPLY_SHAPE, analystReplyProblem } from "./agents/analyst";
 import { loadConfig } from "./config";
 import { BadJson, parseJsonReply, resetModelQuirks, schemaReason, type CompleteOptions } from "./llm";
 import { run, type RunResult } from "./orchestrator";
@@ -143,6 +143,19 @@ describe("parseJsonReply: a stray opener before the object (example_7b, 23 Oct 2
     // A stray opener with nothing readable after it is still BadJson.
     expect(() => parseJsonReply('{"{}')).toThrow(BadJson);
   });
+
+  it("keeps the reason 'no span parses', not 'cut off', when a span closed but does not parse (a trailing comma)", () => {
+    // The outer span closes; the object after its stray opener has a trailing comma and a stray quote at the end.
+    expect(() => parseJsonReply('{"{"findings": [1,],"}')).toThrow(/\(no \{\.\.\.\} span in the reply parses as a non-empty JSON object\)/);
+    expect(() => parseJsonReply('{"findings": [],}')).toThrow(/\(no \{\.\.\.\} span in the reply parses as a non-empty JSON object\)/);
+  });
+
+  it("checks for a stray opener in linear time: a { and 60,000 spaces finish in under 200 ms", () => {
+    const started = Date.now();
+    expect(() => parseJsonReply(`{${" ".repeat(60000)}x{"a": 1`)).toThrow(BadJson);
+    expect(() => parseJsonReply(`{${" ".repeat(60000)}`)).toThrow(BadJson);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
 });
 
 describe("schemaReason with the reply: the exact field and what it should be", () => {
@@ -164,6 +177,15 @@ describe("schemaReason with the reply: the exact field and what it should be", (
     expect(analystReplyProblem({ findings: [{ ...finding }] })).toBe("findings.0.subject: invalid_type (expected string, got missing)");
     expect(analystReplyProblem({ findings: [{ ...finding, subject: { symbol: "EBL", side: "buy", quantity: 100 } }] })).toBe("findings.0.subject: invalid_type (expected string, got object)");
     expect(analystReplyProblem({ findings: [{ ...finding, subject: "EBL", kind: "trade" }] })).toMatch(/^findings\.0\.kind: invalid_value \(one of move, sector, announcement, fundamentals, dividend, rule, thesis, pre_trade, reconciliation\)$/);
+  });
+
+  it("adds 'or null' for a field whose schema takes null (verdict, proposed_fix), read from the schema, and not for others", () => {
+    const finding = { kind: "thesis", subject: "j-050", claim: "x", numbers: [], cites: ["q-1"], memory_ids: [] };
+    expect(analystReplyProblem({ findings: [{ ...finding, verdict: "maybe" }] })).toBe("findings.0.verdict: invalid_value (one of confirmed, contradicted, open, or null)");
+    expect(analystReplyProblem({ findings: [{ ...finding, proposed_fix: 5 }] })).toBe("findings.0.proposed_fix: invalid_type (expected string or null, got number)");
+    expect(analystReplyProblem({ findings: [{ ...finding, cites: null }] })).toBe("findings.0.cites: invalid_type (expected array, got null)");
+    // Without a schema, nothing is assumed about null.
+    expect(schemaReason({ path: ["findings", 0, "verdict"], code: "invalid_value", values: ["open"] }, {})).toBe("findings.0.verdict: invalid_value (one of open)");
   });
 });
 
@@ -219,6 +241,18 @@ describe("the Analyst's replies from the 23 Oct run, replayed through llm.ts and
     expect(failed[0].why).toBe("BadJson");
     expect(failed[0].output_summary).toContain("findings.0.subject: invalid_type (expected string, got null)");
   }, 30000);
+});
+
+describe("prompts/analyst.md and ANALYST_REPLY_SHAPE name the symbol as a subject, and never a plan id", () => {
+  it("the shape sent on every structured retry and the prompt both list the symbol, and neither offers a plan id", () => {
+    const prompt = readFileSync(path.resolve("src/agent/prompts/analyst.md"), "utf8");
+    const promptShape = prompt.split("\n").find((line) => line.startsWith('{"findings": [{"kind"'));
+    for (const shape of [ANALYST_REPLY_SHAPE, promptShape]) {
+      expect(shape).toContain('"subject": "<symbol, sector, PORTFOLIO, journal id or issue id>"');
+    }
+    expect(prompt).not.toMatch(/plan id/i);
+    expect(ANALYST_REPLY_SHAPE).not.toMatch(/plan id/i);
+  });
 });
 
 describe("prompts/analyst.md names the pre_trade finding's subject", () => {

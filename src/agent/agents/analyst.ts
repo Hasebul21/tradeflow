@@ -45,13 +45,13 @@ export type AnalystReply = z.infer<typeof analystReplySchema>;
 
 /** The reply's shape as prompts/analyst.md gives it, restated by llm.ts when it asks again after a bad reply. */
 export const ANALYST_REPLY_SHAPE =
-  '{"findings": [{"kind": "move", "subject": "<symbol, sector, PORTFOLIO, journal id, plan id or issue id>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}], "gaps": ["..."]}';
+  '{"findings": [{"kind": "move", "subject": "<symbol, sector, PORTFOLIO, journal id or issue id>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}], "gaps": ["..."]}';
 
 /** Why a parsed reply fails the Analyst schema (the first issue), or null; llm.ts asks again with it. */
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
   const parsed = analystReplySchema.safeParse(json);
   if (parsed.success) return null;
-  return schemaReason(parsed.error.issues[0], json);
+  return schemaReason(parsed.error.issues[0], json, analystReplySchema);
 }
 
 /** What the orchestrator hands the Analyst: the task, the plan (its focus and steps) and the round's context. */
