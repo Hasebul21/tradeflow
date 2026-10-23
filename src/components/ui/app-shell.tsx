@@ -12,13 +12,13 @@ const MAIN: Item[] = [
   ["/journal", "Journal"],
   ["/explain", "Explain"],
   ["/history", "History"],
-  ["/guide", "Guide"],
 ];
 const MARKET: Item[] = [
   ["/announcements", "Announcements"],
   ["/instruments", "Instruments"],
   ["/sector-indices", "Sector indices"],
 ];
+const GUIDE: Item = ["/guide", "Guide"];
 const RECORDS: Item[] = [
   ["/sources", "Sources"],
   ["/reconciliation", "Reconciliation"],
@@ -33,11 +33,12 @@ const ITEMS: MenuProps["items"] = [
   ...MAIN.map(link),
   { key: "market", label: "Market", children: MARKET.map(link) },
   { key: "records", label: "Records", children: RECORDS.map(link) },
+  link(GUIDE),
 ];
 
 /** The item whose path is the longest prefix of the current one. */
 function activeKey(pathname: string): string {
-  const all = [...MAIN, ...MARKET, ...RECORDS].map(([href]) => href);
+  const all = [...MAIN, ...MARKET, ...RECORDS, GUIDE].map(([href]) => href);
   if (pathname === "/") return "/";
   return all.filter((h) => h !== "/" && pathname.startsWith(h)).sort((a, b) => b.length - a.length)[0] ?? "";
 }

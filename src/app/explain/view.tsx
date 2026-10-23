@@ -29,7 +29,7 @@ const QUESTIONS = ["Why did my portfolio move this week?", "Which of my rules ar
 // ---------------------------------------------------------------------------------------------------------------
 // One run: a client-made run id, a poll of GET /run/<run_id> while the action is awaited, then the result.
 
-type RunState = { running: boolean; runId: string | null; steps: TraceLine[]; started: boolean; result: RunResult | null; proof: Proof | null; stopping: boolean };
+export type RunState = { running: boolean; runId: string | null; steps: TraceLine[]; started: boolean; result: RunResult | null; proof: Proof | null; stopping: boolean };
 
 async function fetchProof(runId: string): Promise<Proof | null> {
   try {
@@ -93,7 +93,7 @@ function useRun() {
 // ---------------------------------------------------------------------------------------------------------------
 // Pieces of a result.
 
-function StepsList({ steps }: { steps: TraceLine[] }) {
+export function StepsList({ steps }: { steps: TraceLine[] }) {
   return (
     <>
       <Typography.Paragraph type="secondary">{STEPS_HELP}</Typography.Paragraph>
@@ -165,7 +165,7 @@ export function ProofRow({ proof }: { proof: Proof | null }) {
   );
 }
 
-function Live({ state, onStop }: { state: RunState; onStop?: () => void }) {
+export function Live({ state, onStop }: { state: RunState; onStop?: () => void }) {
   if (!state.running) return null;
   return (
     <Card
@@ -207,7 +207,7 @@ function ReviewText({ text, citations, onOpen }: { text: string; citations: Cita
   );
 }
 
-function CitationDrawer({ citation, onClose }: { citation: Citation | null; onClose: () => void }) {
+export function CitationDrawer({ citation, onClose }: { citation: Citation | null; onClose: () => void }) {
   const rows = citation?.rows ?? [];
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   const columns: TableColumnsType<Record<string, unknown>> = keys.map((k) => ({
@@ -238,7 +238,7 @@ function CitationDrawer({ citation, onClose }: { citation: Citation | null; onCl
 }
 
 /** A failed run in plain words: what to do next, with the raw type and message folded under Details. */
-function ErrorAlert({ error }: { error: RunResult["error"] }) {
+export function ErrorAlert({ error }: { error: RunResult["error"] }) {
   return (
     <Alert
       type="error"
@@ -279,7 +279,7 @@ function sourceCounts(citations: Citation[]) {
   return { zetaris: n("zetaris"), local: n("local"), fallback: n("local-fallback") };
 }
 
-function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) {
+export function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) {
   const [open, setOpen] = useState<Citation | null>(null);
   const result = state.result;
   if (result === null) return null;
@@ -378,7 +378,7 @@ function AsOf({ value, onChange, range }: { value: string; onChange: (v: string)
   );
 }
 
-function WeekTab({ range }: { range: Range }) {
+export function WeekTab({ range }: { range: Range }) {
   const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const [question, setQuestion] = useState("");
@@ -414,11 +414,21 @@ function WeekTab({ range }: { range: Range }) {
 
 const VERDICT_COLOR: Record<string, string> = { confirmed: "green", contradicted: "red", open: "gold" };
 
-function ThesesTab({ range, theses }: { range: Range; theses: Record<string, string> }) {
+type ThesisRow = { key: string; journal_id: string; symbol: string; thesis: string; verdict: string; evidence: string };
+
+export const THESIS_COLUMNS: TableColumnsType<ThesisRow> = [
+  { title: "Journal entry", dataIndex: "journal_id" },
+  { title: "Symbol", dataIndex: "symbol" },
+  { title: "Thesis", dataIndex: "thesis" },
+  { title: "Verdict", dataIndex: "verdict", render: (v: string) => <Tag color={VERDICT_COLOR[v] ?? "default"}>{v}</Tag> },
+  { title: "Evidence", dataIndex: "evidence" },
+];
+
+export function ThesesTab({ range, theses }: { range: Range; theses: Record<string, string> }) {
   const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const out = state.result?.output;
-  const rows = (out?.verdicts ?? []).map((v) => ({
+  const rows: ThesisRow[] = (out?.verdicts ?? []).map((v) => ({
     key: v.journal_id,
     journal_id: v.journal_id,
     symbol: v.symbol,
@@ -426,13 +436,6 @@ function ThesesTab({ range, theses }: { range: Range; theses: Record<string, str
     verdict: v.verdict,
     evidence: out?.findings.find((f) => f.kind === "thesis" && f.subject === v.journal_id)?.claim ?? "",
   }));
-  const columns: TableColumnsType<(typeof rows)[number]> = [
-    { title: "Journal entry", dataIndex: "journal_id" },
-    { title: "Symbol", dataIndex: "symbol" },
-    { title: "Thesis", dataIndex: "thesis" },
-    { title: "Verdict", dataIndex: "verdict", render: (v: string) => <Tag color={VERDICT_COLOR[v] ?? "default"}>{v}</Tag> },
-    { title: "Evidence", dataIndex: "evidence" },
-  ];
   return (
     <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
@@ -445,13 +448,13 @@ function ThesesTab({ range, theses }: { range: Range; theses: Record<string, str
       <Live state={state} onStop={stop} />
       <Result
         state={state}
-        extra={<DataTable rowKey="key" columns={columns} dataSource={rows} pagination={false} locale={{ emptyText: <EmptyState message="No thesis verdicts." /> }} />}
+        extra={<DataTable rowKey="key" columns={THESIS_COLUMNS} dataSource={rows} pagination={false} locale={{ emptyText: <EmptyState message="No thesis verdicts." /> }} />}
       />
     </Space>
   );
 }
 
-function PreTradeTab({ range, plans }: { range: Range; plans: Plan[] }) {
+export function PreTradeTab({ range, plans }: { range: Range; plans: Plan[] }) {
   const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const [mode, setMode] = useState<"trade" | "plan">(plans.length ? "plan" : "trade");
@@ -527,7 +530,7 @@ function ApproveCell({ proposal, reviewRunId }: { proposal: Proposal; reviewRunI
   );
 }
 
-function ReconcileTab({ range }: { range: Range }) {
+export function ReconcileTab({ range }: { range: Range }) {
   const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const reviewRunId = state.result?.run_id ?? "";

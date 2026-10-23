@@ -57,9 +57,33 @@ export const RESULT: Term[] = [
 export const WORDS: Term[] = [
   { term: "Round", text: "One draft and its check. A run makes at most 3." },
   { term: "Citation", text: "A link from a number to the query and rows it came from." },
-  { term: "needs_human", text: "The run stopped and waits for your decision, for example after a limit or a trade that breaks a rule." },
+  { term: "needs_human", text: "The run stopped and waits for your decision, for example after a limit or a trade that breaks a rule. The Review queue lists these runs." },
   { term: "Sample mode", text: "A built-in stand-in model answers offline, with no keys. The Explain page says when it is on." },
   { term: "Real model", text: "The Nemotron model answers through Nightshift." },
 ];
 
 export const NEVER = "It never tells you to buy, sell or hold. It never saves a trade or changes your records without your approval.";
+
+/** Each page's short name (without its menu group) and its address, for linking page names in the Guide's text. */
+export function pageLinks(): Record<string, string> {
+  return Object.fromEntries([...PAGES, ...RUN_PAGES].map((p) => [p.name.replace(/^(Market|Records): /, ""), p.href]));
+}
+
+export type TextPart = { text: string; href: string | null };
+
+/** Splits text at each page name, longest name first. "Explain my week" is the button's name, so it stays plain text. */
+export function splitPageNames(text: string, links: Record<string, string>): TextPart[] {
+  const names = Object.keys(links).sort((a, b) => b.length - a.length);
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`\\b(${escaped.join("|")})\\b(?! my week)`, "g");
+  const parts: TextPart[] = [];
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const at = match.index ?? 0;
+    if (at > last) parts.push({ text: text.slice(last, at), href: null });
+    parts.push({ text: match[0], href: links[match[0]] });
+    last = at + match[0].length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), href: null });
+  return parts;
+}
