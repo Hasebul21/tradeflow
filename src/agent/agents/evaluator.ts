@@ -8,6 +8,8 @@
 // 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's retries
 // (a ModelHttpError 502), or none of its replies can be read as a score after llm.ts's tries (BadJson), the draft is
 // accepted on the code checks alone, with no score: action "score_unavailable".
+// A draft of more than EVALUATOR_BATCH_SIZE findings is scored in consecutive batches, each with only its own findings
+// and cited rows: the lowest score per dimension counts, and a fix names findings by their number in the whole draft.
 // Server only (node:fs reads the prompt).
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
@@ -27,6 +29,11 @@ const PORTFOLIO = "PORTFOLIO";
 /** A total of 7 or more out of MAX_TOTAL goes to the Writer. */
 export const PASS_TOTAL = 7;
 export const MAX_TOTAL = 9;
+
+/** A draft with more findings than this is scored in batches of this size, so no prompt nears MAX_PROMPT_CHARS. */
+export const EVALUATOR_BATCH_SIZE = 10;
+/** A draft whose one-call prompt is at most this many characters is scored in one call; a longer one is scored in batches. 30,000 is three quarters of the 40,000-character prompt limit. */
+export const EVALUATOR_SINGLE_CALL_MAX_CHARS = 30000;
 
 /** The tasks whose plan comes from the Planner: a rejection goes back there. The others go back to the Analyst. */
 const PLANNED_TASKS: readonly Task[] = ["explain_week", "thesis_check"];
@@ -85,6 +92,8 @@ export type EvaluateDeps = {
   signal?: AbortSignal;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
+  /** For tests: score in batches when the one-call prompt is longer than this many characters (default EVALUATOR_SINGLE_CALL_MAX_CHARS). */
+  batchAboveChars?: number;
   /** For tests: a stand-in for llm.ts's complete. */
   complete?: (options: CompleteOptions) => Promise<CompleteResult>;
 };
@@ -475,110 +484,218 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     return rejectByCode(failed, [...flagged].sort((a, b) => a - b));
   }
 
-  // 4. The fast model scores the draft, seeing only the rows the findings cite.
-  const user: EvaluatorInput = {
+  // 4. The fast model scores the draft, seeing only the rows the findings cite. A draft of more than
+  // EVALUATOR_BATCH_SIZE findings is scored in consecutive batches, one call after another, so no prompt nears
+  // MAX_PROMPT_CHARS; code combines the batch scores.
+  const inputFor = (chunk: Finding[], first: boolean): EvaluatorInput => ({
     task: input.task,
     question: input.question,
     as_of: input.as_of,
-    memories: memoriesForModel(memories, cfg.MAX_MEMORIES),
-    findings,
-    gaps,
-    results: input.task === "thesis_check" ? citedResultsForSubjects(findings, input.results, cfg.MAX_ROWS_PER_QUERY) : citedResults(findings, input.results, cfg.MAX_ROWS_PER_QUERY),
-  };
-  run?.beforeModelCall();
-  let result: CompleteResult;
-  try {
-    result = await call({
-      system: evaluatorPromptVersion().text,
-      prompt_hash: evaluatorPromptVersion().prompt_hash,
-      user: JSON.stringify(user),
-      model: "fast",
-      json: true,
-      validate: scoreReplyProblem,
-      replyShape: EVALUATOR_REPLY_SHAPE,
-      agent: AGENT,
-      tracer,
-      config: cfg,
-      sampleMode,
-      ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
-      ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
-      ...(deps.signal === undefined ? {} : { signal: deps.signal }),
-      ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft(), ...(run.tokensLeft === undefined ? {} : { tokensLeft: run.tokensLeft() }) }),
-    });
-  } catch (error) {
-    // A failed scoring call still counts: every request it made is a model call.
-    run?.afterFailedModelCall(failedCallUsage(error));
-    // The model returned no answer even after llm.ts's retries (a 502), or its replies still could not be read as a
-    // score after llm.ts's tries (BadJson); its model_call line says why. The three code checks passed, so the draft
-    // goes to the Writer unscored. Any other error passes through as before.
-    const noAnswer = error instanceof ModelHttpError && error.status === 502;
-    if (!noAnswer && !(error instanceof BadJson)) throw error;
-    tracer.log({
-      agent_name: AGENT,
-      action: "score_unavailable",
-      input_summary: inputSummary,
-      output_summary: capped(`no score: ${error.message}; accepted on the code checks alone (citations, guard, coverage)`),
-      target_agent: "Writer",
-      status: "accepted",
-      why: noAnswer ? "the model returned no answer; the code checks passed" : "the model's replies could not be read as a score; the code checks passed",
-      confidence: null,
-      retry_count: round,
-      duration_ms: Date.now() - started,
-    });
-    return { accepted: true, scores: null, total: null, confidence: null, fix: "", flagged: [], code_checks: checks, target_agent: "Writer", model: null };
+    memories: first ? memoriesForModel(memories, cfg.MAX_MEMORIES) : [],
+    findings: chunk,
+    gaps: first ? gaps : [],
+    results: input.task === "thesis_check" ? citedResultsForSubjects(chunk, input.results, cfg.MAX_ROWS_PER_QUERY) : citedResults(chunk, input.results, cfg.MAX_ROWS_PER_QUERY),
+  });
+  // One call while the whole prompt is short; batches only when it is long, so a small draft scores as it always did.
+  const oneCallChars = JSON.stringify(inputFor(findings, true)).length;
+  const chunks = oneCallChars <= (deps.batchAboveChars ?? EVALUATOR_SINGLE_CALL_MAX_CHARS) ? [findings] : batchesOf(findings, EVALUATOR_BATCH_SIZE);
+  const chunkScores: { scores: Scores; total: number; fix: string; offset: number }[] = [];
+  let model: NonNullable<EvaluateOutcome["model"]> | null = null;
+  for (const [index, chunk] of chunks.entries()) {
+    const first = index === 0;
+    const offset = index * EVALUATOR_BATCH_SIZE;
+    const user = inputFor(chunk, first);
+    run?.beforeModelCall();
+    let result: CompleteResult;
+    try {
+      result = await call({
+        system: evaluatorPromptVersion().text,
+        prompt_hash: evaluatorPromptVersion().prompt_hash,
+        user: JSON.stringify(user),
+        model: "fast",
+        json: true,
+        validate: scoreReplyProblem,
+        replyShape: EVALUATOR_REPLY_SHAPE,
+        agent: AGENT,
+        tracer,
+        config: cfg,
+        sampleMode,
+        ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+        ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+        ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+        ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft(), ...(run.tokensLeft === undefined ? {} : { tokensLeft: run.tokensLeft() }) }),
+      });
+    } catch (error) {
+      // A failed scoring call still counts: every request it made is a model call.
+      run?.afterFailedModelCall(failedCallUsage(error));
+      // The model returned no answer even after llm.ts's retries (a 502), or its replies still could not be read as a
+      // score after llm.ts's tries (BadJson); its model_call line says why. The three code checks passed, so the draft
+      // goes to the Writer unscored, whichever batch failed. Any other error passes through as before.
+      const noAnswer = error instanceof ModelHttpError && error.status === 502;
+      if (!noAnswer && !(error instanceof BadJson)) throw error;
+      tracer.log({
+        agent_name: AGENT,
+        action: "score_unavailable",
+        input_summary: inputSummary,
+        output_summary: capped(`no score: ${error.message}; accepted on the code checks alone (citations, guard, coverage)`),
+        target_agent: "Writer",
+        status: "accepted",
+        why: noAnswer ? "the model returned no answer; the code checks passed" : "the model's replies could not be read as a score; the code checks passed",
+        confidence: null,
+        retry_count: round,
+        duration_ms: Date.now() - started,
+      });
+      return { accepted: true, scores: null, total: null, confidence: null, fix: "", flagged: [], code_checks: checks, target_agent: "Writer", model: null };
+    }
+    run?.afterModelCall(result);
+    model = addedModel(model, result);
+    const spent = model;
+
+    const badReply = (error: EvaluateError): EvaluateOutcome => {
+      tracer.log({
+        agent_name: AGENT,
+        action: "bad_reply",
+        input_summary: inputSummary,
+        output_summary: capped(`${error.type}: ${error.message}`),
+        status: "error",
+        why: error.message,
+        model: result.model_id,
+        retry_count: round,
+        duration_ms: Date.now() - started,
+      });
+      return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", flagged: [], code_checks: checks, target_agent: target, model: spent, error };
+    };
+
+    const parsed = scoreSchema.safeParse(result.json ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return badReply({ type: "BadJson", message: `The reply does not match the Evaluator schema (${issue.path.join(".") || "reply"}: ${issue.message}).`, recoverable: true });
+    }
+    const replyGuard = afterModel(AGENT, parsed.data, { task: input.task }, tracer);
+    if (!replyGuard.ok) return badReply({ type: "Blocked", message: replyGuard.reason, recoverable: true });
+
+    const own: Scores = { accuracy: parsed.data.accuracy, appropriateness: parsed.data.appropriateness, actionability: parsed.data.actionability };
+    chunkScores.push({ scores: own, total: own.accuracy + own.appropriateness + own.actionability, fix: parsed.data.fix.trim(), offset });
   }
-  run?.afterModelCall(result);
-  const model: NonNullable<EvaluateOutcome["model"]> = {
-    model_id: result.model_id,
-    source: result.source,
-    usage: result.usage,
-    duration_ms: result.duration_ms,
-    ...(result.fallback === undefined ? {} : { fallback: result.fallback }),
+
+  // The lowest score per dimension across the batches, summed; the pass rule is unchanged.
+  const scores: Scores = {
+    accuracy: Math.min(...chunkScores.map((c) => c.scores.accuracy)),
+    appropriateness: Math.min(...chunkScores.map((c) => c.scores.appropriateness)),
+    actionability: Math.min(...chunkScores.map((c) => c.scores.actionability)),
   };
-
-  const badReply = (error: EvaluateError): EvaluateOutcome => {
-    tracer.log({
-      agent_name: AGENT,
-      action: "bad_reply",
-      input_summary: inputSummary,
-      output_summary: capped(`${error.type}: ${error.message}`),
-      status: "error",
-      why: error.message,
-      model: result.model_id,
-      retry_count: round,
-      duration_ms: Date.now() - started,
-    });
-    return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", flagged: [], code_checks: checks, target_agent: target, model, error };
-  };
-
-  const parsed = scoreSchema.safeParse(result.json ?? {});
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return badReply({ type: "BadJson", message: `The reply does not match the Evaluator schema (${issue.path.join(".") || "reply"}: ${issue.message}).`, recoverable: true });
-  }
-  const replyGuard = afterModel(AGENT, parsed.data, { task: input.task }, tracer);
-  if (!replyGuard.ok) return badReply({ type: "Blocked", message: replyGuard.reason, recoverable: true });
-
-  const scores: Scores = { accuracy: parsed.data.accuracy, appropriateness: parsed.data.appropriateness, actionability: parsed.data.actionability };
   const total = scores.accuracy + scores.appropriateness + scores.actionability;
   const confidence = confidenceOf(total);
   const accepted = total >= PASS_TOTAL;
-  const fix = accepted ? "" : parsed.data.fix.trim() || fallbackFix(input.task, scores);
+  // The fixes of the batches that did not pass on their own, with finding numbers made global.
+  const batchFix = combineBatchFixes(
+    chunkScores.filter((c) => c.total < PASS_TOTAL && c.fix !== ""),
+    cfg.MAX_FIX_CHARS,
+  );
+  const fix = accepted ? "" : batchFix || fallbackFix(input.task, scores);
+  const batches = chunks.length > 1 ? `; scored in ${chunks.length} batches` : "";
 
   tracer.log({
     agent_name: AGENT,
     action: accepted ? "accept" : "reject",
     input_summary: inputSummary,
-    output_summary: capped(`accuracy=${scores.accuracy} appropriateness=${scores.appropriateness} actionability=${scores.actionability} total=${total} of ${MAX_TOTAL}${accepted ? "" : `; fix: ${fix}`}`),
+    output_summary: capped(`accuracy=${scores.accuracy} appropriateness=${scores.appropriateness} actionability=${scores.actionability} total=${total} of ${MAX_TOTAL}${batches}${accepted ? "" : `; fix: ${fix}`}`),
     target_agent: accepted ? "Writer" : target,
     status: accepted ? "accepted" : "rejected",
     ...(accepted ? {} : { why: fix }),
     confidence,
-    model: result.model_id,
+    model: model!.model_id,
     retry_count: round,
     duration_ms: Date.now() - started,
   });
   return { accepted, scores, total, confidence, fix, flagged: accepted ? [] : namedIn(fix, findings), code_checks: checks, target_agent: accepted ? "Writer" : target, model };
+}
+
+/** `items` as consecutive chunks of at most `size`; one chunk (the list itself) when it fits, and for an empty list. */
+function batchesOf<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let start = 0; start < items.length; start += size) out.push(items.slice(start, start + size));
+  return out.length === 0 ? [[...items]] : out;
+}
+
+/** The outcome's model after one more call: usage and duration summed, id and source from the latest call. */
+function addedModel(before: EvaluateOutcome["model"], result: CompleteResult): NonNullable<EvaluateOutcome["model"]> {
+  const usage =
+    before === null
+      ? result.usage
+      : before.usage === null
+        ? result.usage
+        : result.usage === null
+          ? before.usage
+          : {
+              tokens_in: before.usage.tokens_in + result.usage.tokens_in,
+              tokens_out: before.usage.tokens_out + result.usage.tokens_out,
+              ...(before.usage.estimate === undefined && result.usage.estimate === undefined ? {} : { estimate: Boolean(before.usage.estimate || result.usage.estimate) }),
+            };
+  return {
+    model_id: result.model_id,
+    source: result.source,
+    usage,
+    duration_ms: (before?.duration_ms ?? 0) + result.duration_ms,
+    ...(result.fallback === undefined ? {} : { fallback: result.fallback }),
+  };
+}
+
+const FINDING_LIST = /\b(findings? )(\d+(?:(?:\s*,\s*|\s+(?:and|or)\s+|\s*&\s*)\d+)*)/gi;
+// A sentence that points at a source: a run_query_id, or a figure said to be in another cited result.
+const SOURCE_HINT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\bis in\b.*\bcite\b|\b(?:different|another|other|wrong)\s+(?:cited\s+)?(?:result|source|query|row)|\bmismatch/i;
+
+/** Every finding number a text names, in the shapes namedIn reads. */
+const findingNumbersIn = (text: string): number[] => [...text.matchAll(FINDING_LIST)].flatMap((match) => match[2].match(/\d+/g)!.map(Number));
+
+/**
+ * The fixes of the batches that did not pass, as one fix for the Analyst, in plain code. Finding numbers become
+ * global (globalFindingNumbers). Sentences are ordered by the lowest finding number each names (a sentence that
+ * names none sorts at the start of its batch), and a sentence word-for-word the same as one already kept is dropped,
+ * except a sentence that names a source (a run_query_id, a figure in another cited result), which is kept once per
+ * finding. Past maxChars whole sentences are cut from the end, and one sentence says how many findings that left out.
+ */
+export function combineBatchFixes(parts: readonly { fix: string; offset: number }[], maxChars: number): string {
+  const ordered: { text: string; key: number; at: number }[] = [];
+  for (const part of parts) {
+    for (const raw of globalFindingNumbers(part.fix, part.offset).split(/(?<=[.!?])\s+(?=[A-Z])/)) {
+      const text = raw.trim();
+      if (text === "") continue;
+      const numbers = findingNumbersIn(text);
+      ordered.push({ text, key: numbers.length > 0 ? Math.min(...numbers) : part.offset + 0.5, at: ordered.length });
+    }
+  }
+  ordered.sort((a, b) => a.key - b.key || a.at - b.at);
+  const seen = new Set<string>();
+  const sentences = ordered.filter(({ text, key }) => {
+    const id = SOURCE_HINT.test(text) ? `${key}|${text}` : text;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  for (let kept = sentences.length; kept >= 1; kept--) {
+    const head = sentences.slice(0, kept).map((sentence) => sentence.text).join(" ");
+    if (kept === sentences.length) {
+      if (head.length <= maxChars || kept === 1) return head;
+      continue;
+    }
+    const named = new Set(findingNumbersIn(head));
+    const left = new Set(sentences.slice(kept).flatMap((sentence) => findingNumbersIn(sentence.text)).filter((n) => !named.has(n)));
+    const note = left.size > 0 ? `${left.size} more finding${left.size === 1 ? " was" : "s were"} left out; fix the ones above first.` : "More points were left out; fix the ones above first.";
+    const text = `${head} ${note}`;
+    if (text.length <= maxChars || kept === 1) return text;
+  }
+  return "";
+}
+
+/**
+ * A batch's fix names findings by their place in that batch; add the batch's start offset so each number is the
+ * finding's place in the whole draft: "finding 2" with offset 10 is "finding 12", "findings 2, 4 or 5" is
+ * "findings 12, 14 or 15". The same list shapes namedIn reads.
+ */
+export function globalFindingNumbers(fix: string, offset: number): string {
+  if (offset === 0) return fix;
+  return fix.replace(FINDING_LIST, (_all, label: string, list: string) => `${label}${list.replace(/\d+/g, (n) => String(Number(n) + offset))}`);
 }
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -8,7 +8,7 @@ import { loadQueryData, type QueryData } from "../queries";
 import { RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
 import { analyse } from "./analyst";
-import { PASS_TOTAL, confidenceOf, coverage, evaluate, namedIn, requiredFindings, scoreSchema, type EvaluateInput } from "./evaluator";
+import { EVALUATOR_BATCH_SIZE, PASS_TOTAL, confidenceOf, coverage, evaluate, combineBatchFixes, globalFindingNumbers, namedIn, requiredFindings, scoreSchema, type EvaluateInput } from "./evaluator";
 import { plan } from "./planner";
 
 // The seed data in data/, a fake tracer that keeps every line in memory, and the sample model unless a test stubs
@@ -391,7 +391,7 @@ describe("the Evaluator on a stubbed reply", () => {
 });
 
 describe("the Evaluator when the fast model returns no answer", () => {
-  // What llm.ts throws after a 502 empty_response and its one retry at max_tokens 32000.
+  // What llm.ts throws after a 502 empty_response and its one retry at max_tokens 64000.
   const noAnswer = (calls: CompleteOptions[] = []) => async (options: CompleteOptions): Promise<CompleteResult> => {
     calls.push(options);
     throw new ModelHttpError("The fast model call failed twice: 502 empty_response", 502);
@@ -437,3 +437,194 @@ describe("the Evaluator when the fast model returns no answer", () => {
     expect(evaluatorLines(lines, "score_unavailable")).toHaveLength(0);
   });
 });
+
+describe("the Evaluator scoring a long draft in batches", () => {
+  // pre_trade needs only one pre_trade finding, so N such findings make a long draft that passes the code checks.
+  async function longDraft(count: number) {
+    const { run } = runState();
+    const preview = await run.query("what_if", { as_of: AS_OF, symbol: "GP", side: "buy", quantity: 10 });
+    const findings = Array.from({ length: count }, (_, i) => ({ ...finding(`ZZ-${String(i + 1).padStart(3, "0")}`, [preview.run_query_id]), kind: "pre_trade" as const }));
+    return { run, findings };
+  }
+  const subjectsOf = (call: CompleteOptions): string[] => (JSON.parse(call.user as string) as { findings: Finding[] }).findings.map((f) => f.subject);
+  const perfect = { accuracy: 3, appropriateness: 3, actionability: 3, fix: "" };
+  /** A model that answers call n with replies[n] (the last one repeats) and records the calls. */
+  const sequence = (replies: unknown[], calls: CompleteOptions[]) => async (options: CompleteOptions): Promise<CompleteResult> => {
+    const reply = replies[Math.min(calls.length, replies.length - 1)];
+    calls.push(options);
+    return { text: JSON.stringify(reply), json: reply as Record<string, unknown>, usage: { tokens_in: 10, tokens_out: 5 }, duration_ms: 2, model_id: `stub-${calls.length}`, source: "sample-model" };
+  };
+
+  it("scores 30 findings in three calls of at most 10, each prompt holding only its own findings, and sums usage", async () => {
+    const { run, findings } = await longDraft(30);
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete: sequence([perfect], calls) });
+    expect(outcome).toMatchObject({ accepted: true, total: 9, confidence: 1, fix: "", flagged: [], target_agent: "Writer" });
+    expect(outcome.model).toMatchObject({ model_id: "stub-3", usage: { tokens_in: 30, tokens_out: 15 }, duration_ms: 6 });
+    expect(calls).toHaveLength(3);
+    expect(run.usage.model_calls).toBe(3);
+    const subjects = calls.map(subjectsOf);
+    expect(subjects.map((list) => list.length)).toEqual([10, 10, 10]);
+    expect(subjects.every((list) => list.length <= EVALUATOR_BATCH_SIZE)).toBe(true);
+    for (const [i, call] of calls.entries()) {
+      for (const other of subjects.filter((_, j) => j !== i).flat()) expect(call.user).not.toContain(other);
+    }
+    expect(evaluatorLines(lines, "accept")).toEqual([expect.objectContaining({ output_summary: expect.stringContaining("total=9 of 9; scored in 3 batches") })]);
+  });
+
+  it("puts the gaps in the first batch only", async () => {
+    const { run, findings } = await longDraft(25);
+    const { tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    await evaluate(input(run, findings, { task: "pre_trade", gaps: ["no news for GP"] }), { tracer, run, batchAboveChars: 0, complete: sequence([perfect], calls) });
+    expect(calls.map((call) => (JSON.parse(call.user as string) as { gaps: string[] }).gaps)).toEqual([["no news for GP"], [], []]);
+  });
+
+  it("takes the lowest score per dimension, rejects, and names the finding by its number in the whole draft", async () => {
+    const { run, findings } = await longDraft(30);
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const weak = { accuracy: 2, appropriateness: 3, actionability: 1, fix: "Rewrite finding 2: its claim goes past the row." };
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete: sequence([perfect, weak, { accuracy: 3, appropriateness: 2, actionability: 3, fix: "Ignored: this batch passes." }], calls) });
+    expect(calls).toHaveLength(3);
+    expect(outcome).toMatchObject({ accepted: false, scores: { accuracy: 2, appropriateness: 2, actionability: 1 }, total: 5, confidence: 0.56, target_agent: "Analyst" });
+    expect(outcome.fix).toBe("Rewrite finding 12: its claim goes past the row.");
+    expect(outcome.flagged).toEqual([12]);
+    expect(evaluatorLines(lines, "reject")).toEqual([expect.objectContaining({ why: outcome.fix, output_summary: expect.stringContaining("scored in 3 batches") })]);
+  });
+
+  it("falls back to the code's fix when a rejection has no batch fix", async () => {
+    const { run, findings } = await longDraft(11);
+    const { tracer } = collector();
+    // Each batch passes on its own (7), but the lowest per dimension sums to 5.
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete: sequence([{ accuracy: 3, appropriateness: 3, actionability: 1, fix: "" }, { accuracy: 1, appropriateness: 3, actionability: 3, fix: "" }], []) });
+    expect(outcome).toMatchObject({ accepted: false, total: 5 });
+    expect(outcome.fix).not.toBe("");
+  });
+
+  it("accepts unscored when any batch call returns no answer (502)", async () => {
+    const { run, findings } = await longDraft(30);
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const ok = sequence([perfect], calls);
+    const failing = async (options: CompleteOptions): Promise<CompleteResult> => {
+      if (calls.length === 1) {
+        calls.push(options);
+        throw new ModelHttpError("The fast model call failed twice: 502 empty_response", 502);
+      }
+      return ok(options);
+    };
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete: failing });
+    expect(calls).toHaveLength(2);
+    expect(outcome).toMatchObject({ accepted: true, scores: null, total: null, confidence: null, fix: "", target_agent: "Writer", model: null });
+    expect(evaluatorLines(lines, "score_unavailable")).toHaveLength(1);
+    expect(evaluatorLines(lines, "accept")).toHaveLength(0);
+  });
+
+  it("makes one call, with no batch note, for exactly EVALUATOR_BATCH_SIZE findings", async () => {
+    const { run, findings } = await longDraft(EVALUATOR_BATCH_SIZE);
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete: sequence([perfect], calls) });
+    expect(calls).toHaveLength(1);
+    expect(subjectsOf(calls[0])).toHaveLength(EVALUATOR_BATCH_SIZE);
+    expect(outcome).toMatchObject({ accepted: true, total: 9 });
+    expect(evaluatorLines(lines, "accept")[0].output_summary).not.toContain("batches");
+  });
+
+  it("rewrites finding numbers by an offset in the shapes namedIn reads", () => {
+    expect(globalFindingNumbers("Rewrite finding 2.", 10)).toBe("Rewrite finding 12.");
+    expect(globalFindingNumbers("Check findings 2 and 3.", 10)).toBe("Check findings 12 and 13.");
+    expect(globalFindingNumbers("Check findings 2, 4 or 5 and Finding 1.", 10)).toBe("Check findings 12, 14 or 15 and Finding 11.");
+    expect(globalFindingNumbers("Add the 3 rows, no finding named.", 10)).toBe("Add the 3 rows, no finding named.");
+    expect(globalFindingNumbers("finding 2", 0)).toBe("finding 2");
+    // namedIn reads the rewritten numbers back as the global findings.
+    const many = Array.from({ length: 15 }, (_, i) => finding(`ZZ-${i + 1}`, ["q"]));
+    expect(namedIn(globalFindingNumbers("findings 2, 4 or 5", 10), many)).toEqual([12, 14, 15]);
+  });
+});
+
+describe("combining the fixes of the batches", () => {
+  const ID_A = "11111111-2222-3333-4444-555555555555";
+  const ID_B = "66666666-7777-8888-9999-000000000000";
+
+  it("drops a sentence that repeats word for word and keeps the first", () => {
+    const fix = combineBatchFixes(
+      [
+        { fix: "Cite the one it came from, or leave it out. Fix finding 1: the claim is too strong.", offset: 0 },
+        { fix: "Cite the one it came from, or leave it out. Fix finding 2: the claim is too strong.", offset: 10 },
+      ],
+      6000,
+    );
+    expect(fix).toBe("Cite the one it came from, or leave it out. Fix finding 1: the claim is too strong. Fix finding 12: the claim is too strong.");
+  });
+
+  it("keeps every finding number and every run_query_id, and a source sentence once per finding", () => {
+    const hint = `The figure 5.2 is in ${ID_B}, not in ${ID_A}: cite the one it came from.`;
+    const fix = combineBatchFixes(
+      [
+        { fix: `Finding 3: ${hint} Finding 4: ${hint}`, offset: 0 },
+        { fix: `Finding 3: ${hint} Finding 3: ${hint}`, offset: 10 },
+      ],
+      6000,
+    );
+    // Findings 3 and 4 of the first batch and finding 13 of the second: the same words for three findings stay three times, and the doubled one once.
+    expect(fix.match(new RegExp(ID_A, "g"))).toHaveLength(3);
+    expect(fix.match(new RegExp(ID_B, "g"))).toHaveLength(3);
+    expect(findingsNamed(fix)).toEqual([3, 4, 13]);
+  });
+
+  it("keeps a source sentence that names no finding once per batch position, never merged into another finding's", () => {
+    const hint = `The figure is in ${ID_B}: cite it.`;
+    const fix = combineBatchFixes([{ fix: `Fix finding 2: bad. ${hint}`, offset: 0 }, { fix: `Fix finding 1: bad. ${hint}`, offset: 10 }], 6000);
+    expect(fix.match(new RegExp(ID_B, "g"))).toHaveLength(2);
+  });
+
+  it("orders the joined fix by global finding number, ascending", () => {
+    const fix = combineBatchFixes(
+      [
+        { fix: "Fix finding 9: a. Fix finding 2: b.", offset: 0 },
+        { fix: "Fix finding 5: c. Fix finding 1: d.", offset: 10 },
+      ],
+      6000,
+    );
+    expect(findingsNamed(fix)).toEqual([2, 9, 11, 15]);
+    expect(fix).toBe("Fix finding 2: b. Fix finding 9: a. Fix finding 11: d. Fix finding 15: c.");
+  });
+
+  it("cuts whole sentences from the end past the cap and says how many findings it left out", () => {
+    const fixes = Array.from({ length: 6 }, (_, i) => `Fix finding ${i + 1}: ${"x".repeat(40)}.`);
+    const full = combineBatchFixes([{ fix: fixes.join(" "), offset: 0 }], 6000);
+    expect(full).toBe(fixes.join(" "));
+    const cut = combineBatchFixes([{ fix: fixes.join(" "), offset: 0 }], 260);
+    expect(cut.length).toBeLessThanOrEqual(260);
+    expect(cut).toBe(`${fixes.slice(0, 3).join(" ")} 3 more findings were left out; fix the ones above first.`);
+    expect(combineBatchFixes([{ fix: fixes.join(" "), offset: 0 }], 170)).toBe(`${fixes.slice(0, 2).join(" ")} 4 more findings were left out; fix the ones above first.`);
+    // A single finding left out reads in the singular, and the first sentence survives any cap.
+    expect(combineBatchFixes([{ fix: fixes.slice(0, 2).join(" "), offset: 0 }], 70)).toBe(`${fixes[0]} 1 more finding was left out; fix the ones above first.`);
+    expect(combineBatchFixes([{ fix: fixes[0], offset: 0 }], 5)).toBe(fixes[0]);
+  });
+
+  it("is what evaluate returns when two batches reject with the same hint", async () => {
+    const { run } = runState();
+    const preview = await run.query("what_if", { as_of: AS_OF, symbol: "GP", side: "buy", quantity: 10 });
+    const findings = Array.from({ length: 12 }, (_, i) => ({ ...finding(`ZZ-${i + 1}`, [preview.run_query_id]), kind: "pre_trade" as const }));
+    const replies = [
+      { accuracy: 1, appropriateness: 1, actionability: 1, fix: "Fix finding 3: too strong. Leave out what the rows do not show." },
+      { accuracy: 1, appropriateness: 1, actionability: 1, fix: "Fix finding 1: too strong. Leave out what the rows do not show." },
+    ];
+    let n = 0;
+    const complete = async (): Promise<CompleteResult> => {
+      const reply = replies[n++];
+      return { text: JSON.stringify(reply), json: reply, usage: null, duration_ms: 1, model_id: "stub", source: "sample-model" };
+    };
+    const { tracer } = collector();
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete });
+    expect(outcome.fix).toBe("Leave out what the rows do not show. Fix finding 3: too strong. Fix finding 11: too strong.");
+    expect(outcome.flagged).toEqual([3, 11]);
+  });
+});
+
+/** The finding numbers a fix names, in order, with repeats. */
+const findingsNamed = (fix: string): number[] => [...fix.matchAll(/\bfindings? (\d+)/gi)].map((m) => Number(m[1]));

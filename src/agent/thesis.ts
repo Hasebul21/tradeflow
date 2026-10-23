@@ -18,7 +18,7 @@ const str = (value: unknown): string => (typeof value === "string" ? value : "")
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 
 /** At most this many theses go to the Analyst in one call. */
-export const THESIS_BATCH_SIZE = 15;
+export const THESIS_BATCH_SIZE = 5;
 /** The announcement categories the evidence keeps; a price-sensitive announcement of any category is kept too. */
 const KEPT_CATEGORIES: readonly string[] = ["earnings", "dividend_declaration", "bonus_declaration"];
 const JOURNAL_ID = /\bj-\d+\b/g;

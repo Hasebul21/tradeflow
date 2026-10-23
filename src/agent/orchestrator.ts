@@ -26,7 +26,7 @@ import { dropRepeatFailures, keyOf, knownSubjects, mergeRevision, passesCodeChec
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
-import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, type PreparedTheses } from "./thesis";
+import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, THESIS_BATCH_SIZE, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
 import { about as worldAbout, recordRun, type WorldAbout } from "./world";
 import { appendContribution, loadContributions } from "@/lib/data";
@@ -1005,7 +1005,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             tracer.log({
               agent_name: AGENT,
               action: "evidence_built",
-              input_summary: `${prepared.theses.length} theses, ${prepared.batches.length} batches of at most 15`,
+              input_summary: `${prepared.theses.length} theses, ${prepared.batches.length} batches of at most ${THESIS_BATCH_SIZE}`,
               output_summary: capped(`${state.usage.query_calls} query calls so far; ${prepared.gaps.length} queries did not run`),
               target_agent: "Analyst",
               status: "ok",
@@ -1023,7 +1023,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             });
           }
 
-          // The Analyst, once per batch of at most 15 theses; on a retry only the batches the fix names, the rest keep their findings.
+          // The Analyst, once per batch of at most THESIS_BATCH_SIZE theses; on a retry only the batches the fix names, the rest keep their findings.
           const rerun: Set<number> = round === 0 || feedback === null ? new Set(thesis.prepared.batches.map((_, index) => index)) : batchesToRerun(feedback, thesis.prepared.batches);
           let unusable: string | null = null;
           for (const [index, batch] of thesis.prepared.batches.entries()) {
