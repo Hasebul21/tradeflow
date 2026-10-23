@@ -1,6 +1,7 @@
-// npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam]
+// npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam] [--only id1,id2 [--no-chain-deps]]
 // Runs every input_examples/*.json (or, with --redteam, every case in evals/redteam/cases.json) against the running
-// app: POST <base>/run per case, chains in order (scripts/case-chains.ts), at most N cases at once. A 429 Busy is
+// app, or with --only just the named cases, each with the earlier cases it reads (CASE_DEPENDS) unless --no-chain-deps
+// (selectCases in scripts/case-chains.ts; an unknown id is an error): POST <base>/run per case, chains in order (scripts/case-chains.ts), at most N cases at once. A 429 Busy is
 // retried after Retry-After. Each reply goes to <dir>/<case>.json and its trace (GET <base>/run/<run_id>) to
 // <dir>/<case>.trace.jsonl, and one line per case is printed: case, HTTP status, status, stop_reason, seconds, model
 // calls. A red-team case with a data_dir runs through npm run agent on a copy of its fixture instead. It never edits
@@ -15,13 +16,13 @@
 // CommonJS: async main(), no top-level await.
 import path from "node:path";
 import { loadConfig, type Config } from "../src/agent/config";
-import { chainGroups, chainsFirst, parseConcurrency, runChains } from "./case-chains";
+import { chainGroups, chainsFirst, parseConcurrency, parseOnly, runChains, selectCases } from "./case-chains";
 import { caseKind, counts, ensureDir, liveCases, liveExitCode, runCliCase, runHttpCase, runLiveGroup, stopLiveRuns, summaryLine, type LiveCase, type LiveOutcome } from "./live-runner";
 
 const ROOT = process.cwd();
-const USAGE = "Usage: npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam]";
+const USAGE = "Usage: npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam] [--only id1,id2 [--no-chain-deps]]";
 
-type Args = { concurrency: number; base: string; out: string; redteam: boolean };
+type Args = { concurrency: number; base: string; out: string; redteam: boolean; only: string[] | null; chainDeps: boolean };
 
 function parseArgs(argv: string[]): Args | string {
   const parsed = parseConcurrency(argv, undefined);
@@ -29,11 +30,20 @@ function parseArgs(argv: string[]): Args | string {
   let base = "http://localhost:8000";
   let out: string | null = null;
   let redteam = false;
+  let only: string[] | null = null;
+  let chainDeps = true;
   const rest = parsed.rest;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     const value = rest[i + 1];
     if (arg === "--redteam") redteam = true;
+    else if (arg === "--no-chain-deps") chainDeps = false;
+    else if (arg === "--only" || arg.startsWith("--only=")) {
+      const listed = parseOnly(arg === "--only" ? value : arg.slice("--only=".length));
+      if (listed.error !== null) return listed.error;
+      only = listed.ids;
+      if (arg === "--only") i += 1;
+    }
     else if (arg === "--base" || arg === "--out") {
       if (value === undefined || value.startsWith("--")) return `${arg} needs a value.`;
       if (arg === "--base") base = value;
@@ -49,7 +59,8 @@ function parseArgs(argv: string[]): Args | string {
   } catch {
     return `--base must be a URL such as http://localhost:8000, got ${JSON.stringify(base)}.`;
   }
-  return { concurrency: parsed.concurrency, base, out: path.resolve(ROOT, out), redteam };
+  if (!chainDeps && only === null) return "--no-chain-deps needs --only.";
+  return { concurrency: parsed.concurrency, base, out: path.resolve(ROOT, out), redteam, only, chainDeps };
 }
 
 function limits(): Config {
@@ -76,8 +87,24 @@ async function main(): Promise<number> {
         `To run ${args.concurrency} at once, start the server with MAX_CONCURRENT_RUNS=${args.concurrency} npm run dev -- -p 8000.\n`,
     );
   }
+  const allCases = liveCases(ROOT, args.redteam);
+  let cases = allCases;
+  if (args.only !== null) {
+    const selected = selectCases(
+      allCases.map((item) => item.id),
+      args.only,
+      args.chainDeps,
+    );
+    if (selected.error !== null) {
+      process.stderr.write(`${selected.error}\n${USAGE}\n`);
+      return 2;
+    }
+    const keep = new Set(selected.ids);
+    cases = allCases.filter((item) => keep.has(item.id));
+    const added = selected.ids.filter((id) => !args.only?.includes(id));
+    if (added.length > 0) process.stdout.write(`--only ${args.only.join(",")}: also running ${added.join(", ")}, which they read (--no-chain-deps to skip them).\n`);
+  }
   ensureDir(args.out);
-  const cases = liveCases(ROOT, args.redteam);
   const byId = new Map(cases.map((item) => [item.id, item]));
   const groups = chainsFirst(chainGroups(cases.map((item) => item.id)));
   const chains = groups.filter((group) => group.length > 1).map((group) => group.join(" -> "));

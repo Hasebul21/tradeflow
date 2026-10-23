@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryBlockedError, memoryDir, openMemory, recall, remember, seedOwnerContext, withMiner, type MinerUsage } from "./memory";
+import { MAX_MODEL_CALLS_DEFAULT } from "./config";
 import { startRun, type TraceLine, type Tracer } from "./trace";
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so it has its own memory/ folder and never
@@ -240,10 +241,10 @@ describe("the miner", () => {
 
   it("refuses to run outside a run, and past MAX_MODEL_CALLS", async () => {
     await expect(openMemory().mine("user_correction", "Always trim the overweight pharma position.")).rejects.toThrow(/withMiner/);
-    const usage: MinerUsage = { model_calls: 12, tokens_in: 0, tokens_out: 0 };
+    const usage: MinerUsage = { model_calls: MAX_MODEL_CALLS_DEFAULT, tokens_in: 0, tokens_out: 0 };
     await expect(
       withMiner({ tracer: run("review-miner-cap"), usage }, () => openMemory().mine("user_correction", "Always trim the overweight pharma position.")),
     ).rejects.toThrow(/MAX_MODEL_CALLS/);
-    expect(usage.model_calls).toBe(12);
+    expect(usage.model_calls).toBe(MAX_MODEL_CALLS_DEFAULT);
   });
 });

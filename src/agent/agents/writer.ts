@@ -11,7 +11,7 @@
 // not stored at all (traced as memory_skipped), so instruction-like text never reaches a later run. Server only
 // (node:fs, memory.ts).
 import { z } from "zod";
-import { loadConfig, type Config } from "../config";
+import { loadConfig, WRITER_MAX_ATTEMPTS, type Config } from "../config";
 import { citedResultsForSubjects, forModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, numbersIn, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
@@ -25,7 +25,7 @@ const AGENT = "Writer";
 const TARGET = "Orchestrator";
 const SUMMARY_CHARS = 200;
 /** One retry after a failed check, then needs_human. */
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = WRITER_MAX_ATTEMPTS;
 
 export const DISCLAIMER = "This is a review of your own records, not financial advice.";
 

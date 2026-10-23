@@ -6,6 +6,16 @@ import { complete, failedCallUsage, ModelHttpError, NightshiftNotRunning, resetM
 import { BudgetExhaustedError } from "./run-state";
 import type { TraceInput } from "./trace";
 
+// llm.ts gives the client httpFetch (node:http, no 300 s cut). Here it hands each request to the global fetch, which
+// each test stubs, and counts the calls, so a test can show the client goes through httpFetch.
+const viaHttpFetch = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("./http-fetch", () => ({
+  httpFetch: (input: string | URL | Request, init?: RequestInit) => {
+    viaHttpFetch.calls += 1;
+    return globalThis.fetch(input, init);
+  },
+}));
+
 // Made-up values only: no real endpoint, model id or key appears here.
 const KEY = "test-key-0123456789";
 const config = loadConfig(
@@ -25,6 +35,7 @@ const ok = { id: "1", object: "chat.completion", model: "m", choices: [{ index: 
 
 const fetchMock = vi.fn();
 beforeEach(() => {
+  viaHttpFetch.calls = 0;
   fetchMock.mockReset();
   resetModelQuirks();
   vi.stubGlobal("fetch", fetchMock);
@@ -32,6 +43,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("complete with the real openai client", () => {
+  it("sends every request through httpFetch, not Node's fetch with its 300 s cut", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, ok));
+    await complete(base);
+    expect(viaHttpFetch.calls).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("sends the URL from config, the bearer token, both Meterless headers, temperature and max_tokens", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, ok));
     const result = await complete(base);

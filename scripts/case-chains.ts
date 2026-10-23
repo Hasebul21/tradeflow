@@ -20,6 +20,17 @@ import { runWithLimit, type Settled } from "../src/agent/concurrency";
 export const CASE_CHAINS: ReadonlyArray<readonly string[]> = [["example_3a", "example_3b", "example_7a", "example_7b"]];
 
 /**
+ * What each chained case reads, from the list above: the cases --only must run before it. example_3b and example_7a
+ * read example_3a's review; example_7b reads example_7a's correction (and so, through it, example_3a). Each dependency
+ * comes earlier in the same chain, so the chain order satisfies it.
+ */
+export const CASE_DEPENDS: Readonly<Record<string, readonly string[]>> = {
+  example_3b: ["example_3a"],
+  example_7a: ["example_3a"],
+  example_7b: ["example_7a"],
+};
+
+/**
  * Splits `ids` (in the usual case order) into groups to run: each chain's ids that are present form one group, in
  * chain order, placed where its first present id stands; every other id is a group of its own. Each id lands in
  * exactly one group. An id listed in two chains is an error, because it could not run in both orders.
@@ -45,6 +56,47 @@ export function chainGroups(ids: readonly string[], chains: ReadonlyArray<readon
     }
   }
   return groups;
+}
+
+/**
+ * The case ids that `--only id1,id2` names: split on commas, trimmed, each once, in the order given. A missing list or
+ * an empty id is an error.
+ */
+export function parseOnly(value: string | undefined): { ids: string[]; error: string | null } {
+  if (value === undefined || value.startsWith("--")) return { ids: [], error: "--only needs a list of case ids, such as --only example_2,example_7b." };
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.some((part) => part === "")) return { ids: [], error: `--only has an empty case id: ${JSON.stringify(value)}.` };
+  return { ids: [...new Set(parts)], error: null };
+}
+
+/**
+ * The ids to run from `all` (the usual case order) for `--only`. With `chainDeps` (the default), a case also brings
+ * what it reads (`depends`, followed to the end), so --only example_7a runs example_3a and example_7a, and --only
+ * example_7b runs example_3a, example_7a and example_7b. The result keeps the order of `all`. An id that is not in
+ * `all` is an error naming it.
+ */
+export function selectCases(
+  all: readonly string[],
+  only: readonly string[],
+  chainDeps = true,
+  depends: Readonly<Record<string, readonly string[]>> = CASE_DEPENDS,
+): { ids: string[]; error: string | null } {
+  const known = new Set(all);
+  const unknown = only.filter((id) => !known.has(id));
+  if (unknown.length > 0) return { ids: [], error: `Unknown case id${unknown.length === 1 ? "" : "s"} for --only: ${unknown.join(", ")}. Known: ${all.join(", ")}.` };
+  const wanted = new Set(only);
+  if (chainDeps) {
+    const pending = [...only];
+    while (pending.length > 0) {
+      for (const needed of depends[pending.pop() as string] ?? []) {
+        if (known.has(needed) && !wanted.has(needed)) {
+          wanted.add(needed);
+          pending.push(needed);
+        }
+      }
+    }
+  }
+  return { ids: all.filter((id) => wanted.has(id)), error: null };
 }
 
 /**
