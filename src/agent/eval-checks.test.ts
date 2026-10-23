@@ -105,26 +105,26 @@ describe("checkExpectation", () => {
 
 describe("universalChecks", () => {
   it("passes a result with usage, the disclaimer last and no advice", () => {
-    expect(failed(universalChecks(result({})))).toEqual([]);
+    expect(failed(universalChecks(result({}), []))).toEqual([]);
   });
 
   it("fails missing usage, a missing disclaimer and advice wording", () => {
     const r = result({ review_markdown: "You should sell BXPHARMA." }, { usage: undefined as unknown as RunResult["usage"] });
-    expect(failed(universalChecks(r))).toEqual(["usage", "disclaimer", "no_advice"]);
+    expect(failed(universalChecks(r, []))).toEqual(["usage", "disclaimer", "no_advice"]);
   });
 
   it("fails a result that ended model_unavailable with exactly that check, even when the case expects needs_human", () => {
     const r = result({ stop_reason: "model_unavailable", partial: true, needs_human: true }, { status: "needs_human" });
-    expect(failed(universalChecks(r))).toEqual(["model_unavailable: the model failed after the queries"]);
+    expect(failed(universalChecks(r, []))).toEqual(["model_unavailable: the model failed after the queries"]);
     expect(failed(checkExpectation(r, { status: "needs_human" }, false))).toEqual([]);
   });
 
   it("fails a successful result whose plan code built after the Planner failed, whatever the cause", () => {
     for (const cause of ["its replies could not be read", "the model service returned an error", "the model call timed out", "the model service was busy and refused the call", "the model service could not be reached"]) {
       const r = result({ gaps: [`${PLANNER_FALLBACK_LABEL} (${cause}; queries: week_moves, rule_findings); the review covers those, not a plan made for this question.`] });
-      expect(failed(universalChecks(r))).toEqual(["planner_fallback: the plan was built in code"]);
+      expect(failed(universalChecks(r, []))).toEqual(["planner_fallback: the plan was built in code"]);
     }
-    expect(failed(universalChecks(result({ gaps: ["dividends_between returned no rows."] })))).toEqual([]);
+    expect(failed(universalChecks(result({ gaps: ["dividends_between returned no rows."] }), []))).toEqual([]);
   });
 
   it("fails a result in which code dropped a finding, by its trace line or its gap; carried and restored findings pass", () => {
@@ -132,7 +132,7 @@ describe("universalChecks", () => {
     const reason = "dropped_finding: a finding was dropped by code";
     expect(failed(universalChecks(result({}), [drop]))).toEqual([reason]);
     const gap = droppedGap({ kind: "sector", subject: "Pharmaceuticals & Chemicals", claim: "x", numbers: [], cites: [], verdict: null, proposed_fix: null, memory_ids: [] }, new Set(["Pharmaceuticals & Chemicals"]));
-    expect(failed(universalChecks(result({ gaps: [gap] })))).toEqual([reason]);
+    expect(failed(universalChecks(result({ gaps: [gap] }), []))).toEqual([reason]);
     expect(universalChecks(result({}), [drop]).find((c) => c.name === reason)?.detail).toContain("a finding was dropped by code");
     const kept: TraceLine[] = [
       { agent_name: "Orchestrator", action: "carry_forward" },
@@ -140,10 +140,15 @@ describe("universalChecks", () => {
     ];
     const keptGap = "The Analyst withdrew its move finding on BXPHARMA; it is kept unchanged because the coverage check requires it.";
     expect(failed(universalChecks(result({ gaps: [keptGap] }), kept))).toEqual([]);
+    // Only the exact code-written text counts: a gap that merely says "was left out:" does not, and an unnamed drop does.
+    expect(failed(universalChecks(result({ gaps: ["The bonus was left out: the data has no record date."] }), []))).toEqual([]);
+    const unnamed = droppedGap({ kind: "move", subject: "ZZ 99.9", claim: "x", numbers: [], cites: [], verdict: null, proposed_fix: null, memory_ids: [] }, new Set(), "guard", 2);
+    expect(unnamed).toBe("A flagged finding (the second one code left out) was left out: after the Evaluator's fix the reply guard still refused it (advice, or a finding that breaks the schema).");
+    expect(failed(universalChecks(result({ gaps: [unnamed] }), []))).toEqual([reason]);
   });
 
   it("skips an error result", () => {
-    expect(universalChecks(result(null, { status: "error" }))).toEqual([]);
+    expect(universalChecks(result(null, { status: "error" }), [])).toEqual([]);
   });
 });
 

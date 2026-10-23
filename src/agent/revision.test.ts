@@ -132,7 +132,7 @@ describe("mergeRevision: revise, don't restart", () => {
     const result = dropRepeatFailures({ task: "explain_week", flagged, findings: again, required, store: run.store, known });
     // The sector finding goes, with a gap; BXPHARMA stays, because it is the only finding on the largest move.
     expect(result.findings).toEqual([portfolio, again[2]]);
-    expect(result.dropped).toEqual([{ finding: again[1], gap: "The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds." }]);
+    expect(result.dropped).toEqual([{ finding: again[1], gap: "The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.", unnamed: false, survivors: 0 }]);
 
     // A first failure is never dropped, and a fixed one passes and stays.
     expect(dropRepeatFailures({ task: "explain_week", flagged: new Set(), findings: again, required, store: run.store, known }).dropped).toEqual([]);
@@ -149,11 +149,11 @@ describe("mergeRevision: revise, don't restart", () => {
     // A subject carrying a number, or any subject that is not exactly a known symbol or sector, is not named.
     for (const subject of ["BXPHARMA 99.9", "bxpharma", "BXPHARMA ", "j-026 at 99.9%", "Pharma 99.9"]) {
       const gap = droppedGap(of("move", subject), known);
-      expect(gap).toBe("A flagged finding was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.");
+      expect(gap).toBe("A flagged finding (the first one code left out) was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.");
       expect(numbersIn(gap)).toEqual([]);
     }
     // A kind outside the nine is model text too.
-    expect(droppedGap(of("move 99.9", "BXPHARMA"), known)).toMatch(/^A flagged finding was left out/);
+    expect(droppedGap(of("move 99.9", "BXPHARMA"), known)).toMatch(/^A flagged finding \(the first one code left out\) was left out/);
     // A valid symbol or sector, with a valid kind, is named.
     expect(droppedGap(of("move", "BXPHARMA"), known)).toBe("The move finding on BXPHARMA was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.");
     expect(droppedGap(of("sector", "Pharmaceuticals & Chemicals"), known)).toMatch(/^The sector finding on Pharmaceuticals & Chemicals was left out/);
@@ -196,5 +196,32 @@ describe("mergeRevision: revise, don't restart", () => {
     expect(result.findings).toEqual([rewritten, second]);
     expect(result.kept).toEqual([expect.objectContaining({ finding: second, how: "carried" })]);
     expect(merge(run, { previous: [first, second], next: [rewritten, { ...second }] }).kept).toEqual([]);
+  });
+
+  it("lets a new same-key finding replace the flagged previous one first, so the unflagged one is carried", async () => {
+    const { run, rules } = await week();
+    const good = finding("rule", "Pharmaceuticals & Chemicals", [rules], "The data shows Pharmaceuticals & Chemicals is 37.8% of the portfolio.", [{ value: 37.8, label: "weight %" }]);
+    const bad = finding("rule", "Pharmaceuticals & Chemicals", [rules], "The data shows Pharmaceuticals & Chemicals is 99.9% of the portfolio.", [{ value: 99.9, label: "made-up" }]);
+    const fix = { ...good, claim: "The data shows Pharmaceuticals & Chemicals is 7.8 points over its target." , numbers: [{ value: 7.8, label: "points over" }] };
+    // The flagged one comes second in the draft; it is still the one the new finding replaces.
+    const result = merge(run, { previous: [good, bad], flagged: new Set([bad]), next: [fix] });
+    expect(result.kept).toEqual([expect.objectContaining({ finding: good, how: "carried" })]);
+    expect(result.findings).toEqual([good, fix]);
+  });
+
+  it("gives each unnamed drop its own ordinal word, so two drops show as two gaps with no digit in either", async () => {
+    const { run, moves } = await week();
+    const known = knownSubjects(d.portfolio.instruments.values(), run.store);
+    const bad = (subject: string) => finding("move", subject, [moves], "The data shows a move of 98765.4.", [{ value: 98765.4, label: "made-up" }]);
+    const findings = [bad("ZZ 1"), bad("ZZ 2")];
+    const result = dropRepeatFailures({ task: "explain_week", flagged: new Set(findings.map((f) => ({ ...f }))), findings, required: [], store: run.store, known, firstOrdinal: 3 });
+    const gaps = result.dropped.map((gone) => gone.gap);
+    expect(gaps).toEqual([
+      "A flagged finding (the third one code left out) was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.",
+      "A flagged finding (the fourth one code left out) was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.",
+    ]);
+    expect(new Set(gaps).size).toBe(2);
+    expect(gaps.flatMap((gap) => numbersIn(gap))).toEqual([]);
+    expect(result.dropped.every((gone) => gone.unnamed && gone.survivors === 0)).toBe(true);
   });
 });

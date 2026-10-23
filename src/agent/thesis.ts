@@ -59,8 +59,10 @@ export type ThesisEvidence = {
 export type PreparedTheses = {
   theses: ThesisEvidence[];
   batches: ThesisEvidence[][];
-  /** Queries that did not run, as gaps. Code writes every one of them, so the Writer may repeat their figures. */
+  /** Queries that did not run, as gaps, with their params and reason (untrusted: a reason can echo a param). */
   gaps: string[];
+  /** The same gaps as code_gaps carry them: the query id and fixed words, so they add no figure the Writer may repeat. */
+  code_gaps: string[];
   /** True when a query did not run because MAX_QUERY_CALLS was spent: the evidence is partial. */
   budget_cut: boolean;
 };
@@ -105,6 +107,7 @@ const byDate = (a: Row, b: Row) => str(a.period_end).localeCompare(str(b.period_
 export async function prepareThesisEvidence(args: { state: RunState; tracer: Tracer; asOf: string; steps: readonly PlannedStep[]; round: number }): Promise<PreparedTheses> {
   const { state, tracer, asOf, round } = args;
   const gaps: string[] = [];
+  const codeGaps: string[] = [];
   let budgetCut = false;
   const attempt = async (query_id: string, params: Record<string, unknown>): Promise<QueryResult | null> => {
     if (state.queryBudgetSpentFor(query_id, params)) budgetCut = true;
@@ -114,6 +117,7 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
       if (!(error instanceof QueryBlockedError) && !(error instanceof QueryError)) throw error;
       const reason = error instanceof QueryBlockedError ? error.reason : error.message;
       gaps.push(`${query_id} ${JSON.stringify(params)} did not run: ${reason}`);
+      if (!codeGaps.includes(`${query_id} did not run.`)) codeGaps.push(`${query_id} did not run.`);
       tracer.log({
         agent_name: AGENT,
         action: "step_skipped",
@@ -191,7 +195,7 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
               })),
     };
   });
-  return { theses, batches: chunk(theses, THESIS_BATCH_SIZE), gaps, budget_cut: budgetCut };
+  return { theses, batches: chunk(theses, THESIS_BATCH_SIZE), gaps, code_gaps: codeGaps, budget_cut: budgetCut };
 }
 
 /**

@@ -2,14 +2,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadConfig, type Config } from "../config";
-import { checkCitations, type Finding } from "../guards";
+import { checkCitations, numbersIn, type Finding } from "../guards";
 import type { CompleteOptions, CompleteResult, HistoryMessage } from "../llm";
 import type { RecalledMemory } from "../memory";
 import { loadQueryData, type QueryData } from "../queries";
 import { BudgetExhaustedError, RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
-import { ANALYST_REPLY_SHAPE, analyse, analystReplySchema, codeGaps, RETRY_NOTE_CHARS, toolsFor, type AnalysisRequest } from "./analyst";
+import { ANALYST_REPLY_SHAPE, analyse, analystReplySchema, codeGaps, RETRY_NOTE_CHARS, toolReserveChars, toolsFor, type AnalysisRequest } from "./analyst";
 import { plan, type PlannedStep } from "./planner";
+import { checkReview, DISCLAIMER } from "./writer";
 
 // The seed data in data/, a fake tracer that keeps every line in memory, and the sample model unless a test stubs
 // the model. No test here writes a trace file or touches the network.
@@ -128,15 +129,36 @@ describe("the Analyst runs the planned queries", () => {
     expect(run.usage.query_calls).toBe(1);
   });
 
-  it("returns the gaps code wrote as code_gaps, a subset of gaps that leaves out the model's own gap text", async () => {
+  it("returns the gaps code wrote as code_gaps in figure-free forms, the full texts in gaps, and never the model's own gap text", async () => {
     const { run } = runState();
     const modelGap = "The Analyst's own note: 37 broker lines were unclear.";
     const outcome = await analyse(request([step("week_moves", { as_of: "2027-01-01" }), step("rule_findings")]), { run, complete: scripted([() => ({ findings: [], gaps: [modelGap] })]) });
     if (!outcome.ok) throw new Error(outcome.error.message);
     expect(outcome.gaps).toContain(modelGap);
     expect(outcome.code_gaps).toEqual(codeGaps([], outcome.skipped));
+    expect(outcome.code_gaps).toEqual(["week_moves did not run."]);
     expect(outcome.code_gaps).not.toContain(modelGap);
-    expect(outcome.code_gaps.every((gap) => outcome.gaps.includes(gap))).toBe(true);
+    expect(outcome.gaps.some((gap) => gap.startsWith('week_moves {"as_of":"2027-01-01"} did not run: '))).toBe(true);
+  });
+
+  it("puts no figure from a skipped step's params or reason in code_gaps: sessions 73 and symbol ZZ 99.9 add nothing the Writer may repeat", async () => {
+    const { run } = runState();
+    const steps = [step("week_moves", { as_of: "2030-01-01", sessions: 73 }), step("fundamentals_latest", { symbol: "ZZ 99.9", as_of: AS_OF })];
+    const outcome = await analyse(request(steps), { run, complete: scripted([() => done([])]) });
+    if (!outcome.ok) throw new Error(outcome.error.message);
+    expect(outcome.skipped.map((skip) => skip.query_id)).toEqual(["week_moves", "fundamentals_latest"]);
+    expect(outcome.code_gaps).toEqual(["week_moves did not run.", "fundamentals_latest did not run."]);
+    expect(outcome.code_gaps.flatMap((gap) => numbersIn(gap))).toEqual([]);
+    // The full texts stay in gaps (untrusted) for the review.
+    expect(outcome.gaps.some((gap) => gap.includes('"sessions":73'))).toBe(true);
+    // A Writer review that repeats 73 is refused: only code_gaps' figures are allowed, and they have none.
+    const findings = [finding("PORTFOLIO", [])];
+    const check = checkReview(
+      { summary: "The week covered 73 sessions.", review_markdown: `The week covered 73 sessions.\n\n${DISCLAIMER}`, memory_note: "" },
+      { findings, results: run.store, memories: [], task: "explain_week", code_gaps: outcome.code_gaps, gaps: outcome.gaps, as_of: AS_OF },
+    );
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 73/) });
+    expect(codeGaps([], [{ query_id: "no_such_query", params: {}, reason: "unknown query 99.9" }])).toEqual(["a planned query did not run."]);
   });
 });
 
@@ -209,7 +231,8 @@ describe("the Analyst with the sample model", () => {
   });
 
   it("on a retry, keeps in view every result a previous finding cites, from the store, with no query counted, and reads retracted", async () => {
-    const { run, lines } = runState();
+    // A limit large enough for the tool reserve (toolReserveChars); the default case is the next test.
+    const { run, lines } = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_PROMPT_CHARS: "1000000" }, () => {}) });
     const fundamentals = await run.query("fundamentals_latest", { symbol: "BXPHARMA", as_of: AS_OF });
     const queriesBefore = run.usage.query_calls;
     const previous = [{ ...finding("BXPHARMA", [fundamentals.run_query_id]), kind: "fundamentals" }];
@@ -244,40 +267,75 @@ describe("the Analyst with the sample model", () => {
     expect(small.lines.find((entry) => entry.action === "analyse")?.input_summary).toContain("1 left out for size");
   });
 
-  it("packs the kept results so a tool round and a bad-JSON retry still fit in MAX_PROMPT_CHARS, the feedback counted first", async () => {
+  it("with the default limits leaves explain_week's kept results out: the reserve for full-size tool results does not fit", async () => {
+    const { run, lines } = runState();
+    const held = await run.query("fundamentals_latest", { symbol: "BXPHARMA", as_of: AS_OF });
+    const calls: CompleteOptions[] = [];
+    await analyse(request([step("week_moves")], { previous_findings: [{ ...finding("BXPHARMA", [held.run_query_id]), kind: "fundamentals" }], feedback: "Explain GP.", flagged_findings: [] }), { run, complete: scripted([() => done([])], calls) });
+    expect(toolReserveChars(config, run.store)).toBeGreaterThan(config.MAX_PROMPT_CHARS - calls[0].system.length - calls[0].user.length);
+    expect((JSON.parse(calls[0].user) as { results: { query_id: string }[] }).results.map((result) => result.query_id)).toEqual(["week_moves"]);
+    expect(lines.find((entry) => entry.action === "analyse")?.input_summary).toContain("1 left out for size");
+  });
+
+  it("packs the kept results so tool rounds of full-size results and a bad-JSON retry still fit, the feedback counted first", async () => {
     const feedback = `Explain GP. ${"Fix finding 1 (move PORTFOLIO): the claim has 1.1, which is not in its numbers or the cited rows. ".repeat(20)}`;
+    // Three rows a query and one call a round, so fundamentals_latest (3 rows, the longest this run holds) is full size.
+    const limits = { SAMPLE_MODE: "true", MAX_ROWS_PER_QUERY: "3", MAX_TOOL_CALLS_PER_ROUND: "1" };
     const askFor = async (limit: number) => {
-      const state = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_PROMPT_CHARS: String(limit) }, () => {}) });
+      const cfg = loadConfig({ ...limits, MAX_PROMPT_CHARS: String(limit) }, () => {});
+      const state = runState({ config: cfg });
       const held = await state.run.query("fundamentals_latest", { symbol: "BXPHARMA", as_of: AS_OF });
+      await state.run.query("week_moves", { as_of: AS_OF });
+      const reserve = toolReserveChars(cfg, state.run.store) + RETRY_NOTE_CHARS;
       const calls: CompleteOptions[] = [];
-      const previous = [{ ...finding("BXPHARMA", [held.run_query_id]), kind: "fundamentals" }];
-      await analyse(request([step("week_moves")], { previous_findings: previous, feedback, flagged_findings: [] }), {
+      const call = { tool_calls: [{ id: "call-1", name: "fundamentals_latest", arguments: { symbol: "BXPHARMA", as_of: AS_OF } }] };
+      await analyse(request([step("week_moves")], { previous_findings: [{ ...finding("BXPHARMA", [held.run_query_id]), kind: "fundamentals" }], feedback, flagged_findings: [] }), {
         run: state.run,
-        complete: scripted([() => ({ tool_calls: [{ id: "call-1", name: "fundamentals_latest", arguments: { symbol: "RENATA", as_of: AS_OF } }] }), () => done([])], calls),
+        complete: scripted([() => call, () => call, () => done([])], calls),
       });
       const shown = (JSON.parse(calls[0].user) as { results: { query_id: string }[] }).results.map((result) => result.query_id);
-      return { calls, shown };
+      return { calls, shown, reserve };
     };
-    const reserve = config.MAX_TOOL_ROUNDS * config.TOOL_ROUND_RESERVE_CHARS + RETRY_NOTE_CHARS;
 
-    // Find the size of the first prompt with the kept result in it, then set the limit exactly at it plus the reserve.
+    // The first prompt's size with the kept result in it, then the limit exactly at it plus the reserve.
     const roomy = await askFor(1_000_000);
     expect(roomy.shown).toEqual(["week_moves", "fundamentals_latest"]);
     expect(JSON.parse(roomy.calls[0].user).feedback).toBe(feedback);
-    const atCap = roomy.calls[0].system.length + roomy.calls[0].user.length + reserve;
+    const atCap = roomy.calls[0].system.length + roomy.calls[0].user.length + roomy.reserve;
     const tight = await askFor(atCap);
     expect(tight.shown).toEqual(["week_moves", "fundamentals_latest"]);
-    // The tool round's history fits.
-    const second = tight.calls[1];
-    const history = (second.history ?? []).reduce((n, message) => n + JSON.stringify(message).length, 0);
-    expect(second.system.length + second.user.length + history).toBeLessThanOrEqual(atCap);
+    // Two tool rounds, each a full-size result: the last call (history included) fits, and the user message never
+    // grows, because tool results live only in the history.
+    expect(tight.calls).toHaveLength(3);
+    const last = tight.calls[2];
+    const history = (last.history ?? []).reduce((n, message) => n + JSON.stringify(message).length, 0);
+    expect(last.user).toBe(tight.calls[0].user);
+    expect(last.system.length + last.user.length + history).toBeLessThanOrEqual(atCap);
     // A bad-JSON retry's correction fits too: the longest llm.ts writes (a 300-character reason, the token-limit
     // sentence, the JSON-only sentence and the shape) is within RETRY_NOTE_CHARS.
     const correction = `Your last reply did not match the required shape: ${"r".repeat(300)}. It stopped at the token limit; keep the reply short. Reply with the JSON object only. The shape: ${ANALYST_REPLY_SHAPE}`;
     expect(correction.length).toBeLessThanOrEqual(RETRY_NOTE_CHARS);
-    expect(tight.calls[0].system.length + tight.calls[0].user.length + history + correction.length).toBeLessThanOrEqual(atCap);
+    expect(last.system.length + last.user.length + history + correction.length).toBeLessThanOrEqual(atCap);
     // One character less and the kept result is left out rather than crowding the reserve.
     expect((await askFor(atCap - 1)).shown).toEqual(["week_moves"]);
+  });
+
+  it("runs at most MAX_TOOL_CALLS_PER_ROUND calls in a tool round and refuses the rest with a tool message", async () => {
+    const { run, lines } = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_TOOL_CALLS_PER_ROUND: "2" }, () => {}) });
+    const symbols = ["BXPHARMA", "RENATA", "GP"];
+    const calls: CompleteOptions[] = [];
+    const outcome = await analyse(request([step("week_moves")]), {
+      run,
+      complete: scripted([() => ({ tool_calls: symbols.map((symbol, index) => ({ id: `c-${index}`, name: "fundamentals_latest", arguments: { symbol, as_of: AS_OF } })) }), () => done([])], calls),
+    });
+    expect(outcome.tool_calls).toBe(2);
+    const toolLines = lines.filter((line) => line.agent_name === "Analyst" && line.action === "tool_call");
+    expect(toolLines.map((line) => line.status)).toEqual(["ok", "ok", "rejected"]);
+    expect(toolLines[2].why).toContain("MAX_TOOL_CALLS_PER_ROUND (2)");
+    const tool = (calls[1].history ?? []).filter((message) => message.role === "tool");
+    expect(tool).toHaveLength(3);
+    expect(String(tool[2].content)).toContain("did not run");
+    expect(Object.values(run.store).some((result) => result.params.symbol === "GP")).toBe(false);
   });
 
   it("reads retracted: null as no retraction", async () => {

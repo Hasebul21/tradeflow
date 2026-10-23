@@ -22,7 +22,7 @@ import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
-import { dropRepeatFailures, keyOf, knownSubjects, mergeRevision, type CodeNote, type Retraction } from "./revision";
+import { dropRepeatFailures, keyOf, knownSubjects, mergeRevision, passesCodeChecks, type CodeNote, type Retraction } from "./revision";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
@@ -383,7 +383,7 @@ function betterDraft(draft: Draft, best: Draft): boolean {
 }
 
 /** total is null when the Evaluator accepted the draft unscored (score_unavailable). */
-type Draft = { findings: Finding[]; gaps: string[]; /** The gaps code wrote, a subset of gaps: the only gap text whose figures the Writer may repeat. */ code_gaps: string[]; scores: Scores | null; total: number | null; round: number; /** True when no draft existed and this one only carries the code plan's gap. */ planOnly?: true };
+type Draft = { findings: Finding[]; gaps: string[]; /** The gaps code wrote, in forms that hold only code text and validated names: the only gap text whose figures the Writer may repeat. */ code_gaps: string[]; scores: Scores | null; total: number | null; round: number; /** True when no draft existed and this one only carries the code plan's gap. */ planOnly?: true };
 
 /** How a stop or cancel line names the draft the run returns. */
 function draftWords(draft: Draft | null): string {
@@ -751,16 +751,22 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     const flaggedIn = (prior: readonly Finding[] | null): FlaggedFinding[] | null =>
       prior === null ? null : prior.flatMap((finding) => (flagged.has(finding) ? [{ finding: flaggedNumber.get(finding) ?? 0, kind: finding.kind, subject: finding.subject }] : []));
 
+    /** Unnamed drops so far in the run, so each one's gap gets its own ordinal word ("the second one"). */
+    let unnamedDrops = 0;
+
     /**
-     * The code notes of one scope that still hold for `findings`: a drop note while no finding has that kind and
-     * subject again, a kept-despite-retraction note while that exact finding is in the draft. Returns their gaps.
+     * The code notes of one scope that still hold for `findings`. A drop note holds while the draft has no more
+     * findings with that kind and subject that pass the code checks than it had when the finding was dropped: another
+     * finding with the same key (B, passing, next to the dropped A) never clears it, nor does the same finding coming
+     * back still failing; only one written again that passes. A kept-despite-retraction note holds while that exact
+     * finding is in the draft. Returns their gaps.
      */
     const notesFor = (scope: string, findings: readonly Finding[], added: readonly CodeNote[]): string[] => {
       const notes = codeNotes.get(scope) ?? new Map<string, CodeNote>();
-      for (const note of added) notes.set(`${note.kind}\u0000${note.key}`, note);
-      const keys = new Set(findings.map(keyOf));
+      for (const note of added) notes.set(`${note.kind}\u0000${note.key}\u0000${note.gap}`, note);
+      const passing = (key: string) => findings.filter((finding) => keyOf(finding) === key && passesCodeChecks(finding, task, state.store, memories, resolved.asOf)).length;
       for (const [id, note] of notes) {
-        const holds = note.kind === "dropped" ? !keys.has(note.key) : findings.includes(note.finding);
+        const holds = note.kind === "dropped" ? passing(note.key) <= (note.survivors ?? 0) : findings.includes(note.finding);
         if (!holds) notes.delete(id);
       }
       codeNotes.set(scope, notes);
@@ -808,7 +814,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           retry_count: round,
         });
       }
-      const kept = dropRepeatFailures({ task, flagged, findings: merged.findings, required, store: state.store, known, memories, asOf: asOfDay });
+      const kept = dropRepeatFailures({ task, flagged, findings: merged.findings, required, store: state.store, known, memories, asOf: asOfDay, firstOrdinal: unnamedDrops + 1 });
+      unnamedDrops += kept.dropped.filter((gone) => gone.unnamed).length;
       for (const gone of kept.dropped) {
         tracer.log({
           agent_name: AGENT,
@@ -821,7 +828,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           retry_count: round,
         });
       }
-      const added: CodeNote[] = [...merged.notes, ...kept.dropped.map((gone): CodeNote => ({ key: keyOf(gone.finding), gap: gone.gap, finding: gone.finding, kind: "dropped" }))];
+      const added: CodeNote[] = [...merged.notes, ...kept.dropped.map((gone): CodeNote => ({ key: keyOf(gone.finding), gap: gone.gap, finding: gone.finding, kind: "dropped", survivors: gone.survivors }))];
       return { findings: kept.findings, gaps: notesFor(scope, kept.findings, added) };
     };
 
@@ -1041,7 +1048,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           findings = thesis.found.flatMap((batchFindings) => batchFindings ?? []);
           const planNote = thesis.note === null ? [] : [thesis.note];
           gaps = [...new Set([...thesis.prepared.gaps, ...thesis.gapsBy.flat(), ...planNote])];
-          codeGaps = [...new Set([...thesis.prepared.gaps, ...thesis.codeGapsBy.flat(), ...planNote])];
+          codeGaps = [...new Set([...thesis.prepared.code_gaps, ...thesis.codeGapsBy.flat(), ...planNote])];
           if (unusable !== null) {
             feedback = unusable;
             revise(round, feedback, findings.length);

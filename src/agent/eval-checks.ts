@@ -3,7 +3,7 @@
 // RunResult and its parsed trace lines; scripts/eval.ts reads the files and prints the table.
 import { DISCLAIMER } from "./agents/writer";
 import { PLANNER_FALLBACK_LABEL } from "./labels";
-import { DROPPED_GAP_MARK } from "./revision";
+import { isDroppedGap } from "./revision";
 import type { RunResult } from "./orchestrator";
 
 export type CaseCheck = { name: string; pass: boolean; detail: string };
@@ -144,7 +144,7 @@ export function checkExpectation(result: RunResult, exp: Expectation, realModel:
  * Every result that is not an error: it carries usage, its review ends with the disclaimer, and nothing in it advises.
  * `trace`, the run's parsed lines, shows a finding code dropped; carry_forward and restore_finding lines are not checked.
  */
-export function universalChecks(result: RunResult, trace: readonly TraceLine[] = []): CaseCheck[] {
+export function universalChecks(result: RunResult, trace: readonly TraceLine[]): CaseCheck[] {
   if (result.status === "error") return [];
   const usage = result.usage as unknown as Record<string, unknown> | undefined;
   const usageOk = usage !== undefined && ["model_calls", "query_calls", "tokens_in", "tokens_out", "duration_ms"].every((field) => typeof usage[field] === "number");
@@ -160,7 +160,7 @@ export function universalChecks(result: RunResult, trace: readonly TraceLine[] =
   if ((result.output?.gaps ?? []).some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))) out.push(check("planner_fallback: the plan was built in code", false, `status ${result.status}; the Planner gave no usable plan, so code planned the task's standard queries`));
   // A finding code dropped (it failed its checks again after a fix) is never a pass: the review is missing it.
   const dropLines = trace.filter((line) => line.agent_name === "Orchestrator" && line.action === "drop_finding").length;
-  const dropGaps = (result.output?.gaps ?? []).filter((gap) => gap.includes(DROPPED_GAP_MARK)).length;
+  const dropGaps = (result.output?.gaps ?? []).filter(isDroppedGap).length;
   if (dropLines > 0 || dropGaps > 0) out.push(check("dropped_finding: a finding was dropped by code", false, `a finding was dropped by code: ${dropLines} drop_finding lines, ${dropGaps} gaps say so`));
   const whole = JSON.stringify(result.output ?? {}).toLowerCase();
   const advice = ADVICE.filter((phrase) => whole.includes(phrase));

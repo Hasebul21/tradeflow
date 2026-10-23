@@ -307,10 +307,10 @@ describe("checkReview and the run's own counts", () => {
   // A gap as codeGaps() writes it. A gap the Analyst wrote is never passed in code_gaps (see "code_gaps" in the Analyst test).
   const CODE_GAP = codeGaps([], [{ query_id: "week_moves", params: { as_of: "2026-10-01" }, reason: "The run's query budget is spent: 20 of 20 calls used." }])[0];
 
-  it("allows a number a code-built gap repeats: MAX_QUERY_CALLS in a skipped step's reason", () => {
+  it("refuses a number a skipped step's reason held: code_gaps carry only the query id, because a reason can echo the Planner's params", () => {
     const check = checkReview(review("The review stopped after 20 queries. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), code_gaps: [CODE_GAP] });
-    expect(CODE_GAP).toMatch(/20 of 20/);
-    expect(check).toEqual({ ok: true });
+    expect(CODE_GAP).toBe("week_moves did not run.");
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 20/) });
   });
 
   it("allows a number a code-built gap repeats: a figure in the gap text", () => {
@@ -428,7 +428,7 @@ describe("example_4: a date range the run queried, and a retry the model can act
   const withReview = (from: string, to: string) => ({ ...E4_DRAFT, review_markdown: E4_DRAFT.review_markdown.split(from).join(to) });
 
   it("builds the fixture from the run's facts: the code gap is the run's own text", () => {
-    expect(E4_CODE_GAP).toBe('dividends_between {"from":"2026-09-11","to":"2026-09-17"} returned no rows, so this review says nothing it would have shown.');
+    expect(E4_CODE_GAP).toBe("dividends_between returned no rows, so this review says nothing it would have shown.");
     expect(E4_DRAFT.review_markdown).toHaveLength(1121);
     expect(E4_DRAFT.review_markdown).toContain("in the window 11-17 Sept 2026");
   });

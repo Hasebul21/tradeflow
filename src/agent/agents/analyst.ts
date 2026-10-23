@@ -6,12 +6,13 @@
 // The model never writes SQL and never runs anything. The reply is validated with zod and goes through
 // guards.afterModel; a bad or refused reply is a structured error, never a crash. Server only (node:fs).
 import { z } from "zod";
+import type { Config } from "../config";
 import { catalogueFor, forModel, memoriesForModel, type MemoryForModel, type ResultForModel, type Task } from "../context";
 import { afterModel, findingSchema, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, schemaReason, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
-import { QueryBlockedError, QueryError, type QueryResult } from "../queries";
+import { isQueryId, QueryBlockedError, QueryError, type QueryResult } from "../queries";
 import type { RunState } from "../run-state";
 import type { TraceStatus } from "../trace";
 import type { PlannedStep, PlannerTrade } from "./planner";
@@ -60,6 +61,24 @@ export const ANALYST_REPLY_SHAPE =
  * short fixed sentences and this reply shape. The Analyst keeps it free when it adds previous findings' results.
  */
 export const RETRY_NOTE_CHARS = ANALYST_REPLY_SHAPE.length + 500;
+
+/**
+ * A tool call's history beyond its rows: the tool message's run_query_id, query_id, params, row_count, truncated and
+ * wrapper, and the assistant message that asked for the call (its id, name and arguments).
+ */
+const TOOL_ENVELOPE_CHARS = 600;
+
+/**
+ * The room tool rounds can take in the prompt, sized for real results: every round (MAX_TOOL_ROUNDS) running every
+ * call it may (MAX_TOOL_CALLS_PER_ROUND), each returning a full MAX_ROWS_PER_QUERY rows as long as the longest row
+ * this run holds, measured as the tool message carries it (a JSON string inside JSON, so every quote is escaped).
+ * Used only to decide whether a previous finding's results fit; it never cuts a prompt.
+ */
+export function toolReserveChars(cfg: Pick<Config, "MAX_TOOL_ROUNDS" | "MAX_TOOL_CALLS_PER_ROUND" | "MAX_ROWS_PER_QUERY">, store: Record<string, QueryResult>): number {
+  let rowChars = 0;
+  for (const result of Object.values(store)) for (const row of result.rows) rowChars = Math.max(rowChars, JSON.stringify(JSON.stringify(row)).length);
+  return cfg.MAX_TOOL_ROUNDS * cfg.MAX_TOOL_CALLS_PER_ROUND * (cfg.MAX_ROWS_PER_QUERY * rowChars + TOOL_ENVELOPE_CHARS);
+}
 
 /** Why a parsed reply fails the Analyst schema (the first issue), or null; llm.ts asks again with it. */
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
@@ -164,7 +183,7 @@ export type AnalysisOutcome =
       ok: true;
       findings: Finding[];
       gaps: string[];
-      /** The gaps code wrote (codeGaps), a subset of `gaps`; the rest are the model's own words. */
+      /** The figure-free forms of the gaps code wrote (codeGaps); `gaps` holds their full texts and the model's own words. */
       code_gaps: string[];
       /** The previous findings the Analyst withdrew on purpose; empty in round 1. */
       retracted: Retraction[];
@@ -199,14 +218,34 @@ export function toolsFor(task: Task): ToolSpec[] {
   }));
 }
 
-/** The gaps code adds: a planned step that did not run and a result with no rows are gaps, never guesses. */
-export function codeGaps(results: readonly ResultForModel[], skipped: readonly SkippedStep[]): string[] {
+/** A catalogue id as code-trusted text may hold it; anything else (a Planner's unknown name) is not repeated. */
+const trustedQueryId = (id: string): string => (isQueryId(id) ? id : "a planned query");
+
+/**
+ * The gaps code adds: a planned step that did not run and a result with no rows are gaps, never guesses. `gaps` are
+ * the full texts, with the params and the reason, for the review (untrusted: their figures count only when a row holds
+ * them). `trusted` are the forms code_gaps carry, whose figures the Writer may repeat: a catalogue id and fixed words
+ * only, because the params come from the Planner or a tool call (sessions 73, symbol "ZZ 99.9") and a reason can
+ * echo them.
+ */
+export function codeGapsOf(results: readonly ResultForModel[], skipped: readonly SkippedStep[]): { gaps: string[]; trusted: string[] } {
   const gaps: string[] = [];
-  for (const step of skipped) gaps.push(`${step.query_id} ${safeJson(step.params)} did not run: ${step.reason}`);
-  for (const result of results) {
-    if (result.row_count === 0) gaps.push(`${result.query_id} ${safeJson(result.params)} returned no rows, so this review says nothing it would have shown.`);
+  const trusted: string[] = [];
+  for (const step of skipped) {
+    gaps.push(`${step.query_id} ${safeJson(step.params)} did not run: ${step.reason}`);
+    trusted.push(`${trustedQueryId(step.query_id)} did not run.`);
   }
-  return gaps;
+  for (const result of results) {
+    if (result.row_count !== 0) continue;
+    gaps.push(`${result.query_id} ${safeJson(result.params)} returned no rows, so this review says nothing it would have shown.`);
+    trusted.push(`${trustedQueryId(result.query_id)} returned no rows, so this review says nothing it would have shown.`);
+  }
+  return { gaps, trusted: [...new Set(trusted)] };
+}
+
+/** The code_gaps forms of codeGapsOf: what the Writer may repeat figures from. */
+export function codeGaps(results: readonly ResultForModel[], skipped: readonly SkippedStep[]): string[] {
+  return codeGapsOf(results, skipped).trusted;
 }
 
 type Call = NonNullable<AnalyseDeps["complete"]>;
@@ -273,14 +312,14 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   // On a retry, the results the previous findings cite stay in view even when this round's plan left their query
   // out, so the Analyst can keep or fix those findings. They come from the run's store (no query runs, none is
   // counted). thesis_check gets none: its evidence tables already carry every run_query_id to cite. The input as it
-  // stands (the feedback, of at most MAX_FIX_CHARS, included) is counted first, then each result is added only while
-  // the prompt leaves room for every tool round (TOOL_ROUND_RESERVE_CHARS each, when tools are offered) and for a
-  // structured retry's correction (RETRY_NOTE_CHARS); one that does not fit is left out and counted in the trace
+  // stands (the feedback included) is counted first, then each result is added only while the prompt leaves room for
+  // every tool round (toolReserveChars, when tools are offered) and for a structured retry's correction
+  // (RETRY_NOTE_CHARS); one that does not fit is left out and counted in the trace
   // (code still checks a kept finding against the full store).
   let previousCited = 0;
   let previousLeftOut = 0;
   const systemChars = analystPromptVersion().text.length;
-  const reserve = (tools.length > 0 ? cfg.MAX_TOOL_ROUNDS * cfg.TOOL_ROUND_RESERVE_CHARS : 0) + RETRY_NOTE_CHARS;
+  const reserve = (tools.length > 0 ? toolReserveChars(cfg, run.store) : 0) + RETRY_NOTE_CHARS;
   const cited = request.theses === undefined ? (request.previous_findings ?? []).flatMap((finding) => finding.cites) : [];
   for (const id of new Set(cited)) {
     const held = run.store[id];
@@ -294,6 +333,9 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     results.push(extra);
     previousCited += 1;
   }
+  // What the Analyst saw, returned to the caller: the user message's results, then each tool result once. Tool
+  // results live in the history only; they are never copied into `results`, which is serialised as the user message.
+  const returned: ResultForModel[] = [...results];
   const inputSummary = capped(
     `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${results.length} results (${results.reduce((n, r) => n + r.row_count, 0)} rows${previousCited > 0 ? `, ${previousCited} kept for the previous findings` : ""}${previousLeftOut > 0 ? `, ${previousLeftOut} left out for size` : ""}), ${request.theses === undefined ? "" : `${request.theses.length} theses, `}${skipped.length} skipped, ${input.memories.length} memories, ${input.world.length} world facts, previous_findings=${input.previous_findings === null ? "none" : `${input.previous_findings.length}${input.flagged_findings === null || input.flagged_findings.length === 0 ? "" : ` (${input.flagged_findings.length} flagged)`}`}, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
   );
@@ -352,12 +394,19 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
       content: null,
       tool_calls: calls.map((c) => ({ id: c.id, type: "function" as const, function: { name: c.name, arguments: safeJson(c.arguments) } })),
     });
-    for (const c of calls) {
+    for (const [index, c] of calls.entries()) {
+      if (index >= cfg.MAX_TOOL_CALLS_PER_ROUND) {
+        // Past the per-round cap: nothing runs, and the model is told why in the call's own tool message.
+        const reason = `MAX_TOOL_CALLS_PER_ROUND (${cfg.MAX_TOOL_CALLS_PER_ROUND}) calls already ran in this tool round, so this one did not run.`;
+        tracer.log({ agent_name: AGENT, action: "tool_call", input_summary: capped(`${c.name} ${safeJson(c.arguments)}`), output_summary: capped(`not run: ${reason}`), target_agent: QUERY_AGENT, status: "rejected", why: reason, model: result.model_id, retry_count: round });
+        history.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify({ error: reason, query_id: c.name }) });
+        continue;
+      }
       toolCalls += 1;
       const outcome = await runToolCall(c, { run, task: request.task, round, model: result.model_id });
       if (outcome.result !== undefined && !seen.has(outcome.result.run_query_id)) {
         seen.set(outcome.result.run_query_id, outcome.result);
-        results.push(trimmed(outcome.result));
+        returned.push(trimmed(outcome.result));
       }
       history.push({ role: "tool", tool_call_id: c.id, content: outcome.content });
     }
@@ -375,7 +424,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     }
   }
 
-  const base: AnalysisBase = { results, skipped, tool_rounds: toolRounds, tool_calls: toolCalls, model };
+  const base: AnalysisBase = { results: returned, skipped, tool_rounds: toolRounds, tool_calls: toolCalls, model };
   const fail = (error: AnalysisError, status: TraceStatus): AnalysisOutcome => {
     tracer.log({
       agent_name: AGENT,
@@ -406,8 +455,9 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   const findings = parsed.data.findings;
   const gaps = [...parsed.data.gaps];
   const retracted = parsed.data.retracted;
-  const code_gaps = codeGaps(results, skipped);
-  for (const gap of code_gaps) if (!gaps.includes(gap)) gaps.push(gap);
+  const written = codeGapsOf(returned, skipped);
+  const code_gaps = written.trusted;
+  for (const gap of written.gaps) if (!gaps.includes(gap)) gaps.push(gap);
 
   const guard = afterModel(AGENT, { findings, gaps, retracted }, input, tracer);
   if (!guard.ok) return fail({ type: "Blocked", message: guard.reason, recoverable: true }, "blocked");
