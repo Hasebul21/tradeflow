@@ -110,6 +110,9 @@ describe("numbersIn, numberMatchesIn and dayRangesIn", () => {
     expect(numbersIn(GAP)).toEqual([11]);
     expect(numbersIn("Dividends between 11-17 Sept returned no rows")).toEqual([11]);
     expect(numbersIn("the week of Sep 11-17")).toEqual([17]);
+    // 24 Oct, example_5: the Analyst wrote its dates with a non-breaking hyphen; they are dates all the same.
+    expect(numbersIn("EPS reported 4.20 (2025\u201112\u201131), 3.49 (2026\u201103\u201131) and 4.01 (2026\u201106\u201130)")).toEqual([4.2, 3.49, 4.01]);
+    expect(numbersIn("reported on 2026\u201009\u201127")).toEqual([]);
   });
 
   it("gives each number with its position, and the same values as numbersIn", () => {

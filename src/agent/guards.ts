@@ -244,7 +244,8 @@ export type NumberMatch = { value: number; index: number };
 
 /** numbersIn with positions: each number and its index in `text`. The masking keeps the text's length. */
 export function numberMatchesIn(text: string, ignore: readonly string[] = []): NumberMatch[] {
-  let t = text;
+  // A model often writes a date with a non-breaking hyphen (2026‑03‑31); one character for one, so positions stay.
+  let t = text.replace(/[\u2010\u2011\u2012\u2212]/g, "-");
   for (const id of [...ignore].filter((s) => s.length > 0).sort((a, b) => b.length - a.length)) t = t.split(id).join(blank(id));
   t = t
     .replace(UUID, blank)
