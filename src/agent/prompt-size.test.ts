@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -35,11 +35,21 @@ const WEEK_QUESTION = "Why did my portfolio move this week?";
 const config = loadConfig({ SAMPLE_MODE: "true" }, () => {});
 
 const dirs: string[] = [];
-/** A fresh copy of data/ for the next run, so every run starts from the same state. */
-async function freshData(): Promise<void> {
+/**
+ * A fresh copy of data/ for the next run, so every run starts from the same state. `maxJournal` keeps only that many
+ * of the newest journal entries, so a thesis_check draft is small enough for the Evaluator's own prompt to leave room
+ * under a low MAX_PROMPT_CHARS: with all 30 theses the Evaluator sees every cited row and is the largest prompt.
+ */
+async function freshData(maxJournal?: number): Promise<void> {
   const dir = await mkdtemp(path.join(tmpdir(), "tradeflow-prompt-size-"));
   dirs.push(dir);
   await cp(path.resolve("data"), dir, { recursive: true, filter: (source) => path.basename(source) !== "memory" });
+  if (maxJournal !== undefined) {
+    const file = path.join(dir, "journal.json");
+    const rows = JSON.parse(readFileSync(file, "utf8")) as { id: string; created_at: string }[];
+    const newest = [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)).slice(0, maxJournal);
+    writeFileSync(file, JSON.stringify(newest, null, 2));
+  }
   process.env.TRADEFLOW_DATA_DIR = dir;
 }
 
@@ -63,23 +73,26 @@ const configWith = (limit: number): Config => loadConfig({ SAMPLE_MODE: "true", 
 
 type Thesis = { journal_id: string; fundamentals_run_query_id: string | null };
 
+/** How many of the newest journal entries this test keeps: 6 theses are two batches of at most five. */
+const JOURNAL = 6;
+
 /**
- * The live run's shape: each of the first round's two batches gets a wrong claim (a figure no row holds, a dividend
- * with no row), so the Evaluator rejects the draft and round 2 reruns both batches. Records every Analyst call.
+ * The live run's shape: the first-round batch holding j-026 gets a wrong claim (a stale figure no row of this run
+ * holds), so the Evaluator rejects the draft and round 2 reruns that batch with the whole 6-finding draft as
+ * previous findings. Records every Analyst call.
  */
 function thesisRound1Errors(calls: CompleteOptions[]): void {
   stubs.override = async (options, actual) => {
     if (options.agent !== "Analyst") return null;
     calls.push(options);
     const result = await actual(options);
-    if (calls.length > 2) return result;
-    const theses = (JSON.parse(options.user) as { theses: Thesis[] }).theses;
-    const cites = (id: string) => [theses.find((thesis) => thesis.journal_id === id)!.fundamentals_run_query_id!];
-    const findings = ((result.json?.findings ?? []) as Finding[]).map((finding) => {
-      if (finding.subject === "j-026") return { ...finding, numbers: [], cites: cites("j-026"), claim: "Open: the holding is 24.71% of the portfolio, approaching the 25% trim threshold; the exit condition 'Trim if it goes above 25%' is not yet met." };
-      if (finding.subject === "j-005") return { ...finding, numbers: [], cites: cites("j-005"), claim: "Confirmed: the dividend of Tk 18.00 per share was paid on 2026-07-12, so the thesis of buying for the dividend is still supported." };
-      return finding;
-    });
+    const user = JSON.parse(options.user) as { theses: Thesis[]; previous_findings: unknown };
+    // Only the first round, and only the batch holding j-026: round 2's rerun is the call under test.
+    if (user.previous_findings !== null || !user.theses.some((thesis) => thesis.journal_id === "j-026")) return result;
+    const cites = [user.theses.find((thesis) => thesis.journal_id === "j-026")!.fundamentals_run_query_id!];
+    const findings = ((result.json?.findings ?? []) as Finding[]).map((finding) =>
+      finding.subject === "j-026" ? { ...finding, numbers: [], cites, claim: "Open: the holding is 24.71% of the portfolio, approaching the 25% trim threshold; the exit condition 'Trim if it goes above 25%' is not yet met." } : finding,
+    );
     const json = { ...(result.json ?? {}), findings };
     return { ...result, json, text: JSON.stringify(json) };
   };
@@ -87,38 +100,41 @@ function thesisRound1Errors(calls: CompleteOptions[]): void {
 
 describe("thesis_check: a rerun whose previous findings outgrow MAX_PROMPT_CHARS (23 Oct, example_5)", () => {
   it("sends a rerun only the previous findings the fix flags, and the run ends success, not error", async () => {
-    // The limit sits just above the largest first-round prompt. A round-2 rerun of batch 2 with its 15 previous findings
-    // goes over it, as in the live run; with only the flagged ones it fits.
-    await freshData();
-    const dry: CompleteOptions[] = [];
-    thesisRound1Errors(dry);
-    await run({ runId: "prompt-size-dry", task: "thesis_check", input: { question: THESIS_QUESTION, as_of: AS_OF }, sampleMode: true, config });
-    const limit = Math.max(...dry.slice(0, 2).map(promptChars)) + 2000;
     // With no limit to meet, nothing is cut: the rerun's prompt as the live run built it.
-    await freshData();
+    await freshData(JOURNAL);
     const whole: CompleteOptions[] = [];
     thesisRound1Errors(whole);
     await run({ runId: "prompt-size-whole", task: "thesis_check", input: { question: THESIS_QUESTION, as_of: AS_OF }, sampleMode: true, config: configWith(1_000_000) });
-    expect(promptChars(whole[3])).toBeGreaterThan(limit);
+    // Six theses are two batches (five and one): calls 0 and 1 are the first round and call 2 reruns the batch holding
+    // j-026. The limit sits between the largest first-round prompt and that rerun with every previous finding, so the
+    // rerun goes over it as in the live run; with only the flagged ones it fits.
+    const firstRound = whole.slice(0, 2).map(promptChars);
+    const limit = Math.floor((Math.max(...firstRound) + promptChars(whole[2])) / 2);
+    expect(promptChars(whole[2])).toBeGreaterThan(limit);
+    expect(Math.max(...firstRound)).toBeLessThanOrEqual(limit);
 
-    await freshData();
+    await freshData(JOURNAL);
     const calls: CompleteOptions[] = [];
     thesisRound1Errors(calls);
     const result = await run({ runId: "prompt-size-thesis", task: "thesis_check", input: { question: THESIS_QUESTION, as_of: AS_OF }, sampleMode: true, config: configWith(limit) });
 
     expect(result.status, result.error?.message).toBe("success");
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(3);
     for (const call of calls) expect(promptChars(call)).toBeLessThanOrEqual(limit);
 
-    // The rerun of batch 2 shows the fix's flagged findings only; code keeps the rest, as the Analyst prompt says.
-    const user = JSON.parse(calls[3].user) as { previous_findings: Finding[]; flagged_findings: { kind: string; subject: string }[] };
+    // The rerun shows the fix's flagged findings only; code keeps the rest, as the Analyst prompt says.
+    const user = JSON.parse(calls[2].user) as { previous_findings: Finding[]; flagged_findings: { kind: string; subject: string }[] };
     expect(user.flagged_findings.length).toBeGreaterThan(0);
-    expect(user.previous_findings.length).toBeLessThan(15);
+    expect(user.previous_findings.length).toBe(user.flagged_findings.length);
+    expect(user.previous_findings.length).toBeLessThan(JOURNAL);
     for (const finding of user.previous_findings) {
       expect(user.flagged_findings.some((flag) => flag.kind === finding.kind && flag.subject === finding.subject)).toBe(true);
     }
+    const rerunUsers = calls.slice(2).map((call) => JSON.parse(call.user) as { previous_findings: Finding[] });
     const cut = trace(result).filter((line) => line.agent_name === "Analyst" && line.action === "previous_left_out");
-    expect(cut).toEqual([expect.objectContaining({ retry_count: 1, status: "ok", input_summary: expect.stringMatching(/^round 2: \d+ of \d+ previous findings, \d+ flagged$/) })]);
+    expect(cut.length).toBe(rerunUsers.filter((rerun) => rerun.previous_findings.length < JOURNAL).length);
+    expect(cut.length).toBe(1);
+    for (const line of cut) expect(line).toMatchObject({ retry_count: 1, status: "ok", input_summary: expect.stringMatching(/^round 2: \d+ of \d+ previous findings, \d+ flagged$/) });
   });
 
   it("a PromptTooLarge on the second Analyst call ends needs_human with model_unavailable and a trace line that says the prompt was too large", async () => {

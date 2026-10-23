@@ -257,8 +257,9 @@ describe("the loop: revise, don't restart", () => {
 
   it("example_5, 23 Oct: thesis_check names every refused figure, reruns both batches and succeeds once the findings cite the right rows", async () => {
     // The live run: j-026 quoted "Trim if it goes above 25%" and a weight of 24.71 (a World Model fact from an earlier
-    // week, in no row of this run) citing only fundamentals; j-005 (in the second batch) named its Tk 18 dividend
-    // citing only fundamentals. The fix named j-026 alone "(and 10 more problems)", so the second batch never reran.
+    // week, in no row of this run) citing only fundamentals; j-024 (GP, first of the second batch of five) named its
+    // Tk 12.50 dividend, which only dividends_between holds, citing only fundamentals. The fix named j-026 alone
+    // "(and 10 more problems)", so the second batch never reran.
     type Thesis = { journal_id: string; journal_run_query_id: string | null; fundamentals_run_query_id: string | null };
     const analystCalls: CompleteOptions[] = [];
     const thesesOf = (call: CompleteOptions) => (JSON.parse(call.user) as { theses: Thesis[] }).theses;
@@ -272,8 +273,8 @@ describe("the loop: revise, don't restart", () => {
           if (finding.subject === "j-026") {
             return { ...finding, numbers: [], cites: fundamentals("j-026"), claim: "Open: the holding is 24.71% of the portfolio, approaching the 25% trim threshold; the exit condition 'Trim if it goes above 25%' is not yet met." };
           }
-          if (finding.subject === "j-005") {
-            return { ...finding, numbers: [], cites: fundamentals("j-005"), claim: "Confirmed: the dividend of Tk 18.00 per share was paid on 2026-07-12, so the thesis of buying for the dividend is still supported." };
+          if (finding.subject === "j-024") {
+            return { ...finding, numbers: [], cites: fundamentals("j-024"), claim: "Confirmed: the dividend of Tk 12.50 per share has a record date of 2026-09-21, so the thesis of buying for the dividend is still supported." };
           }
           return finding;
         });
@@ -295,18 +296,19 @@ describe("the loop: revise, don't restart", () => {
     expect(fix).not.toMatch(/more problem/);
     expect(fix).toMatch(/Fix finding \d+ \(thesis j-026\): .*the claim has 24\.71, .*\(no result of this run holds 24\.71, so leave it out\)/);
     expect(fix).toMatch(/the claim has 25, .*\(25 is in journal_for_symbol /);
-    expect(fix).toMatch(/Fix finding \d+ \(thesis j-005\): the claim has 18, .*\(18 is in .*dividends_between /);
-    // Both batches go back to the Analyst in round 2, because the fix names a journal id in each.
-    expect(analystCalls).toHaveLength(4);
+    expect(fix).toMatch(/Fix finding \d+ \(thesis j-024\): the claim has 12\.5, .*\(12\.5 is in .*dividends_between /);
+    // Both batches go back to the Analyst in round 2, because the fix names a journal id in each. The first round is
+    // six batches of five theses; only the two holding a named id rerun, so there are eight calls in all.
+    expect(analystCalls).toHaveLength(8);
     expect(by(lines, "Analyst", "analyse").filter((line) => line.retry_count === 1)).toHaveLength(2);
     expect(by(lines, "Evaluator", "accept")).toEqual([expect.objectContaining({ retry_count: 1 })]);
     // The batch-2 finding keeps the fix's number in flagged_findings, not its place in the batch.
-    const number = Number(fix.match(/Fix finding (\d+) \(thesis j-005\)/)?.[1]);
-    expect(number).toBeGreaterThan(15);
-    const batchTwo = analystCalls.slice(2).map((call) => JSON.parse(call.user) as { previous_findings: Finding[]; flagged_findings: { finding: number; kind: string; subject: string }[] });
-    const withJ005 = batchTwo.find((user) => user.previous_findings.some((finding) => finding.subject === "j-005"))!;
-    expect(withJ005.flagged_findings).toEqual([{ finding: number, kind: "thesis", subject: "j-005" }]);
-    expect(withJ005.previous_findings.findIndex((finding) => finding.subject === "j-005") + 1).not.toBe(number);
+    const number = Number(fix.match(/Fix finding (\d+) \(thesis j-024\)/)?.[1]);
+    expect(number).toBeGreaterThan(5);
+    const reruns = analystCalls.slice(6).map((call) => JSON.parse(call.user) as { previous_findings: Finding[]; flagged_findings: { finding: number; kind: string; subject: string }[] });
+    const withJ024 = reruns.find((user) => user.previous_findings.some((finding) => finding.subject === "j-024"))!;
+    expect(withJ024.flagged_findings).toEqual([{ finding: number, kind: "thesis", subject: "j-024" }]);
+    expect(withJ024.previous_findings.findIndex((finding) => finding.subject === "j-024") + 1).not.toBe(number);
     for (const call of analystCalls) expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
   });
 
