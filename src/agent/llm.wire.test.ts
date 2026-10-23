@@ -43,7 +43,7 @@ describe("complete with the real openai client", () => {
     expect(headers.get("authorization")).toBe(`Bearer ${KEY}`);
     expect(headers.get("meterless-app")).toBe("tradeflow");
     expect(headers.get("meterless-scope")).toBe("user");
-    expect(JSON.parse(String(init.body))).toMatchObject({ model: "lane/main", temperature: 0.2, max_tokens: 24000 });
+    expect(JSON.parse(String(init.body))).toMatchObject({ model: "lane/main", temperature: 0.2, max_tokens: 16000 });
   });
 
   it("maps a real 401 to Unauthorized after one request", async () => {
@@ -78,7 +78,7 @@ describe("502 empty_response retries within the round (fake timers)", () => {
   let lines: TraceInput[] = [];
   const tracer = { log: (input: TraceInput) => (lines.push(input), input as never) };
   const retries = () => lines.filter((line) => line.action === "empty_response_retry");
-  // A fresh round: ROUND_TIMEOUT_MS (300 s) left, so both waits (15 s, 30 s) leave over MODEL_TIMEOUT_CAP_MS.
+  // A fresh round: ROUND_TIMEOUT_MS (360 s) left, so both waits (15 s, 30 s) leave over MODEL_TIMEOUT_CAP_MS (240 s).
   const inRound = (leftMs: number): CompleteOptions => ({
     ...base,
     tracer,
@@ -146,6 +146,23 @@ describe("502 empty_response retries within the round (fake timers)", () => {
     expect(retries()).toHaveLength(2);
     expect(failedCallUsage(error).model_calls).toBe(3);
     expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(3);
+  });
+
+  it("1 empty reply with 300000 ms left in the round: the retry starts after the 15 s wait", async () => {
+    fetchMock.mockResolvedValueOnce(empty()).mockResolvedValueOnce(jsonResponse(200, ok));
+    const pending = complete(inRound(300000));
+    await vi.advanceTimersByTimeAsync(15000);
+    expect((await pending).text).toBe("hi");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(retries()).toHaveLength(1);
+  });
+
+  it("1 empty reply with 200000 ms left in the round: a ModelHttpError(502) and no retry", async () => {
+    fetchMock.mockImplementation(async () => empty());
+    const error = await complete(inRound(200000)).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelHttpError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(retries()).toHaveLength(0);
   });
 
   it("1 empty reply with under MODEL_TIMEOUT_CAP_MS left in the round: a ModelHttpError(502) and no retry", async () => {

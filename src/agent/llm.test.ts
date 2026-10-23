@@ -159,9 +159,9 @@ describe("complete with the openai client mocked", () => {
   it("sends TEMPERATURE and MAX_COMPLETION_TOKENS from config.ts", async () => {
     mocks.create.mockResolvedValueOnce(reply("ok"));
     await complete(base);
-    expect(mocks.create.mock.calls[0][0]).toMatchObject({ temperature: 0.2, max_tokens: 24000 });
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({ temperature: 0.2, max_tokens: 16000 });
     expect(config.TEMPERATURE).toBe(0.2);
-    expect(config.MAX_COMPLETION_TOKENS).toBe(24000);
+    expect(config.MAX_COMPLETION_TOKENS).toBe(16000);
   });
 
   it("builds the client with the two Meterless headers, no SDK retries and the config's URL", async () => {

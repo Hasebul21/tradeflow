@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConfigError, loadConfig } from "./config";
+import { ConfigError, EMPTY_RESPONSE_RETRY_MAX_TOKENS, loadConfig, MODEL_TIMEOUT_CAP_MS } from "./config";
 
 // Made-up values only: no real endpoint, model id or key appears here.
 const BASE = "https://example.test/v1";
@@ -17,15 +17,15 @@ describe("limits and defaults", () => {
       MAX_TOOL_ROUNDS: 2,
       MAX_TOKENS_PER_RUN: 250000,
       QUERY_TIMEOUT_MS: 20000,
-      MODEL_TIMEOUT_MS: 180000,
-      MODEL_TIMEOUT_STRONG_MS: 180000,
-      ROUND_TIMEOUT_MS: 300000,
-      RUN_TIMEOUT_MS: 600000,
+      MODEL_TIMEOUT_MS: 240000,
+      MODEL_TIMEOUT_STRONG_MS: 240000,
+      ROUND_TIMEOUT_MS: 360000,
+      RUN_TIMEOUT_MS: 900000,
       MAX_ROWS_PER_QUERY: 50,
       MAX_MEMORIES: 5,
       MAX_PROMPT_CHARS: 40000,
       TEMPERATURE: 0.2,
-      MAX_COMPLETION_TOKENS: 24000,
+      MAX_COMPLETION_TOKENS: 16000,
       PORT: 8000,
       LOG_LEVEL: "info",
     });
@@ -34,10 +34,15 @@ describe("limits and defaults", () => {
     expect(cfg.models.strong).toBeUndefined();
   });
 
-  it("clamps a model timeout above 180000 to 180000", () => {
+  it("clamps a model timeout above 240000 to 240000", () => {
     const cfg = loadConfig({ MODEL_TIMEOUT_MS: "999999", MODEL_TIMEOUT_STRONG_MS: "999999" }, () => {});
-    expect(cfg.MODEL_TIMEOUT_MS).toBe(180000);
-    expect(cfg.MODEL_TIMEOUT_STRONG_MS).toBe(180000);
+    expect(cfg.MODEL_TIMEOUT_MS).toBe(240000);
+    expect(cfg.MODEL_TIMEOUT_STRONG_MS).toBe(240000);
+  });
+
+  it("sets the model-call cap to 240000 and keeps the empty-reply retry at 32000 tokens", () => {
+    expect(MODEL_TIMEOUT_CAP_MS).toBe(240000);
+    expect(EMPTY_RESPONSE_RETRY_MAX_TOKENS).toBe(32000);
   });
 
   it("keeps a model timeout below the cap", () => {

@@ -58,7 +58,7 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 
 /** The organisers' maximum for one model call (guide of 19 Oct). */
-export const MODEL_TIMEOUT_CAP_MS = 180000;
+export const MODEL_TIMEOUT_CAP_MS = 240000;
 
 /** max_tokens for llm.ts's retries after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
 export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 32000;
@@ -87,13 +87,13 @@ const limitsSchema = z.object({
   QUERY_TIMEOUT_MS: positiveInt(20000),
   MODEL_TIMEOUT_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
   MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
-  ROUND_TIMEOUT_MS: positiveInt(300000),
-  RUN_TIMEOUT_MS: positiveInt(600000),
+  ROUND_TIMEOUT_MS: positiveInt(360000),
+  RUN_TIMEOUT_MS: positiveInt(900000),
   MAX_ROWS_PER_QUERY: positiveInt(50),
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),
   TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
-  MAX_COMPLETION_TOKENS: positiveInt(24000),
+  MAX_COMPLETION_TOKENS: positiveInt(16000),
   PORT: z.coerce.number().int().min(1).max(65535).default(8000),
 });
 
