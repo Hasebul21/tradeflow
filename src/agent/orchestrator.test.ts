@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DISCLAIMER } from "./agents/writer";
 import { loadConfig } from "./config";
 import type { Finding } from "./guards";
-import { ModelHttpError, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
-import { asksForAdvice, run, type RunResult } from "./orchestrator";
+import { PLANNER_FALLBACK_LABEL } from "./labels";
+import { BadJson, ModelHttpError, ModelTimeout, Unauthorized, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
+import { asksForAdvice, plannerFallbackCause, run, type RunResult } from "./orchestrator";
 import type { TraceLine } from "./trace";
 
 // Every run here is explain_week as of 2026-10-01 with the sample model, on a temporary copy of data/ through
@@ -497,13 +498,62 @@ describe("a model that fails after the queries ran", () => {
     expect(lines.at(-1)).toMatchObject({ action: "run_end", stop_reason: "model_unavailable" });
   });
 
-  it("the Planner's first 502, before any query ran, is still an error reply", async () => {
+  it("the Planner's 502, before any query ran, gets the code plan: one planner_fallback line with cause upstream_502, and the run ends success", async () => {
     stubs.override = fail502("Planner");
     const result = await explainWeek("orch-model-unavailable-planner");
-    expect(result.status).toBe("error");
-    expect(result.output).toBeNull();
-    expect(result.error).toMatchObject({ type: "ModelHttpError", recoverable: true });
-    expect(by(trace(result), "Orchestrator", "model_unavailable_fallback")).toHaveLength(0);
+    expect(result.status).toBe("success");
+    expect(result.error).toBeNull();
+    const lines = trace(result);
+    const fallback = by(lines, "Orchestrator", "planner_fallback");
+    expect(fallback).toHaveLength(1);
+    expect(fallback[0]).toMatchObject({ status: "fallback", target_agent: "Analyst" });
+    expect(fallback[0].why).toMatch(/^upstream_502 after llm.ts's retries/);
+    expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (the model service returned an error; queries: week_moves,`))).toBe(true);
+    // The failed Planner call is counted, and no Planner plan line was written: the plan is code's.
+    expect(by(lines, "Planner", "model_call")[0]).toMatchObject({ status: "error", usage: { model_calls: 1 } });
+    expect(by(lines, "Planner", "plan")).toHaveLength(0);
+    expect(by(lines, "Orchestrator", "model_unavailable_fallback")).toHaveLength(0);
+    expect(lines.filter((line) => line.action !== "run_end").reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(result.usage.model_calls);
+  });
+
+  it("the Planner's timeout, with the round's time left, gets the code plan with cause timeout", async () => {
+    stubs.override = async (options) => {
+      if (options.agent !== "Planner") return null;
+      throw new ModelTimeout("The strong model call timed out twice (420000 ms at most for the attempt).");
+    };
+    const result = await explainWeek("orch-planner-timeout");
+    expect(result.status).toBe("success");
+    const fallback = by(trace(result), "Orchestrator", "planner_fallback");
+    expect(fallback).toHaveLength(1);
+    expect(fallback[0].why).toMatch(/^timeout after llm.ts's retries/);
+    expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (the model call timed out;`))).toBe(true);
+  });
+
+  it("a Planner 502 and then an Analyst 502: the code plan, then needs_human with model_unavailable, never status error", async () => {
+    stubs.override = async (options) => {
+      if (options.agent !== "Planner" && options.agent !== "Analyst") return null;
+      throw new ModelHttpError(`The ${options.agent} model call failed: 3 tries failed with HTTP 502 empty_response`, 502);
+    };
+    const result = await explainWeek("orch-planner-analyst-502");
+    expect(result.status).toBe("needs_human");
+    expect(result.error).toBeNull();
+    expect(result.output).toMatchObject({ stop_reason: "model_unavailable", partial: true, findings: [] });
+    expect(result.output!.gaps.some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))).toBe(true);
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "planner_fallback")).toHaveLength(1);
+    expect(by(lines, "Orchestrator", "model_unavailable_fallback")[0].why).toMatch(/^ModelHttpError from the Analyst's model call/);
+    expect(lines.at(-1)).toMatchObject({ action: "run_end", status: "needs_human", stop_reason: "model_unavailable" });
+  });
+
+  it("plannerFallbackCause: bad_json, upstream_<status> and timeout fall back; a timeout with no time left, a 4xx and Unauthorized do not", () => {
+    expect(plannerFallbackCause(new BadJson("x", "the reply is empty"), true)).toMatchObject({ kind: "bad_json", code: "bad_json" });
+    expect(plannerFallbackCause(new ModelHttpError("502 empty_response", 502), true)).toMatchObject({ kind: "upstream", code: "upstream_502" });
+    expect(plannerFallbackCause(new ModelHttpError("503", 503), true)).toMatchObject({ code: "upstream_503" });
+    expect(plannerFallbackCause(new ModelTimeout("timed out"), true)).toMatchObject({ kind: "timeout", code: "timeout" });
+    expect(plannerFallbackCause(new ModelTimeout("timed out"), false)).toBeNull();
+    expect(plannerFallbackCause(new ModelHttpError("not found", 404), true)).toBeNull();
+    expect(plannerFallbackCause(new ModelHttpError("network", undefined), true)).toBeNull();
+    expect(plannerFallbackCause(new Unauthorized("401"), true)).toBeNull();
   });
 });
 

@@ -267,6 +267,26 @@ export function errorOf(error: unknown): RunError {
   return { type: "Internal", message: String(error), recoverable: false };
 }
 
+/** The Planner failures the code plan stands in for, in the review's words (no figures, so the Writer's check is unaffected). */
+const PLANNER_FALLBACK_WORDS = {
+  bad_json: "its replies could not be read",
+  upstream: "the model service returned an error",
+  timeout: "the model call timed out",
+} as const;
+
+/**
+ * Why the Planner's failed call gets the code plan, or null when it must pass through. llm.ts has already spent its
+ * own retries when it throws: the structured tries for BadJson, the empty_response tries for a 502, the one retry
+ * for a timeout. A timeout counts only while the round and the run still have time (`timeLeft`); otherwise the loop
+ * ends with round_timeout or run_timeout. `code` is the trace's cause: bad_json, upstream_<status> or timeout.
+ */
+export function plannerFallbackCause(error: unknown, timeLeft: boolean): { kind: keyof typeof PLANNER_FALLBACK_WORDS; code: string; detail: string } | null {
+  if (error instanceof BadJson) return { kind: "bad_json", code: "bad_json", detail: `${error.kind}: ${error.reason}` };
+  if (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500) return { kind: "upstream", code: `upstream_${error.status}`, detail: error.message };
+  if (error instanceof ModelTimeout && timeLeft) return { kind: "timeout", code: "timeout", detail: error.message };
+  return null;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Injection: rows, memories and trade-plan notes are data, scanned in code; a match is traced and its text removed.
 
@@ -656,9 +676,21 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     let round = 0;
     /** The agent whose model call is running, so a model failure can name it. */
     let calling: AgentName = "Planner";
+    /** The planner_fallback gap of the plan in use, or null when the Planner made it. */
+    let planNote: string | null = null;
+    /**
+     * The draft a stopped run returns, carrying the planner_fallback gap when the plan in use came from code, so a
+     * stop before the Analyst's draft (a 502, a timeout, a spent budget) still says the plan was code's.
+     */
+    const bestDraft = (): Draft | null => {
+      const draft = accepted ?? best ?? latest;
+      if (planNote === null || (draft?.gaps ?? []).includes(planNote)) return draft;
+      if (draft === null) return { findings: [], gaps: [planNote], code_gaps: [planNote], scores: null, total: null, round };
+      return { ...draft, gaps: [...draft.gaps, planNote], code_gaps: [...draft.code_gaps, planNote] };
+    };
     const roundsRun = () => Math.min(round + 1, config.MAX_ROUNDS);
     const stopped = (reason: StopReason, detail = stopDetail(reason)): NeedsHuman => {
-      const draft = accepted ?? best ?? latest;
+      const draft = bestDraft();
       if (reason === "cancelled") return cancelledOutcome(draft, roundsRun(), `round ${roundsRun()} of ${config.MAX_ROUNDS}`);
       tracer.log({
         agent_name: AGENT,
@@ -682,7 +714,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       const unreadable = error instanceof BadJson;
       const ran = Object.values(state.store).map((result) => result.query_id);
       const detail = `${type} in the ${calling}'s call (${error.message}); ${ran.length} queries ran: ${ran.join(", ")}.`;
-      const base = accepted ?? best ?? latest;
+      const base = bestDraft();
       const gap = `The ${calling}'s ${unreadable ? "model replies could not be read" : "model call failed"} (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
       const draft: Draft = { findings: base?.findings ?? [], gaps: [...(base?.gaps ?? []), gap], code_gaps: [...(base?.code_gaps ?? []), gap], scores: base?.scores ?? null, total: base?.total ?? null, round: base?.round ?? round };
       tracer.log({
@@ -706,10 +738,11 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
 
     /**
      * The Planner's call, counted here (plan() has no run of its own, so every request it made is counted, failed or
-     * not). When its replies still cannot be read as a plan after llm.ts's tries (BadJson), code builds the task's
+     * not). When it still fails after llm.ts's own retries (plannerFallbackCause: replies that cannot be read, a 5xx
+     * such as the 502 empty_response, or a timeout that is not the round's or the run's), code builds the task's
      * default plan (default-plan.ts, through the Planner's own step checks), writes one Orchestrator "planner_fallback"
-     * line and the run carries on to the Analyst. `note` is the gap that says so in the review. Every other error,
-     * a 502 or a timeout included, passes through as before.
+     * line with the cause in its why, and the run carries on to the Analyst. `note` is the gap that says so in the
+     * review. Every other error (Unauthorized, NightshiftNotRunning, a spent budget, a cancel) passes through.
      */
     const planOrFallback = async (request: PlanRequest): Promise<{ focus: string; steps: PlannedStep[]; note: string | null }> => {
       state.beforeModelCall();
@@ -719,26 +752,29 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         planned = await plan(request, { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round });
       } catch (error) {
         state.afterFailedModelCall(failedCallUsage(error));
-        if (!(error instanceof BadJson) || signal.aborted) throw error;
+        const cause = signal.aborted ? null : plannerFallbackCause(error, runLeft() > 0 && roundLeft() > 0);
+        if (cause === null) throw error;
         const fallback = defaultPlanFor(request, config);
         const ids = fallback.steps.map((step) => step.query_id);
-        const note = `${PLANNER_FALLBACK_LABEL} (${ids.join(", ")}); the review covers those, not a plan made for this question.`;
+        const note = `${PLANNER_FALLBACK_LABEL} (${PLANNER_FALLBACK_WORDS[cause.kind]}; queries: ${ids.join(", ")}); the review covers those, not a plan made for this question.`;
         tracer.log({
           agent_name: AGENT,
           action: "planner_fallback",
-          input_summary: capped(`round ${round + 1} of ${config.MAX_ROUNDS}; task=${request.task}; the Planner's call failed: BadJson`),
+          input_summary: capped(`round ${round + 1} of ${config.MAX_ROUNDS}; task=${request.task}; the Planner's call failed: ${cause.code}`),
           output_summary: capped(`${fallback.steps.length} steps planned in code, no model: ${ids.join(", ") || "none"}${fallback.dropped.length > 0 ? `; ${fallback.dropped.length} dropped` : ""}`),
           target_agent: "Analyst",
           status: "fallback",
-          why: `BadJson after the Planner's tries (${error.kind}: ${error.reason}); the plan: ${fallback.steps.map((step, index) => `${index + 1}. ${step.query_id}: ${step.why}`).join(" ")}`,
+          why: `${cause.code} after llm.ts's retries (${cause.detail}); the plan: ${fallback.steps.map((step, index) => `${index + 1}. ${step.query_id}: ${step.why}`).join(" ")}`,
           retry_count: round,
         });
+        planNote = note;
         return { focus: fallback.focus, steps: fallback.steps, note };
       }
       state.afterModelCall(planned.model);
       modelIds.add(planned.model.model_id);
       if (planned.injection_seen) flags.injection = true;
       if (planned.declined_advice) declineAdvice("flagged by the Planner");
+      planNote = null;
       return { focus: planned.focus, steps: planned.steps, note: null };
     };
 

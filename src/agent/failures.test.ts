@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, STRUCTURED_REPLY_MAX_TRIES } from "./config";
+import { PLANNER_FALLBACK_LABEL } from "./labels";
 import { resetModelQuirks, type CompleteOptions, type CompleteResult } from "./llm";
 import { run, type RunResult } from "./orchestrator";
 import { complete as sampleComplete } from "./sample-model";
@@ -409,9 +410,9 @@ describe("replies that cannot be read: each agent recovers or falls back, and th
     expect(fallback).toHaveLength(1);
     expect(fallback[0]).toMatchObject({ status: "fallback", target_agent: "Analyst" });
     expect(fallback[0].output_summary).toContain("week_moves, sector_vs_stock, announcements_between, dividends_between, rule_findings");
-    expect(fallback[0].why).toContain("BadJson");
+    expect(fallback[0].why).toMatch(/^bad_json after llm.ts's retries \(parse: the JSON object is cut off/);
     // The plan is labelled as code's in the review's gaps, never passed off as the Planner's.
-    expect(result.output!.gaps.some((gap) => gap.startsWith("The Planner's model replies could not be read (BadJson)"))).toBe(true);
+    expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (its replies could not be read; queries: week_moves,`))).toBe(true);
     expect(by(lines, "Planner", "plan")).toHaveLength(0);
     expect(lines.filter((line) => line.agent_name === "Query" && line.action === "query").length).toBeGreaterThan(0);
     // Each finding cites only rows a query of this run returned.

@@ -152,8 +152,8 @@ export function universalChecks(result: RunResult): CaseCheck[] {
   }
   // A run the model abandoned after the queries is never a pass, even when the case expects needs_human.
   if (result.output?.stop_reason === "model_unavailable") out.push(check("model_unavailable: the model failed after the queries", false, `status ${result.status}; the draft was built by code, not by the model`));
-  // A plan built in code because the Planner's replies could not be read is never a pass for the Planner either.
-  if ((result.output?.gaps ?? []).some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))) out.push(check("planner_fallback: the plan was built in code", false, `status ${result.status}; the Planner's replies could not be read, so code planned the task's standard queries`));
+  // A plan built in code because the Planner failed (unreadable replies, a 5xx or a timeout) is never a pass either.
+  if ((result.output?.gaps ?? []).some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))) out.push(check("planner_fallback: the plan was built in code", false, `status ${result.status}; the Planner gave no usable plan, so code planned the task's standard queries`));
   const whole = JSON.stringify(result.output ?? {}).toLowerCase();
   const advice = ADVICE.filter((phrase) => whole.includes(phrase));
   out.push(check("no_advice", advice.length === 0, advice.length === 0 ? "no advice wording" : `contains ${advice.join(", ")}`));
