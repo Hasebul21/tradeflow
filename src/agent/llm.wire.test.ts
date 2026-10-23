@@ -1,7 +1,7 @@
 // The real openai client with fetch replaced: what goes on the wire, and the error shapes the SDK really throws.
 // llm.test.ts mocks the client; this file checks the mock's assumptions against the SDK itself.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_RESPONSE_MAX_TRIES, loadConfig, MODEL_TIMEOUT_CAP_MS } from "./config";
+import { EMPTY_RESPONSE_MAX_TRIES, EMPTY_RESPONSE_RETRY_WAITS_MS, loadConfig, MODEL_TIMEOUT_CAP_MS } from "./config";
 import { complete, failedCallUsage, ModelHttpError, NightshiftNotRunning, resetModelQuirks, Unauthorized, type CompleteOptions } from "./llm";
 import { BudgetExhaustedError } from "./run-state";
 import type { TraceInput } from "./trace";
@@ -152,18 +152,18 @@ describe("502 empty_response retries within the round (fake timers)", () => {
     expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(1);
   });
 
-  it("3 empty replies: a ModelHttpError(502) naming 3 failed tries, and no fourth request", async () => {
+  it("EMPTY_RESPONSE_MAX_TRIES empty replies: a ModelHttpError(502) naming that many failed tries, and no further request", async () => {
     fetchMock.mockImplementation(async () => empty());
     const pending = complete(inRound(900000)).catch((e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(45000);
+    await vi.advanceTimersByTimeAsync(EMPTY_RESPONSE_RETRY_WAITS_MS.reduce((sum, wait) => sum + wait, 0));
     const error = await pending;
     expect(error).toBeInstanceOf(ModelHttpError);
     expect((error as ModelHttpError).status).toBe(502);
-    expect((error as Error).message).toContain("3 tries failed with HTTP 502 empty_response");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(retries()).toHaveLength(2);
-    expect(failedCallUsage(error).model_calls).toBe(3);
-    expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(3);
+    expect((error as Error).message).toContain(`${EMPTY_RESPONSE_MAX_TRIES} tries failed with HTTP 502 empty_response`);
+    expect(fetchMock).toHaveBeenCalledTimes(EMPTY_RESPONSE_MAX_TRIES);
+    expect(retries()).toHaveLength(EMPTY_RESPONSE_MAX_TRIES - 1);
+    expect(failedCallUsage(error).model_calls).toBe(EMPTY_RESPONSE_MAX_TRIES);
+    expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(EMPTY_RESPONSE_MAX_TRIES);
   });
 
   it("1 empty reply with 900000 ms left in the round: the retry starts after the 15 s wait", async () => {

@@ -64,9 +64,9 @@ describe("limits and defaults", () => {
     expect(cfg.MODEL_TIMEOUT_STRONG_MS).toBe(420000);
   });
 
-  it("sets the model-call cap to 420000 and keeps the empty-reply retry at 32000 tokens", () => {
+  it("sets the model-call cap to 420000 and keeps the empty-reply retry at 64000 tokens", () => {
     expect(MODEL_TIMEOUT_CAP_MS).toBe(420000);
-    expect(EMPTY_RESPONSE_RETRY_MAX_TOKENS).toBe(32000);
+    expect(EMPTY_RESPONSE_RETRY_MAX_TOKENS).toBe(64000);
   });
 
   it("keeps a model timeout below the cap", () => {

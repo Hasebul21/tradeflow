@@ -314,7 +314,7 @@ describe("complete: paths beyond the eleven cases", () => {
     expect(main).not.toHaveProperty("chat_template_kwargs");
   });
 
-  it("retries a 502 empty_response once as the same request at max_tokens 32000, traced as empty_response_retry", async () => {
+  it("retries a 502 empty_response once as the same request at max_tokens 64000, traced as empty_response_retry", async () => {
     const small = configFor("http://127.0.0.1:8088/v1", { MAX_COMPLETION_TOKENS: "4000" });
     mocks.create
       .mockRejectedValueOnce(httpError(502, '502 {"error":{"type":"empty_response","message":"no content"}}'))
@@ -325,7 +325,7 @@ describe("complete: paths beyond the eleven cases", () => {
     const [first] = mocks.create.mock.calls[0] as [Record<string, unknown>];
     const [second] = mocks.create.mock.calls[1] as [Record<string, unknown>];
     expect(first.max_tokens).toBe(4000);
-    expect(second.max_tokens).toBe(32000);
+    expect(second.max_tokens).toBe(64000);
     for (const request of [first, second]) {
       expect(request).not.toHaveProperty("reasoning");
       expect(request).not.toHaveProperty("chat_template_kwargs");
@@ -484,7 +484,7 @@ describe("complete: structured retries within the round", () => {
     expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(3);
   });
 
-  it("a reply that stopped at the token limit is asked for again at max_tokens 32000; another bad reply keeps the normal cap", async () => {
+  it("a reply that stopped at the token limit is asked for again at max_tokens 64000; another bad reply keeps the normal cap", async () => {
     mocks.create
       .mockResolvedValueOnce({ ...reply('{"steps": [1, 2'), choices: [{ finish_reason: "length", message: { role: "assistant", content: '{"steps": [1, 2' } }] })
       .mockResolvedValueOnce(reply('{"steps": []}'))
@@ -492,9 +492,9 @@ describe("complete: structured retries within the round", () => {
     const result = await complete(inRound(900000));
     expect(result.json).toEqual({ steps: [1] });
     const maxTokens = mocks.create.mock.calls.map(([request]) => (request as { max_tokens: number }).max_tokens);
-    expect(maxTokens).toEqual([16000, 32000, 16000]);
+    expect(maxTokens).toEqual([16000, 64000, 16000]);
     const retries = traced("model_retry");
-    expect(retries[0].output_summary).toMatch(/^try 2 of 3, max_tokens 32000 \(the reply stopped at the token limit\): /);
+    expect(retries[0].output_summary).toMatch(/^try 2 of 3, max_tokens 64000 \(the reply stopped at the token limit\): /);
     expect(retries[1].output_summary).toMatch(/^try 3 of 3: the reply fails the schema/);
     expect(userMessages(1).at(-1)?.content).toContain("It stopped at the token limit");
   });
@@ -564,9 +564,8 @@ describe("complete: structured retries within the round", () => {
     expect(options.timeout).toBeGreaterThan(MODEL_TIMEOUT_CAP_MS - 5000);
   });
 
-  it("a slow model is waited out: up to TIMEOUT_MAX_TRIES (3) timed-out tries in a roomy round, each a whole attempt, every one counted", async () => {
+  it("a slow model is waited out: up to TIMEOUT_MAX_TRIES timed-out tries in a roomy round, each a whole attempt, every one counted", async () => {
     const timeout = () => Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
-    expect(TIMEOUT_MAX_TRIES).toBe(3);
     // Two timeouts, then a reply: the third try answers.
     mocks.create.mockRejectedValueOnce(timeout()).mockRejectedValueOnce(timeout()).mockResolvedValueOnce(reply('{"steps": [1]}'));
     const result = await complete({ ...inRound(3000000), timeoutMs: 900 });
@@ -574,19 +573,19 @@ describe("complete: structured retries within the round", () => {
     expect(result.model_calls).toBe(3);
     expect(mocks.create).toHaveBeenCalledTimes(3);
     expect(traced("model_retry").map((line) => line.output_summary)).toEqual([
-      "timeout; try 2 of 3 (the failed request counted as a model call)",
-      "timeout; try 3 of 3 (the failed request counted as a model call)",
+      `timeout; try 2 of ${TIMEOUT_MAX_TRIES} (the failed request counted as a model call)`,
+      `timeout; try 3 of ${TIMEOUT_MAX_TRIES} (the failed request counted as a model call)`,
     ]);
     // Each retry got the tier's whole timeout again, not what was left of the attempt before it.
     for (const call of [1, 2]) expect((mocks.create.mock.calls[call][1] as { timeout: number }).timeout).toBeGreaterThan(MODEL_TIMEOUT_CAP_MS - 5000);
 
-    // Three timeouts: ModelTimeout after 3 requests, never a fourth, all 3 counted.
+    // TIMEOUT_MAX_TRIES timeouts: ModelTimeout after that many requests, never one more, all counted.
     mocks.create.mockReset();
     mocks.create.mockRejectedValue(timeout());
     lines = [];
     const error = await complete({ ...inRound(3000000), timeoutMs: 900 }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ModelTimeout);
-    expect((error as Error).message).toContain("timed out 3 times");
+    expect((error as Error).message).toContain(`timed out ${TIMEOUT_MAX_TRIES} times`);
     expect(mocks.create).toHaveBeenCalledTimes(TIMEOUT_MAX_TRIES);
     expect(failedCallUsage(error).model_calls).toBe(TIMEOUT_MAX_TRIES);
   });

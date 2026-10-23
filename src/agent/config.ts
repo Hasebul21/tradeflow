@@ -104,14 +104,19 @@ export const RUN_TIMEOUT_DEFAULT_MS = upToMinute(2 * ROUND_TIMEOUT_DEFAULT_MS + 
  */
 export const BRIEFING_TIMEOUT_DEFAULT_MS = upToMinute(2 * RUN_TIMEOUT_DEFAULT_MS);
 
-/** max_tokens for llm.ts's retries after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
-export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 32000;
+/**
+ * max_tokens for llm.ts's retries after a 502 "empty_response" or a reply cut at the token limit (at least
+ * MAX_COMPLETION_TOKENS). Raised from 32000 on 23 Oct: an Analyst batch (15 findings, prompt around 38,000 chars) on
+ * the live lane still came back empty or cut at 32000; 64000 leaves room for the whole JSON. llm.ts clamps it to the
+ * run's tokens left (tokensLeft), never below MAX_COMPLETION_TOKENS, so MAX_TOKENS_PER_RUN still bounds the call.
+ */
+export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 64000;
 
 /**
  * Tries in total for one model call whose replies are 502 "empty_response", when the caller passes the round's end
  * (roundDeadlineMs). A retry starts only while at least MODEL_TIMEOUT_CAP_MS of the round is left after its wait.
  */
-export const EMPTY_RESPONSE_MAX_TRIES = 3;
+export const EMPTY_RESPONSE_MAX_TRIES = 6;
 
 /**
  * Tries in total for one model call that times out, when the caller passes the round's end (roundDeadlineMs). Each
@@ -119,10 +124,10 @@ export const EMPTY_RESPONSE_MAX_TRIES = 3;
  * Planner's reserveAfterMs) still fit in the round, which never runs past the run's end. Without the round's end, one
  * retry, as before. Raised from 2 on 23 Oct: a slow model day should be waited out, not given up on.
  */
-export const TIMEOUT_MAX_TRIES = 3;
+export const TIMEOUT_MAX_TRIES = 6;
 
-/** The wait before try 2 and before try 3 of an empty_response retry; it comes out of the round's time left. */
-export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000];
+/** The wait before try 2, 3, 4, 5 and 6 of an empty_response retry; it comes out of the round's time left. */
+export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000, 30000, 30000, 30000];
 
 /**
  * Tries in total for one JSON model call whose reply does not parse or fails the agent's schema, when the caller passes
@@ -138,7 +143,7 @@ export const WRITER_MAX_ATTEMPTS = 2;
 export const MAX_ROUNDS_DEFAULT = 3;
 export const MAX_TOOL_ROUNDS_DEFAULT = 2;
 
-/** Tries per model call: STRUCTURED_REPLY_MAX_TRIES, the same as EMPTY_RESPONSE_MAX_TRIES and TIMEOUT_MAX_TRIES (3 each). */
+/** Tries per model call: STRUCTURED_REPLY_MAX_TRIES, the same as EMPTY_RESPONSE_MAX_TRIES and TIMEOUT_MAX_TRIES (EMPTY_RESPONSE_MAX_TRIES and TIMEOUT_MAX_TRIES are 6 since 23 Oct). */
 const TRIES = STRUCTURED_REPLY_MAX_TRIES;
 
 /**
