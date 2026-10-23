@@ -15,6 +15,7 @@ next-env.d.ts
 
 # local tool state and agent run output
 .remember/
+.openclaude/
 logs/
 data/memory/
 evals/redteam/fixtures/
