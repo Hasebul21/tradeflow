@@ -12,7 +12,7 @@ import type { TraceInput, Tracer } from "../trace";
 import { analyse } from "./analyst";
 import { evaluate } from "./evaluator";
 import { plan } from "./planner";
-import { DISCLAIMER, checkReview, write, writerReplySchema, type WriteInput } from "./writer";
+import { DISCLAIMER, checkReview, countNumbers, write, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so the memory it writes lands in that copy and
 // never in data/. A fake tracer keeps every line in memory; the sample model answers unless a test stubs it.
@@ -254,5 +254,36 @@ describe("the Writer on a stubbed reply", () => {
     expect(checkReview(reply, { findings, results: run.store, memories: [REVIEW_MEMORY], task: "explain_week" })).toEqual({ ok: true });
     expect(checkReview({ ...reply, memory_note: "Week to 2026-10-01: a loss of Tk 98765.4." }, { findings, results: run.store, memories: [REVIEW_MEMORY], task: "explain_week" })).toMatchObject({ ok: false, reason: expect.stringMatching(/memory_note has the number 98765\.4/) });
     expect(gaps.length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("checkReview and the run's own counts", () => {
+  // A reconcile run with four proposals: four findings, one cited result, one round. No row or finding holds 4.
+  const COUNTS: RunCounts = { findings: 4, proposals: 4, citations: 1, rounds: 1 };
+  const review = (summary: string) => ({ summary, review_markdown: `${summary}\n\n${DISCLAIMER}`, memory_note: "Reconciliation on 2026-10-01: differences open." });
+  const allowed = (counts?: RunCounts) => ({ findings: [], results: {}, memories: [], task: "reconcile" as const, ...(counts === undefined ? {} : { counts }) });
+
+  it("allows '4 proposals' when the run has 4 proposals", () => {
+    expect(checkReview(review("4 proposals await your approval. Nothing has been saved; the decision is yours."), allowed(COUNTS))).toEqual({ ok: true });
+  });
+
+  it("rejects '5 proposals' when the run has 4", () => {
+    const check = checkReview(review("5 proposals await your approval. Nothing has been saved; the decision is yours."), allowed(COUNTS));
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/summary has the number 5, which is in no accepted finding/) });
+  });
+
+  it("rejects a number found nowhere, counts or not", () => {
+    const check = checkReview(review("A gap of Tk 98765.4 is open. Nothing has been saved; the decision is yours."), allowed(COUNTS));
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 98765\.4/) });
+  });
+
+  it("rejects '4 proposals' when no counts are given, as before", () => {
+    expect(checkReview(review("4 proposals await your approval."), allowed())).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 4/) });
+  });
+
+  it("allows only the four counts, with proposals left out when it is null", () => {
+    expect(countNumbers({ findings: 11, proposals: null, citations: 4, rounds: 2 })).toEqual([11, 4, 2]);
+    expect(countNumbers(COUNTS)).toEqual([4, 1, 1, 4]);
+    expect(countNumbers(undefined)).toEqual([]);
   });
 });

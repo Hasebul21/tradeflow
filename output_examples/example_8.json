@@ -1,0 +1,277 @@
+{
+  "run_id": "example_8",
+  "task": "reconcile",
+  "agents": [
+    {
+      "name": "Planner",
+      "role": "picks at most MAX_PLAN_STEPS named queries for the task, with a why for each",
+      "model": "meterless/deep"
+    },
+    {
+      "name": "Analyst",
+      "role": "turns the plan's query results into findings that cite a run_query_id for every number",
+      "model": "meterless/auto"
+    },
+    {
+      "name": "Evaluator",
+      "role": "checks citations, the guard and coverage in code, then scores the draft out of 9",
+      "model": "meterless/fast"
+    },
+    {
+      "name": "Writer",
+      "role": "writes the owner's review from the accepted findings; code checks every number",
+      "model": "meterless/deep"
+    }
+  ],
+  "usage": {
+    "model_calls": 3,
+    "query_calls": 4,
+    "tokens_in": 25007,
+    "tokens_out": 24370,
+    "duration_ms": 85864
+  },
+  "trace_id": "example_8",
+  "log_file": "logs/trace-example_8.jsonl",
+  "execution_time_seconds": 85.865,
+  "status": "needs_human",
+  "output": {
+    "summary": "4 proposals await your approval. Nothing has been saved; the decision is yours.",
+    "review_markdown": "4 proposals await your approval. Nothing has been saved; the decision is yours.\n\n- t-021: broker commission_bdt 45.68 BDT differs from ledger 44.48 BDT (difference 1.2 BDT); reason not known. Awaiting your approval [q:e44e1f5a-e2ae-407f-ab86-7072038fc61b]\n- t-030: ledger trade t-030 (buy 150 LHBL at Tk 70.1 on 2026-07-01, amount 10515 BDT) has no matching broker row; reason not known. Awaiting your approval [q:e44e1f5a-e2ae-407f-ab86-7072038fc61b]\n- BNK-0008: bank statement contribution Tk 25000 on 2026-07-23 with no matching ledger entry; reason not known. Awaiting your approval [q:e44e1f5a-e2ae-407f-ab86-7072038fc61b]\n- BRK-20260802-035: broker buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (Tk 3272, commission 13.09 BDT) with no matching ledger trade; reason not known. Awaiting your approval [q:e44e1f5a-e2ae-407f-ab86-7072038fc61b]\n\n**What to look at next**\n- EBL\n- LHBL\n\nThis is a review of your own records, not financial advice.",
+    "findings": [
+      {
+        "kind": "reconciliation",
+        "subject": "t-021",
+        "claim": "The broker statement has buy 400 EBL at Tk 27.8 on 2026-05-12 with commission_bdt 45.68, but the ledger records commission_bdt 44.48 (difference 1.2 BDT). Reason: not known.",
+        "numbers": [
+          {
+            "value": 45.68,
+            "label": "commission_bdt broker"
+          },
+          {
+            "value": 44.48,
+            "label": "commission_bdt ledger"
+          },
+          {
+            "value": 1.2,
+            "label": "difference bdt"
+          }
+        ],
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "verdict": null,
+        "proposed_fix": "manual check: commission_bdt differs between ledger t-021 and broker BRK-20260512-021",
+        "memory_ids": []
+      },
+      {
+        "kind": "reconciliation",
+        "subject": "t-030",
+        "claim": "The ledger has buy 150 LHBL at Tk 70.1 on 2026-07-01 (amount 10515 BDT), but the broker has no matching trade. Reason: not known.",
+        "numbers": [
+          {
+            "value": 150,
+            "label": "quantity"
+          },
+          {
+            "value": 70.1,
+            "label": "price"
+          },
+          {
+            "value": 10515,
+            "label": "amount bdt"
+          }
+        ],
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "verdict": null,
+        "proposed_fix": "manual check: ledger trade t-030 has no broker row",
+        "memory_ids": []
+      },
+      {
+        "kind": "reconciliation",
+        "subject": "BNK-0008",
+        "claim": "The bank statement has a contribution of Tk 25000 on 2026-07-23, but the ledger has no matching trade. Reason: not known.",
+        "numbers": [
+          {
+            "value": 25000,
+            "label": "amount bdt"
+          }
+        ],
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "verdict": null,
+        "proposed_fix": "add a contribution of Tk 25000 on 2026-07-23 (BNK-0008)",
+        "memory_ids": []
+      },
+      {
+        "kind": "reconciliation",
+        "subject": "BRK-20260802-035",
+        "claim": "The broker statement has buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (Tk 3272, commission Tk 13.09), but the ledger has no matching trade. Reason: not known.",
+        "numbers": [
+          {
+            "value": 163.6,
+            "label": "price"
+          },
+          {
+            "value": 3272,
+            "label": "amount bdt"
+          },
+          {
+            "value": 13.09,
+            "label": "commission bdt"
+          }
+        ],
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "verdict": null,
+        "proposed_fix": "add a transaction of buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (BRK-20260802-035)",
+        "memory_ids": []
+      }
+    ],
+    "gaps": [],
+    "citations": [
+      {
+        "run_query_id": "e44e1f5a-e2ae-407f-ab86-7072038fc61b",
+        "query_id": "reconciliation",
+        "params": {},
+        "source": "zetaris",
+        "row_count": 4,
+        "rows": [
+          {
+            "ref": "BRK-20260512-021",
+            "ledger_id": "t-021",
+            "date": "2026-05-12",
+            "symbol": "EBL",
+            "side": "buy",
+            "quantity": 400,
+            "price": 27.8,
+            "field": "commission_bdt",
+            "broker_value": 45.68,
+            "ledger_value": 44.48,
+            "difference_bdt": 1.2,
+            "amount_bdt": null,
+            "commission_bdt": null,
+            "issue_id": "t-021",
+            "kind": "mismatched_trade",
+            "differences": [
+              {
+                "field": "commission_bdt",
+                "broker": 45.68,
+                "ledger": 44.48
+              }
+            ]
+          },
+          {
+            "ref": null,
+            "ledger_id": "t-030",
+            "date": "2026-07-01",
+            "symbol": "LHBL",
+            "side": "buy",
+            "quantity": 150,
+            "price": 70.1,
+            "field": null,
+            "broker_value": null,
+            "ledger_value": null,
+            "difference_bdt": null,
+            "amount_bdt": 10515,
+            "commission_bdt": null,
+            "issue_id": "t-030",
+            "kind": "ledger_only_trade"
+          },
+          {
+            "ref": "BNK-0008",
+            "ledger_id": null,
+            "date": "2026-07-23",
+            "symbol": null,
+            "side": null,
+            "quantity": null,
+            "price": null,
+            "field": null,
+            "broker_value": null,
+            "ledger_value": null,
+            "difference_bdt": null,
+            "amount_bdt": 25000,
+            "commission_bdt": null,
+            "issue_id": "BNK-0008",
+            "kind": "bank_only_deposit"
+          },
+          {
+            "ref": "BRK-20260802-035",
+            "ledger_id": null,
+            "date": "2026-08-02",
+            "symbol": "OLYMPIC",
+            "side": "buy",
+            "quantity": 20,
+            "price": 163.6,
+            "field": null,
+            "broker_value": null,
+            "ledger_value": null,
+            "difference_bdt": null,
+            "amount_bdt": 3272,
+            "commission_bdt": 13.09,
+            "issue_id": "BRK-20260802-035",
+            "kind": "broker_only_trade"
+          }
+        ],
+        "sql": "WITH b AS (\n  SELECT broker_ref, date_format(trade_date, 'yyyy-MM-dd') AS d, UPPER(TRIM(symbol)) AS sym, symbol, side,\n         CAST(quantity AS DOUBLE) AS quantity, CAST(price AS DOUBLE) AS price, CAST(commission_bdt AS DOUBLE) AS commission_bdt,\n         ROW_NUMBER() OVER (PARTITION BY trade_date, UPPER(TRIM(symbol)), side, CAST(quantity AS DOUBLE) ORDER BY broker_ref) AS rn\n  FROM tradeflow_external.broker_statement\n),\nl AS (\n  SELECT id, date_format(to_date(from_utc_timestamp(to_utc_timestamp(created_at, current_timezone()), 'Asia/Dhaka')), 'yyyy-MM-dd') AS d, UPPER(TRIM(symbol)) AS sym, symbol, side,\n         CAST(quantity AS DOUBLE) AS quantity, CAST(price_per_share AS DOUBLE) AS price, ROUND(COALESCE(CAST(fees_bdt AS DOUBLE), 0), 2) AS fee,\n         ROW_NUMBER() OVER (PARTITION BY to_date(from_utc_timestamp(to_utc_timestamp(created_at, current_timezone()), 'Asia/Dhaka')), UPPER(TRIM(symbol)), side, CAST(quantity AS DOUBLE) ORDER BY created_at, id) AS rn\n  FROM tradeflow_ledger.transactions\n),\nk AS (\n  SELECT bank_ref, date_format(value_date, 'yyyy-MM-dd') AS d, CAST(amount_bdt AS DOUBLE) AS amount,\n         ROW_NUMBER() OVER (PARTITION BY value_date, ROUND(CAST(amount_bdt AS DOUBLE), 2) ORDER BY bank_ref) AS rn\n  FROM tradeflow_external.bank_deposits\n),\nc AS (\n  SELECT id, date_format(to_date(from_utc_timestamp(to_utc_timestamp(created_at, current_timezone()), 'Asia/Dhaka')), 'yyyy-MM-dd') AS d, CAST(amount_bdt AS DOUBLE) AS amount,\n         ROW_NUMBER() OVER (PARTITION BY to_date(from_utc_timestamp(to_utc_timestamp(created_at, current_timezone()), 'Asia/Dhaka')), ROUND(CAST(amount_bdt AS DOUBLE), 2) ORDER BY created_at, id) AS rn\n  FROM tradeflow_ledger.contributions\n),\ntrades AS (\n  SELECT b.broker_ref, b.d AS b_d, b.symbol AS b_symbol, b.side AS b_side, b.quantity AS b_quantity, b.price AS b_price, b.commission_bdt,\n         l.id AS ledger_id, l.d AS l_d, l.symbol AS l_symbol, l.side AS l_side, l.quantity AS l_quantity, l.price AS l_price, l.fee,\n         ABS(b.commission_bdt - l.fee) > 0.005 AS fee_differs, ABS(b.price - l.price) > 0.005 AS price_differs\n  FROM b FULL OUTER JOIN l\n    ON b.d = l.d AND b.sym = l.sym AND b.side = l.side AND b.quantity = l.quantity AND b.rn = l.rn\n   AND ABS(b.price - l.price) <= 0.1 + 1e-9\n)\nSELECT issue_id, kind, ref, ledger_id, `date`, symbol, side, quantity, price, field, broker_value, ledger_value, difference_bdt, amount_bdt, commission_bdt\nFROM (\n  SELECT COALESCE(ledger_id, broker_ref) AS issue_id,\n         CASE WHEN ledger_id IS NULL THEN 'broker_only_trade' WHEN broker_ref IS NULL THEN 'ledger_only_trade' ELSE 'mismatched_trade' END AS kind,\n         broker_ref AS ref, ledger_id, COALESCE(b_d, l_d) AS `date`, COALESCE(b_symbol, l_symbol) AS symbol, COALESCE(b_side, l_side) AS side,\n         COALESCE(b_quantity, l_quantity) AS quantity, COALESCE(b_price, l_price) AS price,\n         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS STRING) WHEN fee_differs THEN 'commission_bdt' ELSE 'price' END AS field,\n         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS DOUBLE) WHEN fee_differs THEN commission_bdt ELSE b_price END AS broker_value,\n         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS DOUBLE) WHEN fee_differs THEN fee ELSE l_price END AS ledger_value,\n         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS DOUBLE) WHEN fee_differs THEN ROUND(commission_bdt - fee, 2) ELSE ROUND(b_price - l_price, 2) END AS difference_bdt,\n         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN ROUND(COALESCE(b_quantity, l_quantity) * COALESCE(b_price, l_price), 2) ELSE CAST(NULL AS DOUBLE) END AS amount_bdt,\n         CASE WHEN ledger_id IS NULL THEN commission_bdt ELSE CAST(NULL AS DOUBLE) END AS commission_bdt\n  FROM trades\n  WHERE broker_ref IS NULL OR ledger_id IS NULL OR fee_differs OR price_differs\n  UNION ALL\n  SELECT COALESCE(c.id, k.bank_ref) AS issue_id,\n         CASE WHEN c.id IS NULL THEN 'bank_only_deposit' ELSE 'contribution_only_deposit' END AS kind,\n         k.bank_ref AS ref, c.id AS ledger_id, COALESCE(k.d, c.d) AS `date`, CAST(NULL AS STRING) AS symbol, CAST(NULL AS STRING) AS side,\n         CAST(NULL AS DOUBLE) AS quantity, CAST(NULL AS DOUBLE) AS price, CAST(NULL AS STRING) AS field, CAST(NULL AS DOUBLE) AS broker_value,\n         CAST(NULL AS DOUBLE) AS ledger_value, CAST(NULL AS DOUBLE) AS difference_bdt, COALESCE(k.amount, c.amount) AS amount_bdt,\n         CAST(NULL AS DOUBLE) AS commission_bdt\n  FROM k FULL OUTER JOIN c ON k.d = c.d AND ABS(k.amount - c.amount) <= 0.005 AND k.rn = c.rn\n  WHERE k.bank_ref IS NULL OR c.id IS NULL\n) issues\nORDER BY `date`, issue_id"
+      }
+    ],
+    "needs_human": true,
+    "declined_advice": false,
+    "injection_seen": false,
+    "memories_recalled": [],
+    "applied_corrections": [],
+    "rounds": 1,
+    "scores": {
+      "accuracy": 3,
+      "appropriateness": 3,
+      "actionability": 3,
+      "total": 9
+    },
+    "model_source": "openrouter/nvidia/nemotron-3.5-lightning",
+    "partial": false,
+    "stop_reason": null,
+    "proposals": [
+      {
+        "issue_id": "t-021",
+        "explanation": "The broker statement has buy 400 EBL at Tk 27.8 on 2026-05-12 with commission_bdt 45.68, but the ledger records commission_bdt 44.48 (difference 1.2 BDT). Reason: not known.",
+        "proposed_fix": "manual check: commission_bdt differs between ledger t-021 and broker BRK-20260512-021",
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "status": "awaiting_approval"
+      },
+      {
+        "issue_id": "t-030",
+        "explanation": "The ledger has buy 150 LHBL at Tk 70.1 on 2026-07-01 (amount 10515 BDT), but the broker has no matching trade. Reason: not known.",
+        "proposed_fix": "manual check: ledger trade t-030 has no broker row",
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "status": "awaiting_approval"
+      },
+      {
+        "issue_id": "BNK-0008",
+        "explanation": "The bank statement has a contribution of Tk 25000 on 2026-07-23, but the ledger has no matching trade. Reason: not known.",
+        "proposed_fix": "add a contribution of Tk 25000 on 2026-07-23 (BNK-0008)",
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "status": "awaiting_approval"
+      },
+      {
+        "issue_id": "BRK-20260802-035",
+        "explanation": "The broker statement has buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (Tk 3272, commission Tk 13.09), but the ledger has no matching trade. Reason: not known.",
+        "proposed_fix": "add a transaction of buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (BRK-20260802-035)",
+        "cites": [
+          "e44e1f5a-e2ae-407f-ab86-7072038fc61b"
+        ],
+        "status": "awaiting_approval"
+      }
+    ]
+  },
+  "error": null
+}

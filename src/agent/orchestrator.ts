@@ -842,6 +842,13 @@ export async function run(options: RunOptions): Promise<RunResult> {
           escalation: preTrade?.escalation ?? null,
           memories,
           runId,
+          // The run's own counts, from code: the Writer's number check allows these and no other new number.
+          counts: {
+            findings: accepted.findings.length,
+            proposals: task === "reconcile" && reconciliation !== null ? proposalsFrom(reconciliation.rows, accepted.findings, reconciliation.run_query_id).length : null,
+            citations: citationsOf(accepted.findings, state.store).length,
+            rounds: accepted.round + 1,
+          },
         },
         { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), round: accepted.round },
       );

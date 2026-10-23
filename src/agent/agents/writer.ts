@@ -50,7 +50,22 @@ export type WriteInput = {
   memories?: readonly RecalledMemory[];
   /** For the memory write. */
   runId: string;
+  /** The run's own counts, computed in code by the orchestrator; the number check allows these and nothing else new. */
+  counts?: RunCounts;
 };
+
+/**
+ * The run's own counts, so a review may say "4 proposals" when the run has 4. Computed in code from the run, never
+ * from model text: the accepted findings, the proposals (reconcile only; null otherwise), the distinct cited results
+ * and the rounds run.
+ */
+export type RunCounts = { findings: number; proposals: number | null; citations: number; rounds: number };
+
+/** The counts as allowed numbers. */
+export function countNumbers(counts: RunCounts | undefined): number[] {
+  if (counts === undefined) return [];
+  return [counts.findings, counts.citations, counts.rounds, ...(counts.proposals === null ? [] : [counts.proposals])];
+}
 
 /** A memory as the Writer sees it: id, tags and content. */
 export type MemoryForWriter = Pick<RecalledMemory, "id" | "tags" | "content">;
@@ -233,14 +248,14 @@ export type ReviewCheck = ({ ok: true } | { ok: false; reason: string }) & {
  */
 export function checkReview(
   reply: WriterReply,
-  allowed: { findings: readonly Finding[]; results: ResultStore; memories: readonly Pick<RecalledMemory, "content">[]; task: Task },
+  allowed: { findings: readonly Finding[]; results: ResultStore; memories: readonly Pick<RecalledMemory, "content">[]; task: Task; counts?: RunCounts },
   tracer?: Tracer,
   round = 0,
 ): ReviewCheck {
   const problems: string[] = [];
   const ids = Object.keys(allowed.results);
   const ignore = [...ids.map((id) => `[q:${id}]`), ...ids];
-  const candidates = allowedNumbers(allowed.findings, allowed.results, allowed.memories);
+  const candidates = [...allowedNumbers(allowed.findings, allowed.results, allowed.memories), ...countNumbers(allowed.counts)];
   for (const [field, text] of [
     ["summary", reply.summary],
     ["review_markdown", reply.review_markdown],
@@ -387,7 +402,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     const parsed = writerReplySchema.safeParse(result.json ?? {});
     if (parsed.success) {
       draft = parsed.data;
-      const check = checkReview(draft, { findings: input.findings, results: input.results, memories, task: input.task }, tracer, round);
+      const check = checkReview(draft, { findings: input.findings, results: input.results, memories, task: input.task, ...(input.counts === undefined ? {} : { counts: input.counts }) }, tracer, round);
       injectionSeen = check.injection_seen === true;
       if (check.ok) return accepted(draft, attempt, injectionSeen);
       reason = check.reason;
