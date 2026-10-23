@@ -5,6 +5,7 @@
 // (requiredFindings in agents/evaluator.ts) that the new draft lacks is restored from the previous draft, even when
 // the Analyst retracted it or the model's fix named it, as long as it passes the code checks. Pure: orchestrator.ts
 // writes one trace line for each finding kept here.
+import { FINDING_KINDS } from "./agents/analyst";
 import { meetsRequirement, type Requirement } from "./agents/evaluator";
 import type { ResultStore, Task } from "./context";
 import { afterModel, checkCitations, type Finding } from "./guards";
@@ -85,12 +86,47 @@ export function mergeRevision(input: RevisionInput): Revision {
 export type DroppedFinding = { finding: Finding; gap: string };
 
 /**
+ * The names a gap written by code may hold: the data's instrument symbols and sector names, and every sector a row of
+ * this run gives. A gap code writes is trusted (the Writer may repeat its figures), so it never carries model text.
+ */
+export function knownSubjects(instruments: Iterable<{ symbol: string; sector: string }>, store: ResultStore): Set<string> {
+  const known = new Set<string>();
+  for (const instrument of instruments) {
+    known.add(instrument.symbol);
+    known.add(instrument.sector);
+  }
+  for (const result of Object.values(store)) for (const row of result.rows) if (typeof row.sector === "string") known.add(row.sector);
+  known.delete("");
+  return known;
+}
+
+/**
+ * The code-written gap for a dropped finding. It names the kind and the subject only when each is a validated
+ * identifier (one of the nine kinds; a known symbol or sector, exactly): finding.kind and finding.subject are model
+ * text, and a subject such as "BXPHARMA 99.9" would otherwise put 99.9 among the figures the Writer may repeat.
+ */
+export function droppedGap(finding: Finding, known: ReadonlySet<string>): string {
+  const kind = (FINDING_KINDS as readonly string[]).includes(finding.kind) ? finding.kind : null;
+  const what = kind !== null && known.has(finding.subject) ? `The ${kind} finding on ${finding.subject}` : "A flagged finding";
+  return `${what} was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.`;
+}
+
+/**
  * A finding the last rejection flagged that comes back (the same kind and subject) still failing the code checks is
  * left out, with a gap that says so, instead of sinking the whole run. Never a finding the coverage check needs: one
  * that is the only finding meeting a requirement stays, and the Evaluator rejects the draft as before. The check
  * itself is unchanged; code only declines to repeat a finding whose figures no cited row holds.
  */
-export function dropRepeatFailures(input: { task: Task; flagged: ReadonlySet<Finding>; findings: readonly Finding[]; required: readonly Requirement[]; store: ResultStore; memories?: readonly RecalledMemory[] }): {
+export function dropRepeatFailures(input: {
+  task: Task;
+  flagged: ReadonlySet<Finding>;
+  findings: readonly Finding[];
+  required: readonly Requirement[];
+  store: ResultStore;
+  /** knownSubjects: the only subjects the gap may name. */
+  known: ReadonlySet<string>;
+  memories?: readonly RecalledMemory[];
+}): {
   findings: Finding[];
   dropped: DroppedFinding[];
 } {
@@ -103,7 +139,7 @@ export function dropRepeatFailures(input: { task: Task; flagged: ReadonlySet<Fin
     const needed = input.required.some((need) => meetsRequirement(finding, need) && !without.some((other) => meetsRequirement(other, need)));
     if (needed) continue;
     findings = without;
-    dropped.push({ finding, gap: `The ${finding.kind} finding on ${finding.subject} was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.` });
+    dropped.push({ finding, gap: droppedGap(finding, input.known) });
   }
   return { findings, dropped };
 }

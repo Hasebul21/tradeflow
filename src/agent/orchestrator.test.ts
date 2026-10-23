@@ -335,6 +335,42 @@ describe("the loop: revise, don't restart", () => {
     expect(by(lines, "Evaluator", "reject")).toHaveLength(1);
   });
 
+  it("a dropped finding whose subject carries a number adds no figure the Writer may repeat: a review using 99.9 is still refused", async () => {
+    // The Analyst writes the same refused sector claim under the subject "BXPHARMA 99.9" in rounds 1 and 2, so code
+    // drops it in round 2; the Writer then puts 99.9 in the review.
+    const laundered = (cites: string[]): Finding => ({
+      kind: "sector",
+      subject: "BXPHARMA 99.9",
+      claim: "The data shows the sector fell 2.2 points behind DSEX.",
+      numbers: [],
+      cites,
+      verdict: null,
+      proposed_fix: null,
+      memory_ids: [],
+    });
+    stubs.override = async (options, actual) => {
+      if (options.agent !== "Analyst" && options.agent !== "Writer") return null;
+      const result = await actual(options);
+      const reply = { ...(result.json ?? {}) };
+      const json =
+        options.agent === "Analyst"
+          ? { ...reply, findings: [...findingsOf(reply), laundered(findingsOf(reply)[0].cites)] }
+          : { ...reply, review_markdown: String(reply.review_markdown).replace(DISCLAIMER, `- BXPHARMA moved 99.9 points.\n\n${DISCLAIMER}`) };
+      return { ...result, json, text: JSON.stringify(json) };
+    };
+    const result = await explainWeek("orch-laundered-subject");
+
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "drop_finding")).toEqual([expect.objectContaining({ retry_count: 1, input_summary: expect.stringContaining("BXPHARMA 99.9") })]);
+    const gap = "A flagged finding was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.";
+    expect(result.output?.gaps).toContain(gap);
+    expect(result.output?.gaps.some((text) => text.includes("99.9"))).toBe(false);
+    // The Writer's number check refuses 99.9 on both tries, so the run ends writer_rejected, never success.
+    expect(result.output?.stop_reason).toBe("writer_rejected");
+    expect(by(lines, "Writer", "code_check").filter((line) => line.status === "rejected")).toHaveLength(2);
+    expect(by(lines, "Writer", "write")).toEqual([expect.objectContaining({ status: "needs_human", why: expect.stringContaining("99.9") })]);
+  });
+
   it("reconcile: a round-2 draft that drops an issue round 1 covered gets it back from code, and the review covers every issue", async () => {
     const analystCalls: CompleteOptions[] = [];
     const subjects = (reply: Reply) => findingsOf(reply).map((finding) => finding.subject);

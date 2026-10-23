@@ -22,7 +22,7 @@ import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
-import { dropRepeatFailures, mergeRevision, type Retraction } from "./revision";
+import { dropRepeatFailures, knownSubjects, mergeRevision, type Retraction } from "./revision";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
@@ -776,7 +776,10 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           retry_count: round,
         });
       }
-      const kept = dropRepeatFailures({ task, flagged, findings: merged.findings, required, store: state.store, memories });
+      // The gaps come back as code_gaps, so they name only validated symbols and sectors; the trace lines may name the
+      // raw subject, because nothing reads a trace line's text as allowed figures.
+      const known = knownSubjects(data.portfolio.instruments.values(), state.store);
+      const kept = dropRepeatFailures({ task, flagged, findings: merged.findings, required, store: state.store, known, memories });
       for (const gone of kept.dropped) {
         tracer.log({
           agent_name: AGENT,
