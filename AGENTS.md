@@ -65,11 +65,13 @@ npm run dev -- -p 8000   # http://localhost:8000; port 3000 is the Zetaris conso
 npm test             # vitest: the base's 115 tests plus the agent tests
 npm run lint
 npm run build
-npm run check        # lint, typecheck, tests, and the sample-mode eval once scripts/eval.ts exists: run before every commit
+npm run check        # lint, typecheck, tests, and the sample-mode eval at concurrency 1 and 3 (every case must pass both): run before every commit
 npm run seed         # rewrite data/ from the fixed seed; same files every time. Never set SEED_END_DATE
 npm run db:load      # data/ into tradeflow_ledger and tradeflow_external, and the read-only role zetaris_ro
 npm run agent -- input_examples/example_1.json   # --out <dir> writes each result to <dir>/<input name>.json
 npm run eval         # every input example and red-team case, in sample mode; writes evals/RESULTS.md
+npm run eval -- --concurrency 3   # the same, independent cases 3 at a time; chains (scripts/case-chains.ts) stay in order
+npm run e2e:live -- --concurrency 3 --base http://localhost:8000 --out <dir>   # each input example against the running app (start it with MAX_CONCURRENT_RUNS=3); --redteam for the red-team cases
 npm run parity       # each named query through Zetaris and locally; must match; writes docs/zetaris-queries.md
 # scripts that need keys (try-model, parity, agent, eval, mcp) load .env themselves; never open or print it
 # scripts/*.ts run under tsx as CommonJS (package.json has no "type": "module"): use an async main(), no top-level await
