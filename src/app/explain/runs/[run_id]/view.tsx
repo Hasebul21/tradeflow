@@ -43,6 +43,7 @@ export function RunView({ runId, lines, proof, done, summary }: { runId: string;
                 <span>{`retry ${row.retry}`}</span>
                 {row.confidence !== null ? <span>{`, confidence ${row.confidence}`}</span> : null}
                 {row.model !== null ? <Tag style={{ marginLeft: 8 }}>{row.model}</Tag> : null}
+                {row.prompt_hash !== null ? <Tag style={{ marginLeft: 8 }} title="The first 8 characters of the SHA-256 of the agent's prompt file">prompt {row.prompt_hash}</Tag> : null}
                 {row.source !== null ? <Tag color={row.source === "zetaris" ? "blue" : row.source === "local-fallback" ? "orange" : "default"}>{row.source}</Tag> : null}
                 {row.usage !== null ? <div className="muted">{row.usage}</div> : null}
                 {row.why !== null ? <div className="muted">{`Why: ${row.why}`}</div> : null}

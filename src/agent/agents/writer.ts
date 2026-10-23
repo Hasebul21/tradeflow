@@ -9,13 +9,12 @@
 // guards.beforeRemember with kind "review"; when afterModel saw injection wording in the reply, the memory_note is
 // not stored at all (traced as memory_skipped), so instruction-like text never reaches a later run. Server only
 // (node:fs, memory.ts).
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResultsForSubjects, forModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, numbersIn, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult } from "../llm";
+import { promptVersion, type PromptVersion } from "../prompts";
 import { MemoryBlockedError, remember, type RecalledMemory } from "../memory";
 import type { QueryId, Row } from "../queries";
 import type { RunState } from "../run-state";
@@ -24,7 +23,6 @@ import type { Tracer } from "../trace";
 const AGENT = "Writer";
 const TARGET = "Orchestrator";
 const SUMMARY_CHARS = 200;
-const PROMPT_FILE = path.resolve(process.cwd(), "src/agent/prompts/writer.md");
 /** One retry after a failed check, then needs_human. */
 const MAX_ATTEMPTS = 2;
 
@@ -142,12 +140,14 @@ export type WriteOutcome = {
   };
 };
 
-let promptCache: string | undefined;
+/** prompts/writer.md as-is with its hash, read once (prompts.ts). */
+export function writerPromptVersion(): PromptVersion {
+  return promptVersion("writer");
+}
 
-/** prompts/writer.md as-is, read once. */
+/** The text of prompts/writer.md. */
 export function writerPrompt(): string {
-  promptCache ??= readFileSync(PROMPT_FILE, "utf8");
-  return promptCache;
+  return writerPromptVersion().text;
 }
 
 const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
@@ -376,7 +376,8 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     let result: CompleteResult;
     try {
       result = await call({
-        system: writerPrompt(),
+        system: writerPromptVersion().text,
+        prompt_hash: writerPromptVersion().prompt_hash,
         user: JSON.stringify(user),
         model: "strong",
         json: true,

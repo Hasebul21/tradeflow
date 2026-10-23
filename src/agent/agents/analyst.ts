@@ -5,12 +5,11 @@
 // back as a tool message, and the model is called again, at most MAX_TOOL_ROUNDS times, then once without tools.
 // The model never writes SQL and never runs anything. The reply is validated with zod and goes through
 // guards.afterModel; a bad or refused reply is a structured error, never a crash. Server only (node:fs).
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { catalogueFor, forModel, memoriesForModel, type MemoryForModel, type ResultForModel, type Task } from "../context";
 import { afterModel, findingSchema, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
+import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import { QueryBlockedError, QueryError, isQueryId, type QueryResult } from "../queries";
 import type { RunState } from "../run-state";
@@ -22,7 +21,6 @@ const AGENT = "Analyst";
 const TARGET = "Evaluator";
 const QUERY_AGENT = "Query";
 const SUMMARY_CHARS = 200;
-const PROMPT_FILE = path.resolve(process.cwd(), "src/agent/prompts/analyst.md");
 
 export const FINDING_KINDS = ["move", "sector", "announcement", "fundamentals", "dividend", "rule", "thesis", "pre_trade", "reconciliation"] as const;
 export type FindingKind = (typeof FINDING_KINDS)[number];
@@ -130,12 +128,14 @@ export type AnalysisOutcome =
   | (AnalysisBase & { ok: true; findings: Finding[]; gaps: string[]; injection_seen: boolean })
   | (AnalysisBase & { ok: false; error: AnalysisError });
 
-let promptCache: string | undefined;
+/** prompts/analyst.md as-is with its hash, read once (prompts.ts). */
+export function analystPromptVersion(): PromptVersion {
+  return promptVersion("analyst");
+}
 
-/** prompts/analyst.md as-is, read once. */
+/** The text of prompts/analyst.md. */
 export function analystPrompt(): string {
-  promptCache ??= readFileSync(PROMPT_FILE, "utf8");
-  return promptCache;
+  return analystPromptVersion().text;
 }
 
 const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
@@ -240,7 +240,8 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     run.beforeModelCall();
     try {
       result = await call({
-        system: analystPrompt(),
+        system: analystPromptVersion().text,
+        prompt_hash: analystPromptVersion().prompt_hash,
         user: JSON.stringify(input),
         model: "main",
         json: true,

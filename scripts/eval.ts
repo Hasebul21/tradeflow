@@ -15,6 +15,7 @@ import path from "node:path";
 import { FIXTURES_DIR, makeFixtures } from "./make-fixtures";
 import type { CaseCheck, Expectation, TraceLine } from "../src/agent/eval-checks";
 import type { RunResult } from "../src/agent/orchestrator";
+import { promptVersion } from "../src/agent/prompts";
 
 const ROOT = process.cwd();
 const INPUTS = path.join(ROOT, "input_examples");
@@ -70,6 +71,11 @@ function tableLines(rows: Row[]): string[] {
   return lines;
 }
 
+/** "Prompts: planner <hash>, analyst <hash>, evaluator <hash>, writer <hash>": the prompt versions this section measured. */
+function promptsLine(): string {
+  return `Prompts: ${["planner", "analyst", "evaluator", "writer"].map((name) => `${name} ${promptVersion(name).prompt_hash}`).join(", ")}`;
+}
+
 /** routed_model of the first model_call line that has one, and the sum of cost_usd over every model_call line. */
 function modelStats(runIds: string[]): { routed: string; cost: string } {
   let routed: string | null = null;
@@ -98,6 +104,7 @@ function writeResults(rows: Row[], real: boolean, meta: { commit: string; models
   const facts = [
     `- Date: ${date}`,
     `- Mode: ${real ? "real model" : "sample"}`,
+    `- ${promptsLine()}`,
     ...(real ? [`- Provider host: ${meta.host}`, `- Models: strong ${meta.models.strong ?? "unset"}, main ${meta.models.main ?? "unset"}, fast ${meta.models.fast ?? "unset"}`] : []),
     `- routed_model (first real model call): ${routed}`,
     `- cost_usd (sum over every model call): ${cost}`,

@@ -18,6 +18,11 @@ const line = (extra: Partial<TraceLine>): TraceLine => ({
 });
 
 describe("stepRows", () => {
+  it("shows a model step's prompt hash, and none on a line without one", () => {
+    const rows = stepRows([line({ agent_name: "Analyst", action: "model_call", model: "sample-model", prompt_hash: "deadbeef" }), line({ agent_name: "Memory", action: "model_call", model: "sample-model" })]);
+    expect(rows.map((row) => row.prompt_hash)).toEqual(["deadbeef", null]);
+  });
+
   it("shows a Planner step's why, an Evaluator step's scores, a Query step's source and a Memory step's retrieval reason", () => {
     const rows = stepRows([
       line({ agent_name: "Planner", why: "The week's moves per holding.", model: "sample-model" }),

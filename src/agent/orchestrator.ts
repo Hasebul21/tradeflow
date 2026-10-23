@@ -408,9 +408,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
   // The briefing is a fixed chain of whole runs with its own trace, not a loop of its own.
   if (options.task === BRIEFING) return briefing({ ...options, signal });
 
-  const tracer = startRun(runId);
-  // Before the Router has picked, the lines have no task; setTask never touches the file, so the second call is safe.
-  tracer.setTask(routing ? undefined : taskName);
+  // Before the Router has picked, its own line carries task "router"; setTask after it only changes later lines.
+  const tracer = startRun(runId, { task: routing ? "router" : taskName });
   const logFile = path.relative(process.cwd(), tracer.file);
   const flags = { declined: false, injection: false };
   let run: RunState | undefined;
@@ -1316,8 +1315,7 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
   if (typeof runId !== "string" || !RUN_ID_PATTERN.test(runId) || !isRunId(runId)) return refused(`Invalid run id: ${JSON.stringify(String(runId))}.`);
   if (runId.length > BRIEFING_ID_ROOM) return refused(`A briefing's run id is at most ${BRIEFING_ID_ROOM} characters, because each child's run id adds a suffix.`);
 
-  const tracer = startRun(runId);
-  tracer.setTask(BRIEFING);
+  const tracer = startRun(runId, { task: BRIEFING });
   const logFile = path.relative(process.cwd(), tracer.file);
   let asOf: string | null = null;
   const sections: BriefingSection[] = [];

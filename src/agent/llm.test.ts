@@ -358,6 +358,23 @@ describe("complete: paths beyond the eleven cases", () => {
     expect(mocks.ctor).not.toHaveBeenCalled();
   });
 
+  it("writes the caller's prompt_hash on the model_call line in sample mode, and none when the caller has no prompt file", async () => {
+    vi.mocked(sampleComplete).mockResolvedValue({ text: "s", usage: null, duration_ms: 1, model_id: "sample-model", source: "sample-model" });
+    await complete({ ...base, sampleMode: true, prompt_hash: "deadbeef" });
+    expect(traced("model_call")).toHaveLength(1);
+    expect(traced("model_call")[0]).toMatchObject({ agent_name: "Planner", prompt_hash: "deadbeef" });
+    lines = [];
+    await complete({ ...base, sampleMode: true, agent: "Memory" });
+    expect(traced("model_call")[0]).not.toHaveProperty("prompt_hash");
+  });
+
+  it("writes the prompt_hash on a real call's model_call line and on its retry line", async () => {
+    mocks.create.mockRejectedValueOnce(httpError(429, "slow down")).mockResolvedValueOnce(reply("ok"));
+    await complete({ ...base, prompt_hash: "deadbeef" });
+    expect(traced("model_retry")[0]).toMatchObject({ prompt_hash: "deadbeef" });
+    expect(traced("model_call")[0]).toMatchObject({ prompt_hash: "deadbeef" });
+  });
+
   it("traces one line with the model id, usage and duration_ms for a real sample-model Planner call", async () => {
     const actual = await vi.importActual<typeof import("./sample-model")>("./sample-model");
     vi.mocked(sampleComplete).mockImplementationOnce(actual.complete);

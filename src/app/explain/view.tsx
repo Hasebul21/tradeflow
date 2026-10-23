@@ -2,6 +2,7 @@
 
 import { Alert, Badge, Button, Card, Collapse, DatePicker, Descriptions, Drawer, Flex, Form, Input, InputNumber, Radio, Select, Space, Steps, Tabs, Tag, Typography, type TableColumnsType } from "antd";
 import dayjs from "dayjs";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { Citation, RunResult } from "@/agent/orchestrator";
 import type { Proof } from "@/agent/proof";
@@ -515,7 +516,7 @@ function ReconcileTab({ range }: { range: Range }) {
 export function ExplainView({ range, theses, plans }: { range: Range; theses: Record<string, string>; plans: Plan[] }) {
   return (
     <div className="stack">
-      <PageHeader title="Explain" purpose="Ask the agents to explain your week, check your theses, review a trade before you save it or explain the reconciliation differences. They never advise, and nothing is saved unless you approve a fix." asOf={range.last} />
+      <PageHeader title="Explain" purpose="Ask the agents to explain your week, check your theses, review a trade before you save it or explain the reconciliation differences. They never advise, and nothing is saved unless you approve a fix." asOf={range.last} extra={<Flex gap={12}><Link href="/explain/queue">Review queue</Link><Link href="/explain/metrics">Metrics</Link></Flex>} />
       <Tabs
         items={[
           { key: "week", label: "My week", children: <WeekTab range={range} /> },

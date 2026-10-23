@@ -202,6 +202,21 @@ describe("the loop: revise, don't restart", () => {
 });
 
 describe("usage and the trace", () => {
+  it("writes the run's task on every trace line and an 8-character prompt_hash on every model line of an agent with a prompt file", async () => {
+    const result = await explainWeek("orch-task-hash");
+    expect(result.status).toBe("success");
+    const lines = trace(result);
+    expect(lines.every((line) => line.task === "explain_week")).toBe(true);
+    const modelLines = by(lines, "Planner", "model_call").concat(by(lines, "Analyst", "model_call"), by(lines, "Evaluator", "model_call"), by(lines, "Writer", "model_call"));
+    expect(modelLines.length).toBeGreaterThanOrEqual(4);
+    for (const line of modelLines) expect(line.prompt_hash).toMatch(/^[0-9a-f]{8}$/);
+    // Each agent's hash is its own file's.
+    const hashOf = (agent: string) => by(lines, agent, "model_call")[0].prompt_hash;
+    expect(new Set(["Planner", "Analyst", "Evaluator", "Writer"].map(hashOf)).size).toBe(4);
+    // The Memory miner loads no prompt file: its lines carry no hash.
+    for (const line of by(lines, "Memory")) expect(line).not.toHaveProperty("prompt_hash");
+  });
+
   it("reports usage equal to the sum of every trace line but run_end, and counts no cached line as a query call", async () => {
     alter("Analyst", (call) => call === 1, withMadeUpNumber);
     const result = await explainWeek("orch-usage");

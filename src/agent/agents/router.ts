@@ -5,19 +5,17 @@
 // unparseable one after llm.ts's retry, routes to explain_week and is traced; it never ends the run. Code, not the
 // model, decides whether a pre_trade is allowed: it needs a number in the question or a plan_id. Server only (node:fs
 // reads the prompt).
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { TASKS, type Task } from "../context";
 import { afterModel } from "../guards";
 import { BadJson, complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult, type FailedCallUsage } from "../llm";
+import { promptVersion, type PromptVersion } from "../prompts";
 import type { Tracer } from "../trace";
 import type { PlannerTrade } from "./planner";
 
 const AGENT = "Router";
 const SUMMARY_CHARS = 200;
-const PROMPT_FILE = path.resolve(process.cwd(), "src/agent/prompts/router.md");
 
 /** What the Router is told about each task it may pick. */
 const TASK_DESCRIPTIONS: Record<Task, string> = {
@@ -92,12 +90,14 @@ export const routerReplySchema = z.object({
   plan_id: z.string().nullish(),
 });
 
-let promptCache: string | undefined;
+/** prompts/router.md as-is with its hash, read once (prompts.ts). */
+export function routerPromptVersion(): PromptVersion {
+  return promptVersion("router");
+}
 
-/** prompts/router.md as-is, read once. */
+/** The text of prompts/router.md. */
 export function routerPrompt(): string {
-  promptCache ??= readFileSync(PROMPT_FILE, "utf8");
-  return promptCache;
+  return routerPromptVersion().text;
 }
 
 const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
@@ -133,7 +133,8 @@ export async function route(request: RouteRequest, deps: RouteDeps): Promise<Rou
   let failed: FailedCallUsage | null = null;
   try {
     result = await (deps.complete ?? completeModel)({
-      system: routerPrompt(),
+      system: routerPromptVersion().text,
+      prompt_hash: routerPromptVersion().prompt_hash,
       user: JSON.stringify(input),
       model: "fast",
       json: true,

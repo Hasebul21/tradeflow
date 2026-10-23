@@ -14,6 +14,8 @@ export type StepRow = {
   why: string | null;
   confidence: number | null;
   model: string | null;
+  /** A model step's prompt version: the 8-character hash of the agent's prompt file; null on every other line. */
+  prompt_hash: string | null;
   source: string | null;
   usage: string | null;
   /** What the agent's step proves, in the agent's own words; null when the step has nothing more to say. */
@@ -76,6 +78,7 @@ export function stepRows(lines: readonly TraceLine[]): StepRow[] {
     why: text(line.why),
     confidence: typeof line.confidence === "number" ? line.confidence : null,
     model: text(line.model),
+    prompt_hash: text(line.prompt_hash),
     source: text(line.source),
     usage: usageText(line.usage),
     detail: detailOf(line),

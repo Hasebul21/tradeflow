@@ -16,7 +16,7 @@ const FIELDS = [
   "retry_count",
   "status",
 ];
-const IDS = ["test-run", "test-run-task", "test-run-mask", "test-run-defaults"];
+const IDS = ["test-run", "test-run-task", "test-run-mask", "test-run-defaults", "test-run-start-task"];
 const fileFor = (id: string) => path.resolve(process.cwd(), "logs", `trace-${id}.jsonl`);
 const readLines = (id: string) =>
   readFileSync(fileFor(id), "utf8")
@@ -57,6 +57,15 @@ describe("startRun", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0].task).toBe("router");
     expect(lines[1].task).toBe("explain_week");
+  });
+
+  it("writes the task given to startRun on every line from the first, and setTask changes only later lines", () => {
+    const tracer = startRun("test-run-start-task", { task: "router" });
+    tracer.log(step);
+    tracer.setTask("thesis_check");
+    tracer.log(step);
+    const lines = readLines("test-run-start-task");
+    expect(lines.map((line) => line.task)).toEqual(["router", "thesis_check"]);
   });
 
   it("keeps the task per tracer, not per module", () => {

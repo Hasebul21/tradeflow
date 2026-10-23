@@ -94,10 +94,13 @@ describe("the sample Router", () => {
     expect(calls[0].agent_name).toBe("Router");
     expect(calls.filter((line) => line.agent_name === "Router")).toHaveLength(1);
     expect(result.usage.model_calls).toBe(calls.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0));
-    // The lines before the Router has picked carry no task; the second setTask names the routed one without truncating the file.
+    // The lines before the Router has picked carry task "router", the Router's own lines included; setTask names the routed
+    // one on the later lines without truncating the file.
     const lines = traceOf("router-test-first-call");
-    expect(lines[0].task).toBeUndefined();
+    expect(lines[0].task).toBe("router");
+    expect(lines.filter((line) => line.agent_name === "Router").every((line) => line.task === "router")).toBe(true);
     expect(lines.find((line) => line.action === "run_start")?.task).toBe("explain_week");
+    expect(lines.every((line) => typeof line.task === "string")).toBe(true);
   });
 
   it("counts the Router's call in MAX_MODEL_CALLS", async () => {

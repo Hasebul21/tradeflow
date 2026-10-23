@@ -33,6 +33,8 @@ export type CompleteOptions = {
   tools?: ToolSpec[];
   history?: HistoryMessage[];
   agent: AgentName;
+  /** The first 8 hex characters of the SHA-256 of the agent's prompt file (prompts.ts); written on every model trace line, in sample mode too. */
+  prompt_hash?: string;
   tracer?: Pick<Tracer, "log">;
   /** Default loadConfig(). */
   config?: Config;
@@ -233,6 +235,11 @@ type CallState = {
 
 type MeterlessReceipt = { meterless?: { routed_model?: unknown; cost?: { actual_usd?: unknown } } };
 
+/** The prompt_hash field of a model trace line: left out when the caller has no prompt file (the Memory miner). */
+function promptHashOf(options: CompleteOptions): { prompt_hash?: string } {
+  return options.prompt_hash === undefined ? {} : { prompt_hash: options.prompt_hash };
+}
+
 export async function complete(options: CompleteOptions): Promise<CompleteResult> {
   const cfg = options.config ?? loadConfig();
   const sampleMode = options.sampleMode ?? cfg.sampleMode;
@@ -240,10 +247,11 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
   // The history (earlier tool calls and their results) is part of the prompt, so it counts toward the limit.
   const historyChars = (options.history ?? []).reduce((n, message) => n + (JSON.stringify(message)?.length ?? 0), 0);
   const promptChars = options.system.length + options.user.length + historyChars;
-  const baseLine = (): Pick<TraceInput, "agent_name" | "action" | "input_summary"> => ({
+  const baseLine = (): Pick<TraceInput, "agent_name" | "action" | "input_summary" | "prompt_hash"> => ({
     agent_name: options.agent,
     action: "model_call",
     input_summary: `${options.model} model, json=${options.json === true}, ${promptChars} prompt chars`,
+    ...promptHashOf(options),
   });
 
   if (promptChars > cfg.MAX_PROMPT_CHARS) {
@@ -648,6 +656,7 @@ async function sendWithRetry(
       const retryTrace = (why: string) =>
         options.tracer?.log({
           agent_name: options.agent,
+          ...promptHashOf(options),
           action: "model_retry",
           input_summary: `${tier} model request`,
           output_summary: `${why}; trying once more (the failed request counted as a model call)`,
@@ -691,6 +700,7 @@ async function sendWithRetry(
               maxTokens = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
               options.tracer?.log({
                 agent_name: options.agent,
+                ...promptHashOf(options),
                 action: "empty_response_retry",
                 input_summary: `${tier} model request`,
                 output_summary: `HTTP 502 empty_response; try ${emptyTries + 1} of ${EMPTY_RESPONSE_MAX_TRIES} after ${wait / 1000} s, max_tokens ${maxTokens} (the empty reply counted as a model call)`,
@@ -724,6 +734,7 @@ async function sendWithRetry(
               maxTokens = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
               options.tracer?.log({
                 agent_name: options.agent,
+                ...promptHashOf(options),
                 action: "empty_response_retry",
                 input_summary: `${tier} model request`,
                 output_summary: `HTTP 502 empty_response; trying once more with max_tokens ${maxTokens} (the empty reply counted as a model call)`,
@@ -764,6 +775,7 @@ function dropRejectedParam(state: CallState, tier: Tier, requested: string, mess
     noJsonMode.add(requested);
     options.tracer?.log({
       agent_name: options.agent,
+      ...promptHashOf(options),
       action: "json_mode_unsupported",
       input_summary: `${tier} model request with response_format json_object`,
       output_summary: "the API rejected response_format; resent without it (the rejected request counted as a model call)",
@@ -778,6 +790,7 @@ function dropRejectedParam(state: CallState, tier: Tier, requested: string, mess
     noReasoningSwitch.add(requested);
     options.tracer?.log({
       agent_name: options.agent,
+      ...promptHashOf(options),
       action: "reasoning_switch_unsupported",
       input_summary: `${tier} model request with the reasoning switch off`,
       output_summary: "the API rejected the reasoning switch; resent without it (the rejected request counted as a model call)",

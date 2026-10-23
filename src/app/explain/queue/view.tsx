@@ -31,7 +31,7 @@ const COLUMNS: TableColumnsType<QueueRun> = [
 export function QueueView({ runs }: { runs: QueueRun[] }) {
   return (
     <Flex vertical gap={16}>
-      <PageHeader title="Review queue" purpose="Runs that wait for you: escalated trades, reconciliation proposals and runs that hit a limit. Newest first." extra={<Link href="/explain">Explain</Link>} />
+      <PageHeader title="Review queue" purpose="Runs that wait for you: escalated trades, reconciliation proposals and runs that hit a limit. Newest first." extra={<Flex gap={12}><Link href="/explain">Explain</Link><Link href="/explain/metrics">Metrics</Link></Flex>} />
       {runs.length === 0 ? <EmptyState message="No run is waiting for you." /> : <DataTable<QueueRun> rowKey="run_id" columns={COLUMNS} dataSource={runs} pagination={{ pageSize: 20, hideOnSinglePage: true }} data-testid="queue" />}
     </Flex>
   );

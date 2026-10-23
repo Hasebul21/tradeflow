@@ -7,13 +7,12 @@
 // 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's one retry
 // (a ModelHttpError 502), the draft is accepted on the code checks alone, with no score: action "score_unavailable".
 // Server only (node:fs reads the prompt).
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, checkCitations, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, ModelHttpError, type CompleteOptions, type CompleteResult } from "../llm";
+import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import type { QueryId, QueryResult, Row } from "../queries";
 import type { RunState } from "../run-state";
@@ -21,7 +20,6 @@ import type { Tracer } from "../trace";
 
 const AGENT = "Evaluator";
 const SUMMARY_CHARS = 200;
-const PROMPT_FILE = path.resolve(process.cwd(), "src/agent/prompts/evaluator.md");
 const PORTFOLIO = "PORTFOLIO";
 
 /** A total of 7 or more out of MAX_TOTAL goes to the Writer. */
@@ -108,12 +106,14 @@ export type EvaluateOutcome = {
   error?: EvaluateError;
 };
 
-let promptCache: string | undefined;
+/** prompts/evaluator.md as-is with its hash, read once (prompts.ts). */
+export function evaluatorPromptVersion(): PromptVersion {
+  return promptVersion("evaluator");
+}
 
-/** prompts/evaluator.md as-is, read once. */
+/** The text of prompts/evaluator.md. */
 export function evaluatorPrompt(): string {
-  promptCache ??= readFileSync(PROMPT_FILE, "utf8");
-  return promptCache;
+  return evaluatorPromptVersion().text;
 }
 
 const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
@@ -357,7 +357,8 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   let result: CompleteResult;
   try {
     result = await call({
-      system: evaluatorPrompt(),
+      system: evaluatorPromptVersion().text,
+      prompt_hash: evaluatorPromptVersion().prompt_hash,
       user: JSON.stringify(user),
       model: "fast",
       json: true,

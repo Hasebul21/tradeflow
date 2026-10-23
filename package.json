@@ -16,6 +16,7 @@
     "parity": "node --env-file-if-exists=.env --import tsx scripts/parity.ts",
     "make-fixtures": "node --import tsx scripts/make-fixtures.ts",
     "eval": "node --env-file-if-exists=.env --import tsx scripts/eval.ts",
+    "metrics": "node --env-file-if-exists=.env --import tsx scripts/metrics.ts",
     "check": "npm run lint && tsc --noEmit && npm test && npm run eval -- --no-results",
     "mcp": "node --env-file-if-exists=.env --import tsx scripts/mcp-server.ts",
     "mcp-smoke": "node --env-file-if-exists=.env --import tsx scripts/mcp-smoke.ts"

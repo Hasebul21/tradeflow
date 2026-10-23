@@ -50,6 +50,8 @@ export type TraceLine = {
   cost_usd?: number;
   /** The host name of METERLESS_BASE_URL, never the full URL. */
   provider_host?: string;
+  /** Model lines of an agent with a prompt file: the first 8 hex characters of the SHA-256 of that file (prompts.ts). */
+  prompt_hash?: string;
   fallback?: "strong->main";
   /** Query lines: where the rows came from, "local", "zetaris" or "local-fallback". */
   source?: "local" | "zetaris" | "local-fallback";
@@ -117,9 +119,10 @@ export class Tracer {
   readonly file: string;
   private task: string | undefined;
 
-  constructor(runId: string, file: string) {
+  constructor(runId: string, file: string, task?: string) {
     this.runId = runId;
     this.file = file;
+    this.task = task;
   }
 
   /** Sets the task written on later lines. It never touches the file. */
@@ -166,12 +169,15 @@ export function isRunId(value: string): boolean {
   return /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(value);
 }
 
-/** Starts logs/trace-<runId>.jsonl fresh, replacing a file with the same id, so each file holds one run. */
-export function startRun(runId: string): Tracer {
+/**
+ * Starts logs/trace-<runId>.jsonl fresh, replacing a file with the same id, so each file holds one run. The task
+ * is written on every line from the first; setTask changes it for later lines only.
+ */
+export function startRun(runId: string, options: { task?: string } = {}): Tracer {
   if (!isRunId(runId)) throw new Error(`Invalid run id: ${JSON.stringify(runId)}.`);
   const dir = path.resolve(process.cwd(), "logs");
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `trace-${runId}.jsonl`);
   writeFileSync(file, "");
-  return new Tracer(runId, file);
+  return new Tracer(runId, file, options.task);
 }

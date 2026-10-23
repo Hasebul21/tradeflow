@@ -3,13 +3,12 @@
 // user message is one JSON object (rule 7: data goes to the model as JSON, never into the system prompt). Each
 // step's query_id is checked against the task's catalogue and its params against that query's schema; an invalid
 // step is dropped and traced, never run. Server only (node:fs reads the prompt).
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { catalogueFor, memoriesForModel, type MemoryForModel, type Task } from "../context";
 import { afterModel } from "../guards";
 import { complete as completeModel, type CompleteOptions, type CompleteResult } from "../llm";
+import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import { QUERIES, isQueryId, type CatalogueEntry, type QueryId } from "../queries";
 import type { Tracer } from "../trace";
@@ -18,7 +17,6 @@ const AGENT = "Planner";
 const TARGET = "Analyst";
 const WHY_CHARS = 200;
 const SUMMARY_CHARS = 200;
-const PROMPT_FILE = path.resolve(process.cwd(), "src/agent/prompts/planner.md");
 
 export type PlannerTrade = { symbol: string; side: "buy" | "sell"; quantity: number; price?: number };
 
@@ -110,12 +108,14 @@ export const planReplySchema = z.object({
   injection_seen: z.boolean().catch(false),
 });
 
-let promptCache: string | undefined;
+/** prompts/planner.md as-is with its hash, read once (prompts.ts). */
+export function plannerPromptVersion(): PromptVersion {
+  return promptVersion("planner");
+}
 
-/** prompts/planner.md as-is, read once. */
+/** The text of prompts/planner.md. */
 export function plannerPrompt(): string {
-  promptCache ??= readFileSync(PROMPT_FILE, "utf8");
-  return promptCache;
+  return plannerPromptVersion().text;
 }
 
 const capped = (text: string) => (text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS)}...`);
@@ -181,7 +181,8 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
   );
 
   const result = await (deps.complete ?? completeModel)({
-    system: plannerPrompt(),
+    system: plannerPromptVersion().text,
+    prompt_hash: plannerPromptVersion().prompt_hash,
     user: JSON.stringify(input),
     model: "strong",
     json: true,

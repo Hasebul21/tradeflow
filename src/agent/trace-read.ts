@@ -72,7 +72,8 @@ export type RunSummary = {
   at: string;
 };
 
-const FILE = /^trace-([A-Za-z0-9_-]{1,80})\.jsonl$/;
+/** The name of a trace file; metrics.ts reads only files that match it. */
+export const TRACE_FILE = /^trace-([A-Za-z0-9_-]{1,80})\.jsonl$/;
 
 /** The run_end line's status as the run's final status: its "ok" is a successful run. */
 function finalStatus(line: TraceLine | undefined): RunStatusLabel {
@@ -109,7 +110,7 @@ export async function listRuns(dir: string = logsDir()): Promise<RunSummary[]> {
   }
   const runs = await Promise.all(
     names.map(async (name): Promise<{ run: RunSummary; mtime: number } | null> => {
-      const match = FILE.exec(name);
+      const match = TRACE_FILE.exec(name);
       if (match === null) return null;
       try {
         const file = path.join(dir, name);
