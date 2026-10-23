@@ -263,7 +263,7 @@ export function numberMatchesIn(text: string, ignore: readonly string[] = []): N
  * The numbers a text holds, as positive values. Dates (2026-10-01, 1 Oct, Oct 1), years, ids (j-013, BRK-20260802-035),
  * the `ignore` strings (run_query_ids), words with digits in them and a Tk prefix are not numbers. 3,000 is 3000.
  * The first day of a range such as 11-17 Sept is still a number here: a caller that can prove the range's days are
- * dates of its run blanks the range first (writer.ts, checkReview).
+ * dates of its run blanks the range first (writer.ts checkReview and guards.checkCitations).
  */
 export function numbersIn(text: string, ignore: readonly string[] = []): number[] {
   return numberMatchesIn(text, ignore).map((match) => match.value);

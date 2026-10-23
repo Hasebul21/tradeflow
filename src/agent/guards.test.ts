@@ -151,6 +151,14 @@ describe("numbersIn, numberMatchesIn and dayRangesIn", () => {
       expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 13/) });
     });
 
+    it("with as_of absent, proves a range only by a query's params or a cited row", () => {
+      const text = "GP had one announcement in the window 11-17 Sept 2026.";
+      const rowsOnly = r("00000000-0000-4000-8000-0000000000cc", "announcements_between", { symbol: "GP" }, [{ id: "a-1", published_on: "2026-09-11" }, { id: "a-2", published_on: "2026-09-17" }]);
+      expect(checkCitations([claim(text, [rowsOnly.run_query_id])], { [rowsOnly.run_query_id]: rowsOnly }).ok).toBe(true);
+      const lastDayOnly = r("00000000-0000-4000-8000-0000000000dd", "rule_findings", { as_of: "2026-09-17" }, [{ rule: "position_limit", checked_on: "2026-09-17" }]);
+      expect(checkCitations([claim(text, [lastDayOnly.run_query_id])], { [lastDayOnly.run_query_id]: lastDayOnly })).toMatchObject({ ok: false, reason: expect.stringMatching(/the claim has 11/) });
+    });
+
     it("refuses a day that only an uncited row holds, and allows it once the finding cites that row", () => {
       const other = r("00000000-0000-4000-8000-0000000000aa", "rule_findings", { as_of: "2026-09-17" }, [{ rule: "position_limit", checked_on: "2026-09-13" }]);
       const both = { ...results, [other.run_query_id]: other };

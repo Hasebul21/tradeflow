@@ -357,26 +357,43 @@ export function checkReview(
     why: ok ? "every number is allowed, the last line is the disclaimer, the guard allows it" : reason,
     retry_count: round,
   });
-  const onlyDisclaimer = noDisclaimer && problems.length === 1 ? { only_disclaimer: true as const } : {};
+  const onlyDisclaimer = noDisclaimer && problems.length === 1 && disclaimerFixable(reply.review_markdown) ? { only_disclaimer: true as const } : {};
   return ok ? { ok: true, ...seen } : { ok: false, reason, ...onlyDisclaimer, ...seen };
 }
 
+/** A line that is the disclaimer once Markdown marks (`*`, `_`, `>`, backticks) are stripped: "**...**", "> ...". */
+export function isDisclaimerLine(line: string): boolean {
+  return line.replace(/[*_>`]/g, "").trim() === DISCLAIMER;
+}
+
 /**
- * The review with the disclaimer as its last line: each line that is exactly the disclaimer (a misplaced or duplicate
- * copy) is moved to the end, or the sentence is added when there is none. No other model text is removed or changed.
+ * Whether code may put the disclaimer last: no line holds the sentence alongside other words (that line is model
+ * text code won't edit), and the review does not end inside an unclosed code fence (the line would land in the code).
+ */
+function disclaimerFixable(review: string): boolean {
+  const lines = review.split("\n");
+  if (lines.some((line) => line.includes(DISCLAIMER) && !isDisclaimerLine(line))) return false;
+  return lines.filter((line) => /^\s*(?:```|~~~)/.test(line)).length % 2 === 0;
+}
+
+/**
+ * The review with the disclaimer as its last line: each disclaimer line (exact, or with only Markdown marks around
+ * it; a misplaced or duplicate copy) is moved to the end as the exact sentence, or the sentence is added when there
+ * is none. No other model text is removed or changed.
  */
 export function withDisclaimerLast(review: string): string {
   const lines = review.split("\n");
   const kept: string[] = [];
   for (let i = 0; i < lines.length; i += 1) {
-    if (lines[i].trim() !== DISCLAIMER) {
+    if (!isDisclaimerLine(lines[i])) {
       kept.push(lines[i]);
       continue;
     }
     // The blank line that separated the moved copy goes with it, so no paragraph gap doubles.
     if (kept.length > 0 && kept[kept.length - 1].trim() === "" && lines[i + 1]?.trim() === "") i += 1;
   }
-  return `${kept.join("\n").trimEnd()}\n\n${DISCLAIMER}`;
+  const body = kept.join("\n").trim();
+  return body.length === 0 ? DISCLAIMER : `${body}\n\n${DISCLAIMER}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -517,7 +534,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
       // A missing or misplaced disclaimer, and nothing else wrong, is a fixed sentence: code puts it last and runs
       // every check again, instead of a slow retry. Any other problem (advice wording included) still retries.
       if (!check.ok && check.only_disclaimer === true) {
-        const had = draft.review_markdown.split("\n").filter((line) => line.trim() === DISCLAIMER).length;
+        const had = draft.review_markdown.split("\n").filter(isDisclaimerLine).length;
         draft = { ...draft, review_markdown: withDisclaimerLast(draft.review_markdown) };
         tracer.log({
           agent_name: AGENT,
