@@ -348,8 +348,8 @@ describe("a plain run", () => {
     expect(badId).toMatchObject({ status: "error", output: null, error: { type: "InvalidInput", recoverable: false }, log_file: null });
     expect(badId.usage).toMatchObject({ model_calls: 0, query_calls: 0 });
 
-    // briefing arrives in a later step; reconcile is supported since the reconciliation agent.
-    const task = await run({ runId: "orch-task", task: "briefing", input: { question: QUESTION }, sampleMode: true, config });
+    // briefing is supported since the weekly briefing (briefing.test.ts); a task no step has built is still refused.
+    const task = await run({ runId: "orch-task", task: "forecast", input: { question: QUESTION }, sampleMode: true, config });
     expect(task).toMatchObject({ status: "error", error: { type: "InvalidInput", recoverable: false } });
     expect(trace(task).at(-1)).toMatchObject({ action: "run_end", status: "error" });
 

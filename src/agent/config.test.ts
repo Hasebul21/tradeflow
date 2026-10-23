@@ -21,6 +21,7 @@ describe("limits and defaults", () => {
       MODEL_TIMEOUT_STRONG_MS: 240000,
       ROUND_TIMEOUT_MS: 360000,
       RUN_TIMEOUT_MS: 900000,
+      BRIEFING_TIMEOUT_MS: 1200000,
       MAX_ROWS_PER_QUERY: 50,
       MAX_MEMORIES: 5,
       MAX_PROMPT_CHARS: 40000,

@@ -13,7 +13,7 @@ import { evaluate, type Scores } from "./agents/evaluator";
 import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome } from "./agents/planner";
 import { route } from "./agents/router";
 import { DISCLAIMER, write } from "./agents/writer";
-import { ConfigError, loadConfig, type Config, type Tier } from "./config";
+import { BRIEFING_MIN_CHILD_MS, ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
@@ -43,6 +43,8 @@ const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check", "pre_trade",
 const FEEDBACK = "feedback";
 /** The owner's approval of one reconciliation fix: applied by code from the current rows, with no model. */
 const APPROVE = "reconcile_approve";
+/** The weekly briefing: explain_week, thesis_check and reconcile as three whole runs, chained by briefing(). */
+const BRIEFING = "briefing";
 
 // ---------------------------------------------------------------------------------------------------------------
 // The request and the reply.
@@ -83,7 +85,7 @@ export type StopReason = (typeof STOP_REASONS)[number];
 export type RunStatus = "success" | "needs_human" | "error";
 
 /** One cited result: what the accepted findings rest on. `rows` (at most CITATION_ROWS) is for the Explain page's drawer; it is output only and never goes into a model's input. */
-export type Citation = { run_query_id: string; query_id: QueryId; params: Record<string, unknown>; source: QuerySource; row_count: number; rows: QueryResult["rows"]; /** The SQL Zetaris ran, when source is "zetaris". */ sql?: string };
+export type Citation = { run_query_id: string; query_id: QueryId; params: Record<string, unknown>; source: QuerySource; row_count: number; rows: QueryResult["rows"]; /** The SQL Zetaris ran, when source is "zetaris". */ sql?: string; /** briefing only: the child run whose findings cite it. */ child_run_id?: string };
 export const CITATION_ROWS = 50;
 export type RunScores = Scores & { total: number };
 
@@ -118,7 +120,14 @@ export type RunOutput = {
   proposals?: Proposal[];
   /** reconcile_approve only: what the approval did; null when nothing was written. */
   applied?: { issue_id: string; edit: LedgerEdit; memory_id: string | null } | null;
+  /** briefing only: one entry per child run, in chain order. */
+  sections?: BriefingSection[];
 };
+
+/** One child of a briefing. "skipped" means the child never started because less than BRIEFING_MIN_CHILD_MS was left. */
+export type BriefingSection = { task: string; run_id: string; status: RunStatus | "skipped"; summary: string; stop_reason: StopReason | null; usage: RunUsage };
+/** Runs one child of a briefing: run() by default, a stub in a test. */
+export type RunChild = (options: RunOptions) => Promise<RunResult>;
 
 export type ThesisVerdict = { journal_id: string; symbol: string; verdict: string; cites: string[] };
 
@@ -370,6 +379,9 @@ export async function run(options: RunOptions): Promise<RunResult> {
       execution_time_seconds: seconds(),
     };
   }
+
+  // The briefing is a fixed chain of whole runs with its own trace, not a loop of its own.
+  if (options.task === BRIEFING) return briefing(options);
 
   const tracer = startRun(runId);
   // Before the Router has picked, the lines have no task; setTask never touches the file, so the second call is safe.
@@ -1185,5 +1197,236 @@ export async function run(options: RunOptions): Promise<RunResult> {
       ...(taskName === "reconcile" && reconciliation !== null ? { proposals: proposalsFrom(reconciliation.rows, findings, reconciliation.run_query_id) } : {}),
     };
     return { ...base, status: outcome.kind === "success" ? "success" : "needs_human", output, error: null };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// briefing: a fixed chain of three whole runs. Code builds it from their results; no model is called here.
+
+const BRIEFING_CHAIN = [
+  { task: "explain_week", suffix: "1-explain_week", heading: "What moved", why: "what moved in the portfolio this week, against the sector indices and DSEX, answering the owner's question" },
+  { task: "thesis_check", suffix: "2-thesis_check", heading: "Your theses", why: "whether each thesis in the owner's journal still holds against this week's records" },
+  { task: "reconcile", suffix: "3-reconcile", heading: "Ledger and broker differences", why: "every difference between the ledger and the broker and bank files, as fixes that wait for the owner's approval" },
+] as const;
+const BRIEFING_QUESTION = "Why did my portfolio move this week?";
+/** A child run id is "<run_id>-<suffix>" and must still fit RUN_ID_PATTERN, so the briefing's own id leaves room for the longest suffix. */
+const BRIEFING_ID_ROOM = 80 - Math.max(...BRIEFING_CHAIN.map((child) => child.suffix.length + 1));
+
+/** A section whose review is in the briefing: a success, or the reconcile run's proposals waiting for approval (needs_human, no stop reason). */
+const covered = (section: BriefingSection): boolean => section.status === "success" || (section.status === "needs_human" && section.stop_reason === null);
+
+/** The child's review without its closing disclaimer line, which the briefing writes once at the end. */
+function withoutDisclaimer(markdown: string): string {
+  return markdown
+    .split("\n")
+    .filter((line) => line.trim() !== DISCLAIMER)
+    .join("\n")
+    .trim();
+}
+
+function sumUsage(sections: readonly BriefingSection[], durationMs: number): RunUsage {
+  const usage: RunUsage = { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: durationMs };
+  for (const { usage: part } of sections) {
+    usage.model_calls += part.model_calls;
+    usage.query_calls += part.query_calls;
+    usage.tokens_in += part.tokens_in;
+    usage.tokens_out += part.tokens_out;
+  }
+  return usage;
+}
+
+/**
+ * The weekly briefing. Validates like every other task (a bad or out-of-range as_of is InvalidInput and no child run
+ * starts), resolves as_of once, writes one Orchestrator "fixed_plan" line, then runs explain_week, thesis_check and
+ * reconcile in that order through `runChild` (run() unless a test replaces it). Each child keeps its own limits and
+ * trace file, gets a config whose RUN_TIMEOUT_MS is the smaller of its own and the briefing's time left, and is skipped
+ * with stop_reason "run_timeout" when BRIEFING_MIN_CHILD_MS is not left. One "handoff" line follows each child and
+ * carries the child's usage, so a run's lines other than run_end still add up to its usage. A child that stops or
+ * fails never removes the others. Never throws.
+ */
+export async function briefing(options: RunOptions, runChild: RunChild = run): Promise<RunResult> {
+  const started = Date.now();
+  const { runId } = options;
+  const config = options.config ?? loadConfig();
+  const sampleMode = options.sampleMode ?? config.sampleMode;
+  const input = options.input;
+  const seconds = () => Math.round(Date.now() - started) / 1000;
+  const noUsage = (): RunUsage => ({ model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: Date.now() - started });
+  const refused = (message: string): RunResult => ({ run_id: String(runId), task: BRIEFING, status: "error", output: null, error: { type: "InvalidInput", message, recoverable: false }, agents: [], usage: noUsage(), trace_id: String(runId), log_file: null, execution_time_seconds: seconds() });
+
+  if (typeof runId !== "string" || !RUN_ID_PATTERN.test(runId) || !isRunId(runId)) return refused(`Invalid run id: ${JSON.stringify(String(runId))}.`);
+  if (runId.length > BRIEFING_ID_ROOM) return refused(`A briefing's run id is at most ${BRIEFING_ID_ROOM} characters, because each child's run id adds a suffix.`);
+
+  const tracer = startRun(runId);
+  tracer.setTask(BRIEFING);
+  const logFile = path.relative(process.cwd(), tracer.file);
+  let asOf: string | null = null;
+  const sections: BriefingSection[] = [];
+  const results = new Map<string, RunResult>();
+  let failure: RunError | null = null;
+
+  try {
+    failure = await chain();
+  } catch (error) {
+    failure = errorOf(error);
+  }
+
+  const usage = sumUsage(sections, Date.now() - started);
+  const result = build();
+  tracer.log({
+    agent_name: AGENT,
+    action: "run_end",
+    input_summary: capped(`task=${BRIEFING} as_of=${asOf ?? "unresolved"} sample_mode=${sampleMode}`),
+    output_summary: capped(
+      result.status === "error"
+        ? `status=error type=${result.error?.type}: ${result.error?.message}`
+        : `status=${result.status}${result.output?.stop_reason ? ` stop_reason=${result.output.stop_reason}` : ""} sections=${sections.map((section) => `${section.task}:${section.status}`).join(",")} citations=${result.output?.citations.length}`,
+    ),
+    status: result.status === "success" ? "ok" : result.status,
+    ...(result.status === "error" ? { why: result.error?.message } : result.output?.stop_reason ? { why: result.output.stop_reason } : {}),
+    duration_ms: usage.duration_ms,
+    ...(result.output?.stop_reason ? { stop_reason: result.output.stop_reason } : {}),
+    usage,
+  });
+  return result;
+
+  /** Validation, as_of, the fixed plan and the three children. Returns the error that ends the briefing before any child, or null. */
+  async function chain(): Promise<RunError | null> {
+    const invalid = (message: string): RunError => ({ type: "InvalidInput", message, recoverable: false });
+    if (input === null || typeof input !== "object") return invalid("The input must be an object.");
+    if (input.question !== undefined && input.question !== null && typeof input.question !== "string") return invalid("The question must be a string.");
+    if (input.as_of !== undefined && input.as_of !== null && typeof input.as_of !== "string") return invalid("as_of must be a date as YYYY-MM-DD.");
+    const question = (input.question ?? "").trim() || BRIEFING_QUESTION;
+
+    // as_of once: every child gets the resolved date.
+    const data = await new RunState({ runId, tracer, config, sampleMode }).queryData();
+    const resolved = resolveAsOf(data.portfolio.bars, input.as_of ?? null);
+    if (!resolved.ok) return invalid(resolved.error);
+    asOf = resolved.asOf;
+    if (input.as_of && input.as_of !== asOf) {
+      tracer.log({
+        agent_name: GUARD,
+        action: "as_of_moved",
+        input_summary: `as_of ${input.as_of}`,
+        output_summary: `as_of moved from ${input.as_of} to ${asOf}`,
+        status: "ok",
+        why: "as_of is not a session: the Thursday before a Friday or Saturday, or the last session on or before the date",
+      });
+    }
+
+    tracer.log({
+      agent_name: AGENT,
+      action: "fixed_plan",
+      input_summary: capped(`task=${BRIEFING} as_of=${asOf}`),
+      output_summary: capped(`no Planner call: ${BRIEFING_CHAIN.map((child) => child.task).join(", ")} as three whole runs, one after the other`),
+      target_agent: BRIEFING_CHAIN[0].task,
+      status: "ok",
+      why: BRIEFING_CHAIN.map((child, index) => `${index + 1}. ${child.task}: ${child.why}.`).join(" "),
+    });
+
+    const deadline = started + config.BRIEFING_TIMEOUT_MS;
+    for (const child of BRIEFING_CHAIN) {
+      const childRunId = `${runId}-${child.suffix}`;
+      const left = deadline - Date.now();
+      if (left < BRIEFING_MIN_CHILD_MS) {
+        sections.push({ task: child.task, run_id: childRunId, status: "skipped", summary: `${child.task} did not start: ${Math.max(0, left)} ms of BRIEFING_TIMEOUT_MS (${config.BRIEFING_TIMEOUT_MS} ms) were left.`, stop_reason: "run_timeout", usage: noUsage() });
+        tracer.log({
+          agent_name: AGENT,
+          action: "child_skipped",
+          input_summary: capped(`child=${child.task} run_id=${childRunId}`),
+          output_summary: capped(`run_timeout: ${Math.max(0, left)} ms left, at least ${BRIEFING_MIN_CHILD_MS} ms are needed; no run was started`),
+          target_agent: child.task,
+          status: "needs_human",
+          why: "run_timeout",
+          stop_reason: "run_timeout",
+        });
+        continue;
+      }
+      const childInput: RunInput = child.task === "explain_week" ? { question, as_of: asOf } : { as_of: asOf };
+      const childConfig: Config = { ...config, RUN_TIMEOUT_MS: Math.min(config.RUN_TIMEOUT_MS, left) };
+      let reply: RunResult;
+      try {
+        reply = await runChild({ runId: childRunId, task: child.task, input: childInput, sampleMode, config: childConfig, ...(options.localReason === undefined ? {} : { localReason: options.localReason }) });
+      } catch (error) {
+        const caught = errorOf(error);
+        reply = { run_id: childRunId, task: child.task, status: "error", output: null, error: caught, agents: [], usage: noUsage(), trace_id: childRunId, log_file: null, execution_time_seconds: 0 };
+      }
+      const stopReason = reply.output?.stop_reason ?? null;
+      const section: BriefingSection = {
+        task: child.task,
+        run_id: childRunId,
+        status: reply.status,
+        summary: reply.output?.summary ?? `${reply.error?.type ?? "Error"}: ${reply.error?.message ?? "the run returned nothing"}`,
+        stop_reason: stopReason,
+        usage: reply.usage,
+      };
+      sections.push(section);
+      results.set(childRunId, reply);
+      tracer.log({
+        agent_name: AGENT,
+        action: "handoff",
+        input_summary: capped(`child=${child.task} run_id=${childRunId} as_of=${asOf}`),
+        output_summary: capped(`status=${reply.status}${stopReason === null ? "" : ` stop_reason=${stopReason}`}: ${section.summary}`),
+        target_agent: child.task,
+        // An errored child leaves the briefing needs_human, and a mid-trace "error" would read as the end of the run.
+        status: reply.status === "success" ? "ok" : "needs_human",
+        why: child.why,
+        child_run_id: childRunId,
+        duration_ms: reply.usage.duration_ms,
+        usage: { model_calls: reply.usage.model_calls, query_calls: reply.usage.query_calls, tokens_in: reply.usage.tokens_in, tokens_out: reply.usage.tokens_out },
+        ...(stopReason === null ? {} : { stop_reason: stopReason }),
+      });
+    }
+    return null;
+  }
+
+  function build(): RunResult {
+    const base = { run_id: runId, task: BRIEFING, agents: [], usage, trace_id: runId, log_file: logFile, execution_time_seconds: seconds() };
+    if (failure !== null) return { ...base, status: "error", output: null, error: failure };
+
+    const done = sections.every(covered);
+    const stopReason = sections.find((section) => section.stop_reason !== null)?.stop_reason ?? null;
+    const parts: string[] = [`# Weekly briefing for ${asOf}`];
+    const citations: Citation[] = [];
+    const findings: Finding[] = [];
+    const gaps: string[] = [];
+    const modelSources = new Set<string>();
+    BRIEFING_CHAIN.forEach((child, index) => {
+      const section = sections[index];
+      parts.push(`## ${child.heading}`);
+      const reply = results.get(section.run_id);
+      if (covered(section) && reply?.output) {
+        parts.push(withoutDisclaimer(reply.output.review_markdown));
+        citations.push(...reply.output.citations.map((citation) => ({ ...citation, child_run_id: section.run_id })));
+        findings.push(...reply.output.findings);
+        gaps.push(...reply.output.gaps);
+      } else {
+        const reason = section.stop_reason ?? "error";
+        parts.push(section.status === "skipped" ? `Not covered: ${section.task} stopped (${reason}); it did not start, so it has no trace.` : `Not covered: ${section.task} stopped (${reason}); its trace is ${section.run_id}.`);
+        gaps.push(`${section.task} stopped (${reason}).`);
+      }
+      for (const source of (reply?.output?.model_source ?? "").split(", ")) if (source !== "" && !source.startsWith("none")) modelSources.add(source);
+    });
+    parts.push(DISCLAIMER);
+
+    const output: RunOutput = {
+      summary: `Weekly briefing for ${asOf}: ${sections.map((section) => `${section.task} ${section.status}`).join(", ")}.`,
+      review_markdown: parts.join("\n\n"),
+      findings,
+      gaps,
+      citations,
+      needs_human: !done,
+      declined_advice: [...results.values()].some((reply) => reply.output?.declined_advice === true),
+      injection_seen: [...results.values()].some((reply) => reply.output?.injection_seen === true),
+      memories_recalled: [],
+      applied_corrections: [],
+      rounds: 0,
+      scores: null,
+      model_source: [...modelSources].join(", ") || (sampleMode ? "sample-model" : "none"),
+      partial: !done,
+      stop_reason: done ? null : stopReason,
+      sections,
+    };
+    return { ...base, status: done ? "success" : "needs_human", output, error: null };
   }
 }

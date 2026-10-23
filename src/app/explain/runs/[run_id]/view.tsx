@@ -46,6 +46,12 @@ export function RunView({ runId, lines, proof, done, summary }: { runId: string;
                 {row.source !== null ? <Tag color={row.source === "zetaris" ? "blue" : row.source === "local-fallback" ? "orange" : "default"}>{row.source}</Tag> : null}
                 {row.usage !== null ? <div className="muted">{row.usage}</div> : null}
                 {row.why !== null ? <div className="muted">{`Why: ${row.why}`}</div> : null}
+                {row.child !== null ? (
+                  <div data-testid={`handoff-${row.n}`}>
+                    <Typography.Text strong>{`Handed to ${row.child.task}, ${row.child.status}: `}</Typography.Text>
+                    <Link href={`/explain/runs/${row.child.run_id}`}>{row.child.run_id}</Link>
+                  </div>
+                ) : null}
                 {row.detail !== null ? (
                   <div>
                     <Typography.Text strong>{`${row.detail.label}: `}</Typography.Text>

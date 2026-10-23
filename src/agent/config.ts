@@ -27,6 +27,8 @@ export type Config = {
   readonly MODEL_TIMEOUT_STRONG_MS: number;
   readonly ROUND_TIMEOUT_MS: number;
   readonly RUN_TIMEOUT_MS: number;
+  /** The whole weekly briefing: its three child runs together; each child gets the time left (its own RUN_TIMEOUT_MS if smaller). */
+  readonly BRIEFING_TIMEOUT_MS: number;
   readonly MAX_ROWS_PER_QUERY: number;
   readonly MAX_MEMORIES: number;
   readonly MAX_PROMPT_CHARS: number;
@@ -72,6 +74,9 @@ export const EMPTY_RESPONSE_MAX_TRIES = 3;
 /** The wait before try 2 and before try 3 of an empty_response retry; it comes out of the round's time left. */
 export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000];
 
+/** A briefing child starts only while at least this much of BRIEFING_TIMEOUT_MS is left; below it the child's section is skipped. */
+export const BRIEFING_MIN_CHILD_MS = 5000;
+
 /** The Nightshift placeholder token; it is never a real credential. */
 const REJECTED_KEYS = new Set(["rt-local"]);
 
@@ -89,6 +94,7 @@ const limitsSchema = z.object({
   MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
   ROUND_TIMEOUT_MS: positiveInt(360000),
   RUN_TIMEOUT_MS: positiveInt(900000),
+  BRIEFING_TIMEOUT_MS: positiveInt(1200000),
   MAX_ROWS_PER_QUERY: positiveInt(50),
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),

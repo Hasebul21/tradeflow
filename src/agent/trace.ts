@@ -53,6 +53,8 @@ export type TraceLine = {
   fallback?: "strong->main";
   /** Query lines: where the rows came from, "local", "zetaris" or "local-fallback". */
   source?: "local" | "zetaris" | "local-fallback";
+  /** Written only on an Orchestrator "handoff" line: the run id of the child run it handed to (the briefing's children). */
+  child_run_id?: string;
   /** Memory recall lines: the H-MEM query's trace.retrievalReason and trace.strategy. */
   retrievalReason?: string;
   strategy?: string;

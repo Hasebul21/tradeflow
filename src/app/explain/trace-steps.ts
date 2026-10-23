@@ -18,6 +18,8 @@ export type StepRow = {
   usage: string | null;
   /** What the agent's step proves, in the agent's own words; null when the step has nothing more to say. */
   detail: { label: string; text: string } | null;
+  /** An Orchestrator handoff line: the child run it handed to, shown as a link to that run's own trace. */
+  child: { task: string; status: string; run_id: string } | null;
 };
 
 const text = (value: unknown): string | null => (typeof value === "string" && value.trim() !== "" ? value : null);
@@ -47,6 +49,13 @@ function detailOf(line: TraceLine): StepRow["detail"] {
   }
 }
 
+/** The child of a briefing handoff line; its status is the "status=<status>" the Orchestrator wrote first in the output summary. */
+function childOf(line: TraceLine): StepRow["child"] {
+  if (line.agent_name !== "Orchestrator" || line.action !== "handoff" || text(line.child_run_id) === null) return null;
+  const status = /^status=(\w+)/.exec(line.output_summary ?? "")?.[1] ?? line.status;
+  return { task: text(line.target_agent) ?? "-", status, run_id: line.child_run_id as string };
+}
+
 /** Every line as a step, in file order, numbered from 1. */
 export function stepRows(lines: readonly TraceLine[]): StepRow[] {
   return lines.map((line, index) => ({
@@ -61,6 +70,7 @@ export function stepRows(lines: readonly TraceLine[]): StepRow[] {
     source: text(line.source),
     usage: usageText(line.usage),
     detail: detailOf(line),
+    child: childOf(line),
   }));
 }
 
