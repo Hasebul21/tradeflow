@@ -2,8 +2,9 @@
 // to main) with prompts/writer.md as-is and one JSON user message (rule 7): the accepted findings, each with the
 // rows it cites, the gaps, declined_advice, the escalation, the recalled memories and the applied corrections. Code
 // checks the reply: every number in the summary, the review and the memory note is in an accepted finding's
-// numbers, in a cited row, in a recalled memory, in the question or in a gap (rounding to one decimal place; digits in dates, years, ids and
-// [q:...] tags are not numbers); the last line of the review is the disclaimer; guards.afterModel passes. A failure
+// numbers, in a cited row, in a recalled memory, in the question or in a gap code wrote (rounding to one decimal
+// place; digits in dates, years, ids and [q:...] tags are not numbers); the last line of the review is the
+// disclaimer; guards.afterModel passes. A failure
 // gets one retry with the same input plus retry_reason; a second failure returns ok false with the draft, which the
 // loop turns into needs_human. An accepted review's memory_note goes to memory.remember, so through
 // guards.beforeRemember with kind "review"; when afterModel saw injection wording in the reply, the memory_note is
@@ -41,6 +42,8 @@ export type WriteInput = {
   /** Every result of this run in full (RunState.store). */
   results: ResultStore;
   gaps?: readonly string[];
+  /** The subset of gaps that code wrote; only their figures may be repeated. The Analyst's own gap text never counts. */
+  code_gaps?: readonly string[];
   declined_advice?: boolean;
   /** pre_trade: the rule the trade would break, decided in code; null otherwise. */
   escalation?: Escalation | null;
@@ -250,15 +253,16 @@ export type ReviewCheck = ({ ok: true } | { ok: false; reason: string }) & {
  */
 export function checkReview(
   reply: WriterReply,
-  allowed: { findings: readonly Finding[]; results: ResultStore; memories: readonly Pick<RecalledMemory, "content">[]; task: Task; counts?: RunCounts; question?: string; gaps?: readonly string[] },
+  allowed: { findings: readonly Finding[]; results: ResultStore; memories: readonly Pick<RecalledMemory, "content">[]; task: Task; counts?: RunCounts; question?: string; code_gaps?: readonly string[] },
   tracer?: Tracer,
   round = 0,
 ): ReviewCheck {
   const problems: string[] = [];
   const ids = Object.keys(allowed.results);
   const ignore = [...ids.map((id) => `[q:${id}]`), ...ids];
-  // The question and the gaps are the only texts besides the data whose figures a review may repeat.
-  const quoted = [allowed.question ?? "", ...(allowed.gaps ?? [])].flatMap((text) => numbersIn(text, ignore));
+  // The question and the gaps code wrote are the only texts besides the data whose figures a review may repeat.
+  // A gap the Analyst wrote is model text: its figures are not allowed unless a finding, a row or a memory holds them.
+  const quoted = [allowed.question ?? "", ...(allowed.code_gaps ?? [])].flatMap((text) => numbersIn(text, ignore));
   const candidates = [...allowedNumbers(allowed.findings, allowed.results, allowed.memories), ...countNumbers(allowed.counts), ...quoted];
   for (const [field, text] of [
     ["summary", reply.summary],
@@ -410,7 +414,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     const parsed = writerReplySchema.safeParse(result.json ?? {});
     if (parsed.success) {
       draft = parsed.data;
-      const check = checkReview(draft, { findings: input.findings, results: input.results, memories, task: input.task, question: input.question, gaps: input.gaps ?? [], ...(input.counts === undefined ? {} : { counts: input.counts }) }, tracer, round);
+      const check = checkReview(draft, { findings: input.findings, results: input.results, memories, task: input.task, question: input.question, code_gaps: input.code_gaps ?? [], ...(input.counts === undefined ? {} : { counts: input.counts }) }, tracer, round);
       injectionSeen = check.injection_seen === true;
       if (check.ok) return accepted(draft, attempt, injectionSeen);
       reason = check.reason;

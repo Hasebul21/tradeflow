@@ -8,7 +8,7 @@ import type { RecalledMemory } from "../memory";
 import { loadQueryData, type QueryData } from "../queries";
 import { BudgetExhaustedError, RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
-import { analyse, analystReplySchema, toolsFor, type AnalysisRequest } from "./analyst";
+import { analyse, analystReplySchema, codeGaps, toolsFor, type AnalysisRequest } from "./analyst";
 import { plan, type PlannedStep } from "./planner";
 
 // The seed data in data/, a fake tracer that keeps every line in memory, and the sample model unless a test stubs
@@ -126,6 +126,17 @@ describe("the Analyst runs the planned queries", () => {
     expect(lines.filter((line) => line.agent_name === "Guard" && line.action === "block")).toHaveLength(1);
     expect(outcome.ok && outcome.gaps.some((gap) => gap.startsWith("week_moves") && gap.includes("did not run"))).toBe(true);
     expect(run.usage.query_calls).toBe(1);
+  });
+
+  it("returns the gaps code wrote as code_gaps, a subset of gaps that leaves out the model's own gap text", async () => {
+    const { run } = runState();
+    const modelGap = "The Analyst's own note: 37 broker lines were unclear.";
+    const outcome = await analyse(request([step("week_moves", { as_of: "2027-01-01" }), step("rule_findings")]), { run, complete: scripted([() => ({ findings: [], gaps: [modelGap] })]) });
+    if (!outcome.ok) throw new Error(outcome.error.message);
+    expect(outcome.gaps).toContain(modelGap);
+    expect(outcome.code_gaps).toEqual(codeGaps([], outcome.skipped));
+    expect(outcome.code_gaps).not.toContain(modelGap);
+    expect(outcome.code_gaps.every((gap) => outcome.gaps.includes(gap))).toBe(true);
   });
 });
 

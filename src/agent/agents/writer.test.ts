@@ -9,7 +9,7 @@ import type { CompleteOptions, CompleteResult } from "../llm";
 import { openMemory, type RecalledMemory } from "../memory";
 import { RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
-import { analyse } from "./analyst";
+import { analyse, codeGaps } from "./analyst";
 import { evaluate } from "./evaluator";
 import { plan } from "./planner";
 import { DISCLAIMER, checkReview, countNumbers, write, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
@@ -286,14 +286,53 @@ describe("checkReview and the run's own counts", () => {
     expect(check).toEqual({ ok: true });
   });
 
-  it("allows a number a gap repeats", () => {
-    const check = checkReview(review("Not covered: the 7 broker lines. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), gaps: ["reconciliation returned no rows for 7 broker lines"] });
+  // A gap as codeGaps() writes it. A gap the Analyst wrote is never passed in code_gaps (see "code_gaps" in the Analyst test).
+  const CODE_GAP = codeGaps([], [{ query_id: "week_moves", params: { as_of: "2026-10-01" }, reason: "The run's query budget is spent: 20 of 20 calls used." }])[0];
+
+  it("allows a number a code-built gap repeats: MAX_QUERY_CALLS in a skipped step's reason", () => {
+    const check = checkReview(review("The review stopped after 20 queries. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), code_gaps: [CODE_GAP] });
+    expect(CODE_GAP).toMatch(/20 of 20/);
     expect(check).toEqual({ ok: true });
   });
 
-  it("still rejects a number that is in no finding, row, memory, count, question or gap", () => {
-    const check = checkReview(review("A gap of Tk 98765.4 is open."), { ...allowed(COUNTS), question: "What changed in the last 30 days?", gaps: ["no rows for 7 broker lines"] });
+  it("allows a number a code-built gap repeats: a figure in the gap text", () => {
+    const check = checkReview(review("The 3 sessions window is open. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), code_gaps: ["fundamentals_latest {\"symbol\":\"ACME\"} returned no rows after 3 sessions"] });
+    expect(check).toEqual({ ok: true });
+  });
+
+  it("rejects a number that only an Analyst-written gap holds, as before c54d342", () => {
+    const check = checkReview(review("37 broker lines were unclear. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), code_gaps: [CODE_GAP] });
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/summary has the number 37, which is in no accepted finding/) });
+  });
+
+  it("rejects the Analyst's number even when the same text is passed with no code-built gaps", () => {
+    const check = checkReview(review("37 broker lines were unclear. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), question: "What changed in the last 30 days?" });
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 37/) });
+  });
+
+  it("still rejects a number that is in no finding, row, memory, count, question or code-built gap", () => {
+    const check = checkReview(review("A gap of Tk 98765.4 is open."), { ...allowed(COUNTS), question: "What changed in the last 30 days?", code_gaps: [CODE_GAP] });
     expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 98765\.4/) });
+  });
+
+  it("write() passes the code-built gaps to the check: their number passes, the Analyst's gap number needs a retry", async () => {
+    const { run, findings } = await accepted();
+    const moves = Object.values(run.store).find((result) => result.query_id === "week_moves")!;
+    const codeGap = "rule_findings {\"as_of\":\"2026-10-01\"} did not run: The run's query budget is spent: 20 of 20 calls used.";
+    const analystGap = "37 broker lines were unclear.";
+    const reply = (figure: string) => ({
+      summary: `The review has a gap: ${figure}.`,
+      review_markdown: `The review has a gap: ${figure}.\n\n- The data shows the portfolio moved. [q:${moves.run_query_id}]\n\n${DISCLAIMER}`,
+      memory_note: "Week to 2026-10-01: a gap is open.",
+    });
+    const extra = { gaps: [analystGap, codeGap], code_gaps: [codeGap] };
+
+    const fromCode = await write(input(run, findings, extra), { tracer: collector().tracer, run, complete: scripted([reply("20 queries ran")]) });
+    expect(fromCode).toMatchObject({ ok: true, attempts: 1 });
+
+    const fromAnalyst = await write(input(run, findings, extra), { tracer: collector().tracer, run, complete: scripted([reply("37 broker lines")]) });
+    expect(fromAnalyst).toMatchObject({ ok: false, attempts: 2 });
+    expect(fromAnalyst.reason).toMatch(/summary has the number 37/);
   });
 
   it("allows only the four counts, with proposals left out when it is null", () => {

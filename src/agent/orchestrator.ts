@@ -340,7 +340,7 @@ function betterDraft(draft: Draft, best: Draft): boolean {
 }
 
 /** total is null when the Evaluator accepted the draft unscored (score_unavailable). */
-type Draft = { findings: Finding[]; gaps: string[]; scores: Scores | null; total: number | null; round: number };
+type Draft = { findings: Finding[]; gaps: string[]; /** The gaps code wrote, a subset of gaps: the only gap text whose figures the Writer may repeat. */ code_gaps: string[]; scores: Scores | null; total: number | null; round: number };
 
 /** What the loop ends with, before the reply is built. `rounds` is the round accepted in, or the rounds run. */
 type NeedsHuman = { kind: "needs_human"; stop: StopReason; detail: string; draft: Draft | null; rounds: number; summary?: string; review_markdown?: string };
@@ -651,7 +651,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     let feedback: string | null = null;
     let previous: Finding[] | null = null;
     /** thesis_check: the evidence, the plan's focus and each batch's findings and gaps, kept across rounds. */
-    let thesis: { prepared: PreparedTheses; focus: string; found: (Finding[] | null)[]; gapsBy: string[][] } | null = null;
+    let thesis: { prepared: PreparedTheses; focus: string; found: (Finding[] | null)[]; gapsBy: string[][]; codeGapsBy: string[][] } | null = null;
     let stop: StopReason | null = null;
     let round = 0;
     /** The agent whose model call is running, so a model failure can name it. */
@@ -680,7 +680,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       const detail = `${type} in the ${calling}'s call (${error.message}); ${ran.length} queries ran: ${ran.join(", ")}.`;
       const base = accepted ?? best ?? latest;
       const gap = `The ${calling}'s model call failed (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
-      const draft: Draft = { findings: base?.findings ?? [], gaps: [...(base?.gaps ?? []), gap], scores: base?.scores ?? null, total: base?.total ?? null, round: base?.round ?? round };
+      const draft: Draft = { findings: base?.findings ?? [], gaps: [...(base?.gaps ?? []), gap], code_gaps: [...(base?.code_gaps ?? []), gap], scores: base?.scores ?? null, total: base?.total ?? null, round: base?.round ?? round };
       tracer.log({
         agent_name: AGENT,
         action: "model_unavailable_fallback",
@@ -782,6 +782,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
 
         let findings: Finding[];
         let gaps: string[];
+        let codeGaps: string[];
         let cutByQueryBudget = false;
         if (task === "thesis_check") {
           // The plan is made once: code runs the per-symbol queries, so a later round reuses it and the evidence.
@@ -806,7 +807,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             if (stop !== null) break;
             const prepared = await prepareThesisEvidence({ state, tracer, asOf, steps: keepThesisSteps(planned.steps, tracer, round), round });
             thesisIds = prepared.theses.map(({ journal_id, symbol }) => ({ journal_id, symbol }));
-            thesis = { prepared, focus: planned.focus, found: prepared.batches.map(() => null), gapsBy: prepared.batches.map(() => []) };
+            thesis = { prepared, focus: planned.focus, found: prepared.batches.map(() => null), gapsBy: prepared.batches.map(() => []), codeGapsBy: prepared.batches.map(() => []) };
             tracer.log({
               agent_name: AGENT,
               action: "evidence_built",
@@ -849,9 +850,11 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             if (analysis.injection_seen) flags.injection = true;
             thesis.found[index] = analysis.findings;
             thesis.gapsBy[index] = analysis.gaps;
+            thesis.codeGapsBy[index] = analysis.code_gaps;
           }
           findings = thesis.found.flatMap((batchFindings) => batchFindings ?? []);
           gaps = [...new Set([...thesis.prepared.gaps, ...thesis.gapsBy.flat()])];
+          codeGaps = [...new Set([...thesis.prepared.gaps, ...thesis.codeGapsBy.flat()])];
           if (unusable !== null) {
             feedback = unusable;
             revise(round, feedback, findings.length);
@@ -877,6 +880,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (analysis.injection_seen) flags.injection = true;
           findings = analysis.findings;
           gaps = analysis.gaps;
+          codeGaps = analysis.code_gaps;
           cutByQueryBudget = cutByBudget(fixed);
         } else {
           // Planner. plan() has no run of its own, so its call is counted here.
@@ -915,10 +919,11 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (analysis.injection_seen) flags.injection = true;
           findings = analysis.findings;
           gaps = analysis.gaps;
+          codeGaps = analysis.code_gaps;
           // Stop with that draft instead of scoring it as complete.
           cutByQueryBudget = cutByBudget(planned.steps);
         }
-        latest = { findings, gaps, scores: null, total: 0, round };
+        latest = { findings, gaps, code_gaps: codeGaps, scores: null, total: 0, round };
         if (cutByQueryBudget) {
           stop = "query_calls";
           break;
@@ -962,6 +967,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           findings: accepted.findings,
           results: state.store,
           gaps: accepted.gaps,
+          code_gaps: accepted.code_gaps,
           declined_advice: flags.declined,
           escalation: preTrade?.escalation ?? null,
           memories,

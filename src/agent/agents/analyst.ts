@@ -125,7 +125,7 @@ type AnalysisBase = {
 };
 
 export type AnalysisOutcome =
-  | (AnalysisBase & { ok: true; findings: Finding[]; gaps: string[]; injection_seen: boolean })
+  | (AnalysisBase & { ok: true; findings: Finding[]; gaps: string[]; /** The gaps code wrote (codeGaps), a subset of `gaps`; the rest are the model's own words. */ code_gaps: string[]; injection_seen: boolean })
   | (AnalysisBase & { ok: false; error: AnalysisError });
 
 /** prompts/analyst.md as-is with its hash, read once (prompts.ts). */
@@ -332,7 +332,8 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   }
   const findings = parsed.data.findings;
   const gaps = [...parsed.data.gaps];
-  for (const gap of codeGaps(results, skipped)) if (!gaps.includes(gap)) gaps.push(gap);
+  const code_gaps = codeGaps(results, skipped);
+  for (const gap of code_gaps) if (!gaps.includes(gap)) gaps.push(gap);
 
   const guard = afterModel(AGENT, { findings, gaps }, input, tracer);
   if (!guard.ok) return fail({ type: "Blocked", message: guard.reason, recoverable: true }, "blocked");
@@ -350,7 +351,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     retry_count: round,
     duration_ms: Date.now() - started,
   });
-  return { ...base, ok: true, findings, gaps, injection_seen: guard.injection_seen };
+  return { ...base, ok: true, findings, gaps, code_gaps, injection_seen: guard.injection_seen };
 }
 
 type ToolOutcome = { content: string; result?: QueryResult };

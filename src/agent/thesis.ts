@@ -54,7 +54,7 @@ export type ThesisEvidence = {
 export type PreparedTheses = {
   theses: ThesisEvidence[];
   batches: ThesisEvidence[][];
-  /** Queries that did not run, as gaps. */
+  /** Queries that did not run, as gaps. Code writes every one of them, so the Writer may repeat their figures. */
   gaps: string[];
   /** True when a query did not run because MAX_QUERY_CALLS was spent: the evidence is partial. */
   budget_cut: boolean;
