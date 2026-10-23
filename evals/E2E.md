@@ -21,6 +21,7 @@ example_8  200  needs_human  -  604.6 s  3 model calls  memory: by_tag=mem-51 (r
 
 Reruns:
 
+- example_5, rerun on the merged code (aefd965, the fix in `1a0149d`): status `needs_human`, stop reason `model_unavailable`, 2 rounds. The code draft was returned and the error did not surface, but round 2's second Analyst call was 40,030 characters, over MAX_PROMPT_CHARS (40,000). Counted as FAIL. The owner ran this rerun, so its tokens, time and model calls are not recorded here. The original error row above stays.
 - example_5: not a lane failure, so the prompt gives it no lane rerun. A single self-check rerun started, then the owner cancelled it (`stop_reason` cancelled, 0 tokens) because the server ran the old code and would fail the same way. It stays failed until the fix is merged and the server restarted.
 
 ## Planted scenarios
@@ -35,6 +36,7 @@ Reruns:
 | example_3b | pass | success | - | 1 | 9 of 9 | 3 | 5 | 79,814 | 954.2 | mem-55 (review of example_3a) | - |
 | example_4 | pass | success | - | 1 | 9 of 9 | 3 | 4 | 30,099 | 542.3 | none | - |
 | example_5 | fail | error (HTTP 500 PromptTooLarge) | - | 2 | - | - | 4 | 75,057 | 1094.4 | mem-51 | status success: the Analyst's retry batch prompt was 45,480 characters, over MAX_PROMPT_CHARS (40,000) |
+| example_5 (rerun on aefd965) | fail | needs_human (stop reason model_unavailable) | model_unavailable | 2 | - | - | not recorded | not recorded | not recorded | not recorded | status needs_human: round 2's second Analyst call was 40,030 characters, over MAX_PROMPT_CHARS (40,000), so the run ended on the code draft; the verdict checks did not run |
 | example_6a | pass | needs_human | - | 1 | 9 of 9 | 2 | 3 | 28,996 | 515.6 | mem-51 (review of example_4) | - |
 | example_6b | pass | success | - | 2 | 9 of 9 | 3 | 6 | 71,443 | 1888.7 | mem-51 (review of example_4) | - |
 | example_7a | pass | success | - | 0 | - | 0 | 1 | 906 | 3.1 | - | - |
