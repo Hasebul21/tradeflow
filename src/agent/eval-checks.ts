@@ -39,6 +39,9 @@ export function checkExpectation(result: RunResult, exp: Expectation, realModel:
       case "status":
         out.push(check(key, result.status === want, `status ${result.status}, want ${String(want)}`));
         break;
+      case "task":
+        out.push(check(key, result.task === want, `task ${result.task}, want ${String(want)}`));
+        break;
       case "min_citations": {
         const got = output?.citations.length ?? 0;
         out.push(check(key, typeof want === "number" && want <= got, `${got} citations, want at least ${String(want)}`));

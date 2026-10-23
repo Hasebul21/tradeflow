@@ -18,7 +18,7 @@ import { BudgetExhaustedError } from "./run-state";
 import { complete as completeWithSampleModel } from "./sample-model";
 import type { Tracer, TraceInput } from "./trace";
 
-export type AgentName = "Planner" | "Analyst" | "Evaluator" | "Writer" | "Memory";
+export type AgentName = "Planner" | "Analyst" | "Evaluator" | "Writer" | "Memory" | "Router";
 
 /** An OpenAI function definition, sent with tool_choice "auto". */
 export type ToolSpec = OpenAI.Chat.Completions.ChatCompletionTool;

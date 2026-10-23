@@ -296,7 +296,7 @@ describe("a plain run", () => {
     }
     expect(Array.isArray(output.memories_recalled)).toBe(true);
     expect(output.applied_corrections).toEqual([]);
-    expect(result.agents.map((agent) => agent.name)).toEqual(["Planner", "Analyst", "Evaluator", "Writer"]);
+    expect(result.agents.map((agent) => agent.name)).toEqual(["Planner", "Analyst", "Evaluator", "Writer", "Router"]);
     expect(result.agents.every((agent) => agent.model === "sample-model")).toBe(true);
     expect(result.usage).toMatchObject({ model_calls: 4, query_calls: 5 });
     const lines = trace(result);

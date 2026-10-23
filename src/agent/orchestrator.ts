@@ -11,6 +11,7 @@ import path from "node:path";
 import { analyse, type AnalysisOutcome } from "./agents/analyst";
 import { evaluate, type Scores } from "./agents/evaluator";
 import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome } from "./agents/planner";
+import { route } from "./agents/router";
 import { DISCLAIMER, write } from "./agents/writer";
 import { ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { TASKS, type Task } from "./context";
@@ -67,7 +68,7 @@ export const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
 
 export type RunOptions = {
   runId: string;
-  /** Default "explain_week". An unknown name is an InvalidInput error reply, never a throw. */
+  /** When missing, the Router reads the question and picks the task. An unknown name is an InvalidInput error reply, never a throw. */
   task?: string;
   input: RunInput;
   /** Default config.sampleMode. */
@@ -144,6 +145,7 @@ const AGENTS: readonly { name: AgentName; role: string; tier: Tier }[] = [
   { name: "Analyst", role: "turns the plan's query results into findings that cite a run_query_id for every number", tier: "main" },
   { name: "Evaluator", role: "checks citations, the guard and coverage in code, then scores the draft out of 9", tier: "fast" },
   { name: "Writer", role: "writes the owner's review from the accepted findings; code checks every number", tier: "strong" },
+  { name: "Router", role: "picks the task for a question that names none; it never answers", tier: "fast" },
 ];
 
 /** The agents as the reply lists them: in sample mode every model is "sample-model", else the tier's routing id. */
@@ -174,6 +176,16 @@ export function verdictsOf(findings: readonly Finding[], theses: readonly { jour
     const found = findings.find((finding) => finding.kind === "thesis" && finding.subject === journal_id);
     return found === undefined || found.verdict === null ? [] : [{ journal_id, symbol, verdict: found.verdict, cites: [...found.cites] }];
   });
+}
+
+/**
+ * The rule that sends a finished run to the owner: the first new rule finding of a pre_trade, or "reconcile_proposals"
+ * for a reconciliation with differences. Undefined for a run that did not end escalated.
+ */
+function escalationRuleOf(outcome: { kind: string }, preTrade: { escalation: PreTradeEscalation | null } | null, reconciliation: QueryResult | null): string | undefined {
+  if (outcome.kind !== "escalated") return undefined;
+  if (preTrade?.escalation != null) return preTrade.escalation.rule;
+  return reconciliation !== null ? "reconcile_proposals" : undefined;
 }
 
 /** The cited results of the findings, each once, in the order first cited. */
@@ -331,8 +343,13 @@ type Outcome =
  */
 export async function run(options: RunOptions): Promise<RunResult> {
   const started = Date.now();
-  const { runId, input } = options;
-  const taskName = options.task ?? "explain_week";
+  const { runId } = options;
+  /** The request's input; a routed pre_trade gets the trade the Router built from the question. */
+  let input = options.input;
+  /** True when the request names no task: the Router picks one after the input checks. */
+  const routing = options.task === undefined;
+  /** The request's task, or "explain_week" until the Router replaces it; the reply and the run_end line carry the final one. */
+  let taskName = options.task ?? "explain_week";
   const config = options.config ?? loadConfig();
   const sampleMode = options.sampleMode ?? config.sampleMode;
   const agents = agentsOf(config, sampleMode);
@@ -355,7 +372,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
   }
 
   const tracer = startRun(runId);
-  tracer.setTask(taskName);
+  // Before the Router has picked, the lines have no task; setTask never touches the file, so the second call is safe.
+  tracer.setTask(routing ? undefined : taskName);
   const logFile = path.relative(process.cwd(), tracer.file);
   const flags = { declined: false, injection: false };
   let run: RunState | undefined;
@@ -401,6 +419,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   const usage: RunUsage = { ...(run?.usage ?? feedbackUsage ?? { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0 }), duration_ms: Date.now() - started };
   const result = reply(outcome, usage);
+  tracer.setTask(taskName);
+  const escalationRule = escalationRuleOf(outcome, preTrade, reconciliation);
   tracer.log({
     agent_name: AGENT,
     action: "run_end",
@@ -416,6 +436,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     retry_count: Math.max(0, (result.output?.rounds ?? 1) - 1),
     duration_ms: usage.duration_ms,
     ...(result.output?.stop_reason ? { stop_reason: result.output.stop_reason } : {}),
+    // The review queue reads these two fields from this line alone: why a needs_human run waits for the owner.
+    ...(escalationRule === undefined ? {} : { escalation_rule: escalationRule }),
     usage,
   });
   return result;
@@ -430,7 +452,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     if (typeof taskName !== "string" || !TASKS.includes(taskName as Task)) {
       return invalid(`Unknown task ${JSON.stringify(taskName)}; the tasks are ${[...TASKS, FEEDBACK, APPROVE].join(", ")}.`);
     }
-    const task = taskName as Task;
+    let task = taskName as Task;
     if (!SUPPORTED.includes(task)) return invalid(`Task ${JSON.stringify(task)} is not supported yet; this loop runs ${[...SUPPORTED, FEEDBACK, APPROVE].join(", ")}.`);
     if (input === null || typeof input !== "object") return invalid("The input must be an object.");
     if (input.question !== undefined && input.question !== null && typeof input.question !== "string") return invalid("The question must be a string.");
@@ -445,50 +467,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     run = new RunState({ runId, tracer, config, sampleMode, ...(options.localReason === undefined ? {} : { localReason: options.localReason }), onResult: (fresh) => scrubResult(fresh, tracer, flagRow) });
     const state = run;
 
-    // 1. as_of, once. Every input, trace line and memory tag uses the resolved date.
-    const data = await state.queryData();
-    const resolved = resolveAsOf(data.portfolio.bars, input.as_of ?? null);
-    if (!resolved.ok) return { kind: "error", error: { type: "InvalidInput", message: resolved.error, recoverable: false } };
-    asOf = resolved.asOf;
-    if (input.as_of && input.as_of !== asOf) {
-      tracer.log({
-        agent_name: GUARD,
-        action: "as_of_moved",
-        input_summary: `as_of ${input.as_of}`,
-        output_summary: `as_of moved from ${input.as_of} to ${asOf}`,
-        status: "ok",
-        why: "as_of is not a session: the Thursday before a Friday or Saturday, or the last session on or before the date",
-      });
-    }
-    // pre_trade: the trade is validated in code before any model call; a bad trade never reaches a model.
-    let trade: PlannerTrade | null = null;
-    let planId: string | null = null;
-    if (task === "pre_trade") {
-      const rules = await readJson<Rules | null>("rules", null);
-      const resolvedTrade = resolveTrade(input, { hasSymbol: (symbol) => data.portfolio.instruments.has(symbol), plans: rules?.trade_plans ?? [] });
-      if (!resolvedTrade.ok) return invalid(resolvedTrade.message);
-      trade = resolvedTrade.trade;
-      planId = resolvedTrade.plan_id;
-    }
-    tracer.log({
-      agent_name: AGENT,
-      action: "run_start",
-      input_summary: capped(`task=${task} question ${question.length} chars as_of=${asOf}${trade ? ` trade=${trade.side} ${trade.quantity} ${trade.symbol}${trade.price === undefined ? "" : ` at ${trade.price}`}${planId ? ` (plan ${planId})` : ""}` : ""}`),
-      output_summary: `sample_mode=${sampleMode}; limits: ${config.MAX_ROUNDS} rounds, ${config.MAX_QUERY_CALLS} query calls, ${config.MAX_MODEL_CALLS} model calls, ${config.MAX_TOKENS_PER_RUN} tokens, ${config.ROUND_TIMEOUT_MS} ms a round, ${config.RUN_TIMEOUT_MS} ms a run`,
-      status: "ok",
-    });
-
-    // 2. Memory: the owner's context once, then what this question recalls, scanned in code.
-    await seedOwnerContext(tracer);
-    const recalled = await recall(trade === null ? question : `${question} ${trade.symbol} ${trade.side}`.trim(), asOf, tracer);
-    const scrubbed = scrubMemories(recalled, tracer);
-    memories = scrubbed.kept;
-    if (scrubbed.flagged > 0) flags.injection = true;
-    if ((await flaggedTradePlans(tracer)) > 0) flags.injection = true;
-    if (asksForAdvice(question)) declineAdvice("matched in code");
-    world = worldFor(buildPortfolioView(data.portfolio, asOf).holdings.map((holding) => holding.symbol), trade?.symbol);
-
-    // 3. Time and budget.
+    // 1. Time and budget, before the first model call (the Router's).
     const runDeadline = started + config.RUN_TIMEOUT_MS;
     let roundStarted = started;
     const runLeft = () => runDeadline - Date.now();
@@ -520,6 +499,87 @@ export async function run(options: RunOptions): Promise<RunResult> {
           return reason;
       }
     };
+
+    // 2. as_of, once. Every input, trace line and memory tag uses the resolved date.
+    const data = await state.queryData();
+    const resolved = resolveAsOf(data.portfolio.bars, input.as_of ?? null);
+    if (!resolved.ok) return { kind: "error", error: { type: "InvalidInput", message: resolved.error, recoverable: false } };
+    asOf = resolved.asOf;
+    if (input.as_of && input.as_of !== asOf) {
+      tracer.log({
+        agent_name: GUARD,
+        action: "as_of_moved",
+        input_summary: `as_of ${input.as_of}`,
+        output_summary: `as_of moved from ${input.as_of} to ${asOf}`,
+        status: "ok",
+        why: "as_of is not a session: the Thursday before a Friday or Saturday, or the last session on or before the date",
+      });
+    }
+    // 3. Router, only when the request has no task (the input checks above ran with explain_week). It is the run's first
+    // model call and counts in usage and in MAX_MODEL_CALLS. A reply it cannot use routes to explain_week and never ends
+    // the run; any other model failure is the run's typed error.
+    if (routing) {
+      const early = budgetStop(false);
+      if (early !== null) {
+        tracer.log({
+          agent_name: AGENT,
+          action: "stop",
+          input_summary: "before the Router",
+          output_summary: capped(`${early}: ${stopDetail(early)}; the run returns needs_human with no draft`),
+          status: "needs_human",
+          why: early,
+          stop_reason: early,
+        });
+        return { kind: "needs_human", stop: early, detail: stopDetail(early), draft: null, rounds: 1 };
+      }
+      state.beforeModelCall();
+      const routed = await route(
+        { question, plan_id: input.plan_id || null, instruments: [...data.portfolio.instruments.values()] },
+        { tracer, config, sampleMode, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft() },
+      ).catch((error: unknown): never => {
+        state.afterFailedModelCall(failedCallUsage(error));
+        throw error;
+      });
+      if (routed.model !== null) {
+        state.afterModelCall(routed.model);
+        modelIds.add(routed.model.model_id);
+      }
+      if (routed.failed !== null) state.afterFailedModelCall(routed.failed);
+      task = routed.task;
+      taskName = routed.task;
+      // The second setTask: it only changes the task written on later lines, never the file.
+      tracer.setTask(task);
+      // A routed pre_trade carries the trade built from the question, unless the request gave its own trade.
+      if (routed.trade !== null && (input.trade === undefined || input.trade === null)) input = { ...input, trade: routed.trade };
+    }
+
+    // pre_trade: the trade is validated in code before any model call; a bad trade never reaches a model.
+    let trade: PlannerTrade | null = null;
+    let planId: string | null = null;
+    if (task === "pre_trade") {
+      const rules = await readJson<Rules | null>("rules", null);
+      const resolvedTrade = resolveTrade(input, { hasSymbol: (symbol) => data.portfolio.instruments.has(symbol), plans: rules?.trade_plans ?? [] });
+      if (!resolvedTrade.ok) return invalid(resolvedTrade.message);
+      trade = resolvedTrade.trade;
+      planId = resolvedTrade.plan_id;
+    }
+    tracer.log({
+      agent_name: AGENT,
+      action: "run_start",
+      input_summary: capped(`task=${task} question ${question.length} chars as_of=${asOf}${trade ? ` trade=${trade.side} ${trade.quantity} ${trade.symbol}${trade.price === undefined ? "" : ` at ${trade.price}`}${planId ? ` (plan ${planId})` : ""}` : ""}`),
+      output_summary: `sample_mode=${sampleMode}; limits: ${config.MAX_ROUNDS} rounds, ${config.MAX_QUERY_CALLS} query calls, ${config.MAX_MODEL_CALLS} model calls, ${config.MAX_TOKENS_PER_RUN} tokens, ${config.ROUND_TIMEOUT_MS} ms a round, ${config.RUN_TIMEOUT_MS} ms a run`,
+      status: "ok",
+    });
+
+    // 4. Memory: the owner's context once, then what this question recalls, scanned in code.
+    await seedOwnerContext(tracer);
+    const recalled = await recall(trade === null ? question : `${question} ${trade.symbol} ${trade.side}`.trim(), asOf, tracer);
+    const scrubbed = scrubMemories(recalled, tracer);
+    memories = scrubbed.kept;
+    if (scrubbed.flagged > 0) flags.injection = true;
+    if ((await flaggedTradePlans(tracer)) > 0) flags.injection = true;
+    if (asksForAdvice(question)) declineAdvice("matched in code");
+    world = worldFor(buildPortfolioView(data.portfolio, asOf).holdings.map((holding) => holding.symbol), trade?.symbol);
 
     /** The highest total so far; among drafts no model scored, the latest. */
     let best: Draft | null = null;
@@ -653,7 +713,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         });
       }
 
-      // 4. The loop.
+      // 5. The loop.
       rounds: for (round = 0; round < config.MAX_ROUNDS; round += 1) {
         roundStarted = Date.now();
 
@@ -826,7 +886,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       if (stop !== null) return stopped(stop);
       if (accepted === null) return stopped("rounds", feedback ?? "no fix was recorded");
 
-      // 5. The Writer, in the accepted round.
+      // 6. The Writer, in the accepted round.
       stop = budgetStop(false);
       if (stop !== null) return stopped(stop);
       calling = "Writer";

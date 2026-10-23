@@ -84,6 +84,12 @@ describe("checkExpectation", () => {
     expect(failed(checks)).toEqual(["status", "min_citations", "must_mention_any", "must_not_mention", "memory_recalled", "memory_recalled_tag", "memory_added", "verdicts_valid", "escalation_rule", "new_findings", "proposals", "no_model_call", "injection_seen", "typo"]);
   });
 
+  it("checks the task a free question was routed to", () => {
+    const r = { ...result({}), task: "pre_trade" };
+    expect(failed(checkExpectation(r, { task: "pre_trade" }, false))).toEqual([]);
+    expect(failed(checkExpectation(r, { task: "explain_week" }, false))).toEqual(["task"]);
+  });
+
   it("checks error_type and recoverable on an error, and real_model only in a real-model run", () => {
     const r = result(null, { status: "error", error: { type: "InvalidInput", message: "x", recoverable: false } });
     expect(failed(checkExpectation(r, { status: "error", error_type: "InvalidInput", recoverable: false }, false))).toEqual([]);

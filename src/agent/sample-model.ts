@@ -937,6 +937,45 @@ function memorySentences(user: string): string[] {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Router: reads the owner's free question and the instruments the input lists, and names a task. Keyword rules only.
+
+const SIDE_WORDS: Record<string, "buy" | "sell"> = { buy: "buy", buying: "buy", bought: "buy", sell: "sell", selling: "sell", sold: "sell" };
+const SIDE_PATTERN = /\b(buy|buying|bought|sell|selling|sold)\b/i;
+/** A whole number that is not part of a date or a decimal: "70", "1,500", not "2026-10-01" or "70.5". */
+const QUANTITY_PATTERN = /(?<![\d.,-])(\d{1,3}(?:,\d{3})+|\d+)(?!\d|\.\d|,\d|-\d)/;
+
+const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The first listed instrument the question names, by trading code or by company name. */
+function namedSymbol(question: string, instruments: Obj[]): string | null {
+  for (const instrument of instruments) {
+    const symbol = str(instrument.symbol);
+    const name = str(instrument.name);
+    if (symbol !== "" && new RegExp(`\\b${escapeRegex(symbol)}\\b`, "i").test(question)) return symbol;
+    if (name !== "" && question.toLowerCase().includes(name.toLowerCase())) return symbol === "" ? null : symbol;
+  }
+  return null;
+}
+
+function router(input: Obj): Obj {
+  const question = str(input.question);
+  const lower = question.toLowerCase();
+  const symbol = namedSymbol(question, objs(input.symbols));
+  const sideWord = SIDE_PATTERN.exec(question)?.[1].toLowerCase();
+  const quantity = QUANTITY_PATTERN.exec(question)?.[1];
+
+  // A symbol, a side and a quantity: a trade to check ("break my rules" asks the same of a named trade).
+  if (symbol !== null && sideWord !== undefined && quantity !== undefined) {
+    return { task: "pre_trade", trade: { symbol, side: SIDE_WORDS[sideWord], quantity: Number(quantity.replace(/,/g, "")) } };
+  }
+  // No quantity: a question about a symbol with buy, sell or hold is advice, which explain_week declines.
+  if (symbol !== null && /\b(buy|buying|bought|sell|selling|sold|hold)\b/.test(lower)) return { task: "explain_week" };
+  if (/\b(reasons?|thesis|theses)\b|still hold/.test(lower)) return { task: "thesis_check" };
+  if (/\b(broker|reconcile|reconciliation)\b|bank statement/.test(lower)) return { task: "reconcile" };
+  return { task: "explain_week" };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // complete: the same signature as llm.ts's complete().
 
 const charsToTokens = (chars: number): number => Math.ceil(chars / 4);
@@ -961,6 +1000,9 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       break;
     case "Memory":
       reply = memorySentences(options.user);
+      break;
+    case "Router":
+      reply = router(parseUser(options.user));
       break;
   }
 

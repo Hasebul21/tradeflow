@@ -126,7 +126,7 @@ export function proofCards(p: Proof): { key: string; sponsor: string; color: str
   return PROOF_CARDS.map((c) => ({ ...c, big: big[c.key], caption: caption[c.key] }));
 }
 
-function ProofRow({ proof }: { proof: Proof | null }) {
+export function ProofRow({ proof }: { proof: Proof | null }) {
   if (proof === null) return null;
   return (
     <div>
