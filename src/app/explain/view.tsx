@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Badge, Button, Card, Collapse, DatePicker, Descriptions, Drawer, Flex, Form, Input, InputNumber, Radio, Select, Space, Steps, Tabs, Tag, Typography, type TableColumnsType } from "antd";
+import { Alert, Badge, Button, Card, Collapse, DatePicker, Descriptions, Drawer, Flex, Form, Input, InputNumber, Radio, Select, Space, Steps, Tabs, Tag, Tooltip, Typography, type TableColumnsType } from "antd";
 import dayjs from "dayjs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/ui/states";
 import { acceptedText, adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner, stoppedBadge, stopReasonLabel, usageText } from "./badges";
 import { approveFix, runPreTrade, runReconcile, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
+import { asOfHelp, CITATION_HELP, ERROR_TITLE, errorAdvice, fallbackText, modelText, PROOF_HELP, PROOF_HINTS, statusHint, STEPS_HELP } from "./names";
 
 type Range = { first: string; last: string };
 type Plan = { id: string; label: string };
@@ -21,6 +22,7 @@ const POLL_MS = 1500;
 const BREAK_ADVICE = "Should I sell BXPHARMA now?";
 const BREAK_POEM = "Write me a poem about Dhaka.";
 const BREAK_SATURDAY = "2026-09-26";
+const BREAK_SATURDAY_LABEL = "Sat 26 Sep 2026";
 
 const QUESTIONS = ["Why did my portfolio move this week?", "Which of my rules are broken this week?", "How does this week compare with last week?"];
 
@@ -93,35 +95,38 @@ function useRun() {
 
 function StepsList({ steps }: { steps: TraceLine[] }) {
   return (
-    <Steps
-      orientation="vertical"
-      size="small"
-      current={steps.length}
-      items={steps.map((l) => ({
-        title: `${l.agent_name}: ${l.action}`,
-        status: l.status === "error" || l.status === "rejected" || l.status === "blocked" ? "error" : "finish",
-        content: (
-          <span>
-            <Tag>{l.status}</Tag>
-            <span>retry {l.retry_count}</span>
-            {l.confidence !== null && l.confidence !== undefined ? <span>{`, confidence ${l.confidence}`}</span> : null}
-            {l.why ? <div className="muted">{l.why}</div> : null}
-          </span>
-        ),
-      }))}
-    />
+    <>
+      <Typography.Paragraph type="secondary">{STEPS_HELP}</Typography.Paragraph>
+      <Steps
+        orientation="vertical"
+        size="small"
+        current={steps.length}
+        items={steps.map((l) => ({
+          title: `${l.agent_name}: ${l.action}`,
+          status: l.status === "error" || l.status === "rejected" || l.status === "blocked" ? "error" : "finish",
+          content: (
+            <span>
+              <Tag>{l.status}</Tag>
+              <span>retry {l.retry_count}</span>
+              {l.confidence !== null && l.confidence !== undefined ? <span>{`, confidence ${l.confidence}`}</span> : null}
+              {l.why ? <div className="muted">{l.why}</div> : null}
+            </span>
+          ),
+        }))}
+      />
+    </>
   );
 }
 
 const PROOF_CARDS = [
-  { key: "zetaris", sponsor: "Zetaris", color: "#1677ff" },
-  { key: "meterless", sponsor: "Meterless", color: "#722ed1" },
-  { key: "nemotron", sponsor: "Nemotron", color: "#52a41a" },
-  { key: "guards", sponsor: "Guards", color: "#fa8c16" },
+  { key: "zetaris", sponsor: "Zetaris" },
+  { key: "meterless", sponsor: "Meterless" },
+  { key: "nemotron", sponsor: "Nemotron" },
+  { key: "guards", sponsor: "Guards" },
 ] as const;
 
 /** The numbers of the Proof cards, each read from the proof counts and nothing else. */
-export function proofCards(p: Proof): { key: string; sponsor: string; color: string; big: number; caption: string }[] {
+export function proofCards(p: Proof): { key: string; sponsor: string; big: number; caption: string }[] {
   const calls = p.nemotron.models.reduce((n, m) => n + m.calls, 0);
   const models = p.nemotron.models.map((m) => `${m.model_id} x${m.calls}`).join(", ") || "no model calls";
   const big = {
@@ -144,10 +149,13 @@ export function ProofRow({ proof }: { proof: Proof | null }) {
   return (
     <div>
       <Typography.Text strong>Proof</Typography.Text>
+      <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{PROOF_HELP}</Typography.Paragraph>
       <Flex wrap gap={12} style={{ marginTop: 8 }}>
         {proofCards(proof).map((c) => (
-          <Card key={c.key} size="small" style={{ flex: "1 1 200px", borderTop: `4px solid ${c.color}` }} data-testid={`proof-${c.key}`}>
-            <Typography.Text style={{ color: c.color }} strong>{c.sponsor}</Typography.Text>
+          <Card key={c.key} size="small" style={{ flex: "1 1 200px" }} data-testid={`proof-${c.key}`}>
+            <Tooltip title={PROOF_HINTS[c.key]}>
+              <Typography.Text strong>{c.sponsor}</Typography.Text>
+            </Tooltip>
             <div style={{ fontSize: 32, fontWeight: 600, lineHeight: 1.2 }}>{c.big}</div>
             <Typography.Text type="secondary">{c.caption}</Typography.Text>
           </Card>
@@ -163,7 +171,13 @@ function Live({ state, onStop }: { state: RunState; onStop?: () => void }) {
     <Card
       size="small"
       title="Working"
-      extra={onStop === undefined ? null : <Button danger size="small" loading={state.stopping} disabled={state.stopping || !state.started} onClick={onStop}>{state.stopping ? "Stopping" : "Stop"}</Button>}
+      extra={
+        onStop === undefined ? null : (
+          <Tooltip title={!state.started && !state.stopping ? "Stop works once the first step appears." : undefined}>
+            <Button danger size="small" loading={state.stopping} disabled={state.stopping || !state.started} onClick={onStop}>{state.stopping ? "Stopping" : "Stop"}</Button>
+          </Tooltip>
+        )
+      }
     >
       <ProofRow proof={state.proof} />
       {state.started ? <StepsList steps={state.steps} /> : <Typography.Text type="secondary">Starting</Typography.Text>}
@@ -207,7 +221,6 @@ function CitationDrawer({ citation, onClose }: { citation: Citation | null; onCl
         <Space orientation="vertical" style={{ width: "100%" }}>
           <Descriptions size="small" column={1} bordered>
             <Descriptions.Item label="Query id">{citation.query_id}</Descriptions.Item>
-            <Descriptions.Item label="Run query id">{citation.run_query_id}</Descriptions.Item>
             <Descriptions.Item label="Params"><code>{JSON.stringify(citation.params)}</code></Descriptions.Item>
             <Descriptions.Item label="Source">{citation.source}</Descriptions.Item>
             <Descriptions.Item label="Rows">{`${rows.length} shown of ${citation.row_count}`}</Descriptions.Item>
@@ -224,6 +237,23 @@ function CitationDrawer({ citation, onClose }: { citation: Citation | null; onCl
   );
 }
 
+/** A failed run in plain words: what to do next, with the raw type and message folded under Details. */
+function ErrorAlert({ error }: { error: RunResult["error"] }) {
+  return (
+    <Alert
+      type="error"
+      showIcon
+      title={ERROR_TITLE}
+      description={
+        <>
+          <div>{errorAdvice(error?.recoverable)}</div>
+          <Collapse size="small" items={[{ key: "details", label: "Details", children: <code>{`${error?.type ?? "Error"}: ${error?.message ?? ""}`}</code> }]} />
+        </>
+      }
+    />
+  );
+}
+
 function CorrectBox({ runId }: { runId: string }) {
   const { state, start } = useRun();
   const [text, setText] = useState("");
@@ -232,10 +262,12 @@ function CorrectBox({ runId }: { runId: string }) {
     <Card size="small" title="Correct this">
       <Space orientation="vertical" style={{ width: "100%" }}>
         <Input.TextArea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="What should the next review do differently?" />
-        <Button loading={state.running} disabled={text.trim() === ""} onClick={() => start((id) => sendCorrection(id, runId, text.trim()))}>
-          Send correction
-        </Button>
-        {state.result?.status === "error" ? <Alert type="error" showIcon title={state.result.error?.type} description={state.result.error?.message} /> : null}
+        <Tooltip title={text.trim() === "" ? "Type what the next review should do differently." : undefined}>
+          <Button loading={state.running} disabled={text.trim() === ""} onClick={() => start((id) => sendCorrection(id, runId, text.trim()))}>
+            Send correction
+          </Button>
+        </Tooltip>
+        {state.result?.status === "error" ? <ErrorAlert error={state.result.error} /> : null}
         {added ? <Alert type="success" showIcon title={`Stored as ${added.join(", ")}`} description="Later reviews recall it by tag." /> : null}
       </Space>
     </Card>
@@ -257,12 +289,14 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
   return (
     <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       <Flex wrap gap={8} align="center">
-        <Tag color={result.status === "success" ? "green" : result.status === "needs_human" ? "orange" : "red"}>{result.status}</Tag>
+        <Tooltip title={statusHint(result.status)}>
+          <Tag color={result.status === "success" ? "green" : result.status === "needs_human" ? "orange" : "red"}>{result.status}</Tag>
+        </Tooltip>
         {stoppedBadge(out) ? <Tag color="gold">{stoppedBadge(out)}</Tag> : null}
         {stoppedBadge(out) ? <Tag>{usageText(result.usage)}</Tag> : null}
         <Badge count={`${counts.zetaris} via Zetaris`} color="blue" />
         <Badge count={`${counts.local} local`} color="gray" />
-        <Badge count={`${counts.fallback} local-fallback`} color="orange" />
+        {fallbackText(counts.fallback) ? <Badge count={fallbackText(counts.fallback)} color="orange" /> : null}
         <Badge count={`${out?.memories_recalled.length ?? 0} memories recalled`} color="purple" />
         <Badge count={`${out?.applied_corrections.length ?? 0} corrections applied`} color="green" />
         {adviceBadge(out) ? <Tag color="green">{adviceBadge(out)}</Tag> : null}
@@ -270,12 +304,11 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
         {outOfScopeBadge(out) ? <Tag color="gold">{outOfScopeBadge(out)}</Tag> : null}
         {correctionChip(out) ? <Tag color="purple">{correctionChip(out)}</Tag> : null}
         <a href={`/run/${result.run_id}`} target="_blank" rel="noreferrer">Trace (JSON)</a>
+        <Link href={`/explain/runs/${result.run_id}`}>Open the steps</Link>
       </Flex>
       {selfCorrectionBanner(out, state.steps) ? <Alert type="info" showIcon title={selfCorrectionBanner(out, state.steps)} /> : null}
       <ProofRow proof={state.proof} />
-      {result.status === "error" ? (
-        <Alert type="error" showIcon title={result.error?.type ?? "Error"} description={result.error?.message} />
-      ) : null}
+      {result.status === "error" ? <ErrorAlert error={result.error} /> : null}
       {out?.escalation ? (
         <Alert
           type="warning"
@@ -293,7 +326,7 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
             <Descriptions.Item label="Scores">
               {scoresText(out, state.steps)}
             </Descriptions.Item>
-            <Descriptions.Item label="Model">{out.model_source}</Descriptions.Item>
+            <Descriptions.Item label="Model">{modelText(out.model_source)}</Descriptions.Item>
             <Descriptions.Item label="Usage">
               {usageText(result.usage)}
             </Descriptions.Item>
@@ -301,6 +334,7 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
           {extra}
           <Card size="small" title="Summary">{out.summary}</Card>
           <Card size="small" title="Review">
+            {citations.length > 0 ? <Typography.Paragraph type="secondary">{`${CITATION_HELP}.`}</Typography.Paragraph> : null}
             <ReviewText text={out.review_markdown} citations={citations} onOpen={setOpen} />
           </Card>
           {out.gaps.length > 0 ? (
@@ -332,7 +366,7 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
 
 function AsOf({ value, onChange, range }: { value: string; onChange: (v: string) => void; range: Range }) {
   return (
-    <Form.Item label="As of">
+    <Form.Item label="As of" extra={asOfHelp(range)}>
       <DatePicker
         value={dayjs(value)}
         allowClear={false}
@@ -353,20 +387,24 @@ function WeekTab({ range }: { range: Range }) {
       <Form layout="vertical">
         <AsOf value={asOf} onChange={setAsOf} range={range} />
         <Form.Item label="Question">
-          <Input.TextArea rows={2} value={question} onChange={(e) => setQuestion(e.target.value)} />
+          <Input.TextArea rows={2} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about this week, or click a question below" />
           <Flex wrap gap={8} style={{ marginTop: 8 }}>
             {QUESTIONS.map((q) => <Tag key={q} style={{ cursor: "pointer" }} onClick={() => setQuestion(q)}>{q}</Tag>)}
           </Flex>
           <Flex wrap gap={8} align="center" style={{ marginTop: 8 }}>
-            <Typography.Text type="secondary">Try to break it</Typography.Text>
+            <Typography.Text type="secondary">Try to break it (these should be refused or corrected)</Typography.Text>
             <Tag color="red" style={{ cursor: "pointer" }} onClick={() => setQuestion(BREAK_ADVICE)}>{BREAK_ADVICE}</Tag>
             <Tag color="red" style={{ cursor: "pointer" }} onClick={() => setQuestion(BREAK_POEM)}>{BREAK_POEM}</Tag>
-            <Tag color="red" style={{ cursor: "pointer" }} onClick={() => { setAsOf(BREAK_SATURDAY); setQuestion(QUESTIONS[0]); }}>{BREAK_SATURDAY}</Tag>
+            <Tooltip title="A Saturday: the guard moves it to the Thursday before.">
+              <Tag color="red" style={{ cursor: "pointer" }} onClick={() => { setAsOf(BREAK_SATURDAY); setQuestion(QUESTIONS[0]); }}>{BREAK_SATURDAY_LABEL}</Tag>
+            </Tooltip>
           </Flex>
         </Form.Item>
-        <Button type="primary" loading={state.running} disabled={question.trim() === ""} onClick={() => start((id) => runWeek(id, asOf, question.trim()))}>
-          Explain my week
-        </Button>
+        <Tooltip title={question.trim() === "" ? "Type a question or pick one above." : undefined}>
+          <Button type="primary" loading={state.running} disabled={question.trim() === ""} onClick={() => start((id) => runWeek(id, asOf, question.trim()))}>
+            Explain my week
+          </Button>
+        </Tooltip>
       </Form>
       <Live state={state} onStop={stop} />
       <Result state={state} />
@@ -389,7 +427,7 @@ function ThesesTab({ range, theses }: { range: Range; theses: Record<string, str
     evidence: out?.findings.find((f) => f.kind === "thesis" && f.subject === v.journal_id)?.claim ?? "",
   }));
   const columns: TableColumnsType<(typeof rows)[number]> = [
-    { title: "Journal id", dataIndex: "journal_id" },
+    { title: "Journal entry", dataIndex: "journal_id" },
     { title: "Symbol", dataIndex: "symbol" },
     { title: "Thesis", dataIndex: "thesis" },
     { title: "Verdict", dataIndex: "verdict", render: (v: string) => <Tag color={VERDICT_COLOR[v] ?? "default"}>{v}</Tag> },
@@ -397,6 +435,9 @@ function ThesesTab({ range, theses }: { range: Range; theses: Record<string, str
   ];
   return (
     <Space orientation="vertical" style={{ width: "100%" }} size="middle">
+      <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+        Checks the reason you wrote for each trade in your Journal against the data up to this date: confirmed, contradicted or still open.
+      </Typography.Paragraph>
       <Form layout="inline">
         <AsOf value={asOf} onChange={setAsOf} range={range} />
         <Button type="primary" loading={state.running} onClick={() => start((id) => runTheses(id, asOf))}>Check</Button>
@@ -431,22 +472,28 @@ function PreTradeTab({ range, plans }: { range: Range; plans: Plan[] }) {
       <Form layout="vertical">
         <AsOf value={asOf} onChange={setAsOf} range={range} />
         <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)} style={{ marginBottom: 12 }}>
-          <Radio.Button value="trade">Trade</Radio.Button>
-          <Radio.Button value="plan" disabled={plans.length === 0}>Open plan</Radio.Button>
+          <Radio.Button value="trade">A new trade</Radio.Button>
+          <Tooltip title={plans.length === 0 ? "There are no open trade plans. Add one on the Rules page." : undefined}>
+            <Radio.Button value="plan" disabled={plans.length === 0}>A trade plan</Radio.Button>
+          </Tooltip>
         </Radio.Group>
         {mode === "plan" ? (
-          <Form.Item label="Open plan"><Select value={planId} onChange={setPlanId} options={plans.map((p) => ({ value: p.id, label: p.label }))} /></Form.Item>
+          <Form.Item label="Trade plan (from Rules)"><Select value={planId} onChange={setPlanId} options={plans.map((p) => ({ value: p.id, label: p.label }))} /></Form.Item>
         ) : (
           <Flex wrap gap={12}>
-            <Form.Item label="Symbol"><Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="EBL" /></Form.Item>
+            <Form.Item label="Symbol" extra="A symbol from the Instruments page, such as EBL. An unknown symbol stops the check with an error.">
+              <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="EBL" />
+            </Form.Item>
             <Form.Item label="Side"><Select value={side} onChange={setSide} options={[{ value: "buy", label: "Buy" }, { value: "sell", label: "Sell" }]} style={{ width: 90 }} /></Form.Item>
             <Form.Item label="Quantity"><InputNumber min={1} precision={0} value={quantity} onChange={setQuantity} /></Form.Item>
             <Form.Item label="Price (optional)"><InputNumber min={0.1} value={price} onChange={setPrice} /></Form.Item>
           </Flex>
         )}
-        <Button type="primary" loading={state.running} disabled={!ready} onClick={() => { const c = choice(); if (c) start((id) => runPreTrade(id, asOf, c)); }}>
-          Check this trade
-        </Button>
+        <Tooltip title={ready ? undefined : "Enter a symbol and a quantity, or pick a plan."}>
+          <Button type="primary" loading={state.running} disabled={!ready} onClick={() => { const c = choice(); if (c) start((id) => runPreTrade(id, asOf, c)); }}>
+            Check this trade
+          </Button>
+        </Tooltip>
       </Form>
       <Live state={state} onStop={stop} />
       <Result state={state} />
@@ -470,12 +517,12 @@ function ApproveCell({ proposal, reviewRunId }: { proposal: Proposal; reviewRunI
   if (result === null) {
     return <Button size="small" type="primary" loading={state.running} onClick={approve}>Approve</Button>;
   }
-  const color = result.status === "success" ? "green" : result.status === "needs_human" ? "orange" : "red";
-  const text = result.status === "error" ? result.error?.message : result.output?.summary;
+  if (result.status === "error") return <ErrorAlert error={result.error} />;
+  const color = result.status === "success" ? "green" : "orange";
   return (
     <Space orientation="vertical" size={4}>
-      <Tag color={color}>{result.status === "success" ? "Applied" : result.status === "needs_human" ? "Not applied" : "Error"}</Tag>
-      <Typography.Text type="secondary">{text}</Typography.Text>
+      <Tag color={color}>{result.status === "success" ? "Applied" : "Not applied"}</Tag>
+      <Typography.Text type="secondary">{result.output?.summary}</Typography.Text>
     </Space>
   );
 }
@@ -498,11 +545,11 @@ function ReconcileTab({ range }: { range: Range }) {
         type="info"
         showIcon
         title="Nothing changes until you approve a proposal."
-        description="Code applies an approved fix from the current rows. Fixes are written only when the app runs on a copy of data/ (TRADEFLOW_DATA_DIR) or in Docker. Zetaris shows the old rows until npm run db:load."
+        description="The Reconciliation page lists the same differences. Here the agents explain each one, and code applies a fix only after you approve it."
       />
       <Form layout="inline">
         <AsOf value={asOf} onChange={setAsOf} range={range} />
-        <Button type="primary" loading={state.running} onClick={() => start((id) => runReconcile(id, asOf))}>Reconcile</Button>
+        <Button type="primary" loading={state.running} onClick={() => start((id) => runReconcile(id, asOf))}>Explain the differences</Button>
       </Form>
       <Live state={state} onStop={stop} />
       <Result
@@ -513,10 +560,15 @@ function ReconcileTab({ range }: { range: Range }) {
   );
 }
 
-export function ExplainView({ range, theses, plans }: { range: Range; theses: Record<string, string>; plans: Plan[] }) {
+export function ExplainView({ range, theses, plans, sampleMode }: { range: Range; theses: Record<string, string>; plans: Plan[]; sampleMode: boolean }) {
   return (
     <div className="stack">
-      <PageHeader title="Explain" purpose="Ask the agents to explain your week, check your theses, review a trade before you save it or explain the reconciliation differences. They never advise, and nothing is saved unless you approve a fix." asOf={range.last} extra={<Flex gap={12}><Link href="/explain/queue">Review queue</Link><Link href="/explain/metrics">Metrics</Link></Flex>} />
+      <PageHeader
+        title="Explain"
+        purpose="Pick a tab, choose a date and press its button. The agents explain and check; they never advise, and nothing is saved without your approval."
+        extra={<Flex wrap gap={12}><Link href="/explain/queue">Review queue</Link><Link href="/explain/runs">Past runs</Link><Link href="/explain/metrics">Metrics</Link><Link href="/guide">Guide</Link></Flex>}
+      />
+      {sampleMode ? <Alert type="info" showIcon title="Sample mode: a built-in stand-in model answers, offline and with no keys." /> : null}
       <Tabs
         items={[
           { key: "week", label: "My week", children: <WeekTab range={range} /> },

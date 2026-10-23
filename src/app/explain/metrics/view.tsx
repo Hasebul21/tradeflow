@@ -1,12 +1,13 @@
 "use client";
 
-import { Flex, Typography, theme, type TableColumnsType } from "antd";
+import { Collapse, Flex, Typography, theme, type TableColumnsType } from "antd";
 import Link from "next/link";
 // Types only: metrics.ts reads files, so the server page builds the rows and this component gets plain data.
 import type { TaskMetrics } from "@/agent/metrics";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
+import { taskName } from "../names";
 
 export type PromptVersionRow = { agent: string; prompt_hash: string; runs: number };
 export type MetricsGroup = { task: string; metrics: TaskMetrics; rows: [string, string][] };
@@ -46,14 +47,14 @@ export function MetricsView({ runsRead, groups, versions }: { runsRead: number; 
   return (
     <Flex vertical gap={16}>
       <PageHeader title="Metrics" purpose="Numbers across runs, counted from the trace files. Nothing here is estimated." extra={<Flex gap={12}><Link href="/explain">Explain</Link><Link href="/explain/queue">Review queue</Link></Flex>} />
-      <Typography.Text type="secondary">From the newest {runsRead} runs in logs/</Typography.Text>
+      <Typography.Text type="secondary">{`Counted from the newest ${runsRead} runs on this computer.`}</Typography.Text>
       {all === undefined || runsRead === 0 ? (
-        <EmptyState message="There are no runs in logs/ yet." />
+        <EmptyState message="No runs yet. Run a review on the Explain page, then come back." />
       ) : (
         groups.map(({ task, metrics, rows }) => (
           <Flex vertical gap={12} key={task} data-testid={`metrics-${task}`}>
             <Typography.Title level={3} style={{ margin: 0 }}>
-              {task === "all" ? "All runs" : task}
+              {task === "all" ? "All runs" : taskName(task)}
             </Typography.Title>
             <Bar
               title="Status"
@@ -77,12 +78,15 @@ export function MetricsView({ runsRead, groups, versions }: { runsRead: number; 
         ))
       )}
       {versions.length > 0 ? (
-        <Flex vertical gap={8}>
-          <Typography.Title level={3} style={{ margin: 0 }}>
-            Prompt versions
-          </Typography.Title>
-          <DataTable rowKey={(row) => `${row.agent}-${row.prompt_hash}`} size="small" columns={VERSION_COLUMNS} dataSource={versions} pagination={false} />
-        </Flex>
+        <Collapse
+          items={[
+            {
+              key: "versions",
+              label: "Prompt versions (for developers)",
+              children: <DataTable rowKey={(row) => `${row.agent}-${row.prompt_hash}`} size="small" columns={VERSION_COLUMNS} dataSource={versions} pagination={false} />,
+            },
+          ]}
+        />
       ) : null}
     </Flex>
   );

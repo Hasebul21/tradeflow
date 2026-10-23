@@ -1,3 +1,4 @@
+import { loadConfig } from "@/agent/config";
 import { ErrorState } from "@/components/ui/states";
 import { barRange, loadPortfolioData } from "@/lib/portfolio-view";
 import { loadJournal } from "@/lib/journal";
@@ -6,6 +7,15 @@ import { ExplainView } from "./view";
 export const dynamic = "force-dynamic";
 
 const WORDS = 12;
+/** True when the sample model answers; false when SAMPLE_MODE=false makes the config throw for want of keys. */
+function sampleModeOn(): boolean {
+  try {
+    return loadConfig(process.env, () => {}).sampleMode;
+  } catch {
+    return false;
+  }
+}
+
 const fewWords = (text: string) => {
   const words = text.trim().split(/\s+/);
   return words.length <= WORDS ? words.join(" ") : `${words.slice(0, WORDS).join(" ")}...`;
@@ -24,6 +34,7 @@ export default async function ExplainPage() {
       range={range}
       theses={Object.fromEntries(journal.map((j) => [j.id, fewWords(j.thesis)]))}
       plans={plans}
+      sampleMode={sampleModeOn()}
     />
   );
 }

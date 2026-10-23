@@ -70,6 +70,11 @@ Open http://localhost:8000. Port 3000 is left for the Zetaris console.
 | `/invested` | Deposits against the cost and value of open positions |
 | `/rules` | Position limit, sector targets against actual weights, and trade plans. Has an as-of date picker |
 | `/settings` | The owner's preferences (`data/profile.json`) |
+| `/explain` | The agents: My week, Theses, Pre-trade and Reconcile tabs, each with a date and a button; a result links to its steps. Says when sample mode is on |
+| `/explain/queue` | Runs that wait for the owner's decision. Linked from the Explain page and the Guide, not the menu |
+| `/explain/runs` | Every run in `logs/`, newest first; `/explain/runs/<run_id>` shows one run's steps. Linked from the Explain page and the Guide |
+| `/explain/metrics` | Counts across runs, from the trace files. Linked from the Explain page and the Guide |
+| `/guide` | A first-time user's guide: the first run in five steps, how dates work, each page, the words the agents use |
 
 | API | What it returns |
 |---|---|

@@ -12,6 +12,7 @@ const MAIN: Item[] = [
   ["/journal", "Journal"],
   ["/explain", "Explain"],
   ["/history", "History"],
+  ["/guide", "Guide"],
 ];
 const MARKET: Item[] = [
   ["/announcements", "Announcements"],
