@@ -2,7 +2,8 @@
 // every query: the planned steps in plan order through the run's cache and queries.runQuery (guards.beforeQuery
 // first), then one call to the main model with prompts/analyst.md as-is and one JSON user message (rule 7). The
 // model gets the task's named queries as native tools; a tool call is run by code the same way, its result goes
-// back as a tool message, and the model is called again, at most MAX_TOOL_ROUNDS times, then once without tools.
+// back as a tool message, and the model is called again, at most MAX_TOOL_ROUNDS times, then once without tools. A
+// round is not offered when the prompt, with the history, has no room for its worst case (toolRoundChars).
 // The model never writes SQL and never runs anything. The reply is validated with zod and goes through
 // guards.afterModel; a bad or refused reply is a structured error, never a crash. Server only (node:fs).
 import { z } from "zod";
@@ -69,16 +70,27 @@ export const RETRY_NOTE_CHARS = ANALYST_REPLY_SHAPE.length + 500;
 const TOOL_ENVELOPE_CHARS = 600;
 
 /**
- * The room tool rounds can take in the prompt, sized for real results: every round (MAX_TOOL_ROUNDS) running every
- * call it may (MAX_TOOL_CALLS_PER_ROUND), each returning a full MAX_ROWS_PER_QUERY rows as long as the longest row
- * this run holds, measured as the tool message carries it (a JSON string inside JSON, so every quote is escaped).
- * Used only to decide whether a previous finding's results fit; it never cuts a prompt.
+ * The room one tool round can take in the prompt, sized for real results: every call the round may run
+ * (MAX_TOOL_CALLS_PER_ROUND), each returning a full MAX_ROWS_PER_QUERY rows as long as the longest row this run holds,
+ * measured as the tool message carries it (a JSON string inside JSON, so every quote is escaped). Rows have no length
+ * cap, so a later result with longer rows can be bigger than this; the prompt check in llm.ts catches that.
  */
-export function toolReserveChars(cfg: Pick<Config, "MAX_TOOL_ROUNDS" | "MAX_TOOL_CALLS_PER_ROUND" | "MAX_ROWS_PER_QUERY">, store: Record<string, QueryResult>): number {
+export function toolRoundChars(cfg: Pick<Config, "MAX_TOOL_CALLS_PER_ROUND" | "MAX_ROWS_PER_QUERY">, store: Record<string, QueryResult>): number {
   let rowChars = 0;
   for (const result of Object.values(store)) for (const row of result.rows) rowChars = Math.max(rowChars, JSON.stringify(JSON.stringify(row)).length);
-  return cfg.MAX_TOOL_ROUNDS * cfg.MAX_TOOL_CALLS_PER_ROUND * (cfg.MAX_ROWS_PER_QUERY * rowChars + TOOL_ENVELOPE_CHARS);
+  return cfg.MAX_TOOL_CALLS_PER_ROUND * (cfg.MAX_ROWS_PER_QUERY * rowChars + TOOL_ENVELOPE_CHARS);
 }
+
+/**
+ * The room every tool round (MAX_TOOL_ROUNDS) takes in the prompt, at toolRoundChars. Used only to decide whether a
+ * previous finding's results fit; it never cuts a prompt.
+ */
+export function toolReserveChars(cfg: Pick<Config, "MAX_TOOL_ROUNDS" | "MAX_TOOL_CALLS_PER_ROUND" | "MAX_ROWS_PER_QUERY">, store: Record<string, QueryResult>): number {
+  return cfg.MAX_TOOL_ROUNDS * toolRoundChars(cfg, store);
+}
+
+/** The history's characters as llm.ts counts them: each message as JSON. */
+const historyChars = (history: readonly HistoryMessage[]): number => history.reduce((n, message) => n + JSON.stringify(message).length, 0);
 
 /** Why a parsed reply fails the Analyst schema (the first issue), or null; llm.ts asks again with it. */
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
@@ -309,6 +321,32 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   // thesis_check and pre_trade: code has run every query, so the model is offered no tools.
   const tools = request.theses === undefined && request.noTools !== true ? toolsFor(request.task) : [];
 
+  const systemChars = analystPromptVersion().text.length;
+  const reserve = (tools.length > 0 ? toolReserveChars(cfg, run.store) : 0) + RETRY_NOTE_CHARS;
+
+  // On a retry, the previous findings go in whole only while the prompt fits with a structured retry's correction
+  // (RETRY_NOTE_CHARS). Otherwise only the flagged ones go in: code keeps every other one (revised in the orchestrator,
+  // and the prompt says so), so the Analyst need not repeat it. The tool rounds' worst case is not counted here: the
+  // tool loop checks it on its own. The trace line says how many were left out. Thesis batches of 15 theses reached
+  // the limit this way.
+  let previousCut = 0;
+  if (input.previous_findings !== null && systemChars + JSON.stringify(input).length + RETRY_NOTE_CHARS > cfg.MAX_PROMPT_CHARS) {
+    const flagged = input.flagged_findings ?? [];
+    const kept = input.previous_findings.filter((finding) => flagged.some((flag) => flag.kind === finding.kind && flag.subject === finding.subject));
+    previousCut = input.previous_findings.length - kept.length;
+    input.previous_findings = kept;
+    tracer.log({
+      agent_name: AGENT,
+      action: "previous_left_out",
+      input_summary: capped(`round ${round + 1}: ${previousCut} of ${previousCut + kept.length} previous findings, ${kept.length} flagged`),
+      output_summary: capped(`left out of the prompt for size; code keeps them, and the Analyst sees the ${kept.length} the fix flags`),
+      target_agent: TARGET,
+      status: "ok",
+      why: capped(`the prompt with every previous finding and the retry reserve would be over MAX_PROMPT_CHARS (${cfg.MAX_PROMPT_CHARS})`),
+      retry_count: round,
+    });
+  }
+
   // On a retry, the results the previous findings cite stay in view even when this round's plan left their query
   // out, so the Analyst can keep or fix those findings. They come from the run's store (no query runs, none is
   // counted). thesis_check gets none: its evidence tables already carry every run_query_id to cite. The input as it
@@ -318,9 +356,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   // (code still checks a kept finding against the full store).
   let previousCited = 0;
   let previousLeftOut = 0;
-  const systemChars = analystPromptVersion().text.length;
-  const reserve = (tools.length > 0 ? toolReserveChars(cfg, run.store) : 0) + RETRY_NOTE_CHARS;
-  const cited = request.theses === undefined ? (request.previous_findings ?? []).flatMap((finding) => finding.cites) : [];
+  const cited = request.theses === undefined ? (input.previous_findings ?? []).flatMap((finding) => finding.cites) : [];
   for (const id of new Set(cited)) {
     const held = run.store[id];
     if (held === undefined || seen.has(id)) continue;
@@ -346,8 +382,29 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   let toolRounds = 0;
   let toolCalls = 0;
   let result: CompleteResult;
+  const userChars = JSON.stringify(input).length;
   for (;;) {
-    const withTools = tools.length > 0 && toolRounds < cfg.MAX_TOOL_ROUNDS;
+    let withTools = tools.length > 0 && toolRounds < cfg.MAX_TOOL_ROUNDS;
+    // With tool results in the history, another round is offered only while the prompt with its worst case still fits;
+    // otherwise the model answers from what it has (the history stays), and the trace says why.
+    if (withTools && history.length > 0) {
+      const sized = systemChars + userChars + historyChars(history);
+      const nextRound = toolRoundChars(cfg, run.store);
+      if (sized + nextRound > cfg.MAX_PROMPT_CHARS) {
+        withTools = false;
+        tracer.log({
+          agent_name: AGENT,
+          action: "tool_rounds_stopped",
+          input_summary: capped(`${toolRounds} tool rounds, ${toolCalls} tool calls, prompt ${sized} chars with the history`),
+          output_summary: "the next call offers no tools, so the model answers from the results it has",
+          target_agent: null,
+          status: "ok",
+          why: capped(`another tool round may take ${nextRound} chars, and the prompt would be over MAX_PROMPT_CHARS (${cfg.MAX_PROMPT_CHARS})`),
+          model: model.model_id,
+          retry_count: round,
+        });
+      }
+    }
     run.beforeModelCall();
     try {
       result = await call({

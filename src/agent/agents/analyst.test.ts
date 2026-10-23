@@ -449,7 +449,8 @@ describe("the Analyst with a stubbed model and tool calls", () => {
 
   it("stops a model that keeps calling tools after MAX_TOOL_ROUNDS (2), then calls once without tools", async () => {
     const calls: CompleteOptions[] = [];
-    const { lines, run } = runState();
+    // MAX_PROMPT_CHARS is raised so that only MAX_TOOL_ROUNDS withdraws the tools here; the prompt-room stop has its own test.
+    const { lines, run } = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_PROMPT_CHARS: "1000000" }, () => {}) });
     const complete = scripted(
       [
         (options) => (options.tools === undefined ? done([finding("PORTFOLIO", [shownIds(options)[0]])]) : { tool_calls: [{ id: `call-${calls.length}`, name: "rule_findings", arguments: { as_of: AS_OF } }] }),
@@ -512,7 +513,8 @@ describe("the Analyst on a bad or refused reply", () => {
   });
 
   it("ends as a structured BadJson error when the model answers with tool calls after tools were withdrawn", async () => {
-    const { run } = runState();
+    // MAX_PROMPT_CHARS is raised so that only MAX_TOOL_ROUNDS withdraws the tools here; the prompt-room stop has its own test.
+    const { run } = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_PROMPT_CHARS: "1000000" }, () => {}) });
     const outcome = await analyse(request([step("week_moves")]), { run, complete: scripted([() => ({ tool_calls: [{ id: "c", name: "rule_findings", arguments: { as_of: AS_OF } }] })]) });
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;

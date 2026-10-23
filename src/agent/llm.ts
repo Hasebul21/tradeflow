@@ -131,7 +131,15 @@ export class ModelError extends Error {
     this.name = new.target.name;
   }
 }
-export class PromptTooLarge extends ModelError {}
+/** A prompt over MAX_PROMPT_CHARS. `systemAlone` when the system prompt by itself is over it, which no shrinking fixes. */
+export class PromptTooLarge extends ModelError {
+  constructor(
+    message: string,
+    readonly systemAlone = false,
+  ) {
+    super(message);
+  }
+}
 /**
  * A reply that could not be used: it holds no JSON object ("parse"), or its object fails the agent's schema
  * ("schema"). `reason` says what was wrong in a few words; it is what a retry tells the model.
@@ -387,7 +395,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       why: "prompt too large",
       duration_ms: Date.now() - started,
     });
-    throw new PromptTooLarge(message);
+    throw new PromptTooLarge(message, options.system.length > cfg.MAX_PROMPT_CHARS);
   }
 
   if (sampleMode) {
