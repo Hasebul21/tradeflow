@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { afterModel, beforeQuery, beforeRemember, checkCitations, type Finding } from "./guards";
+import { afterModel, beforeQuery, beforeRemember, checkCitations, dayRangesIn, numberMatchesIn, numbersIn, type Finding } from "./guards";
 import { loadQueryData, runLocal, type QueryData, type QueryResult, type Row } from "./queries";
 import type { TraceInput, Tracer } from "./trace";
 
@@ -98,6 +98,41 @@ describe("checkCitations", () => {
     expect(!result.ok && result.failures[0].finding).toBe(1);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "block", status: "blocked" });
+  });
+});
+
+describe("numbersIn, numberMatchesIn and dayRangesIn", () => {
+  // The words of example_4's Analyst gap (real-model run, 23 Oct 2026): numbersIn strips "17 Sept 2026" as a date,
+  // but the first day of the range has no month next to it and reads as the number 11.
+  const GAP = "the data shows no price-sensitive announcements for the bank holdings in the window 11-17 Sept 2026.";
+
+  it("reads the first day of a day range as a number, as before", () => {
+    expect(numbersIn(GAP)).toEqual([11]);
+    expect(numbersIn("Dividends between 11-17 Sept returned no rows")).toEqual([11]);
+    expect(numbersIn("the week of Sep 11-17")).toEqual([17]);
+  });
+
+  it("gives each number with its position, and the same values as numbersIn", () => {
+    const text = "Tk 3,000 on 2026-09-11, 5.4% on 17 Sep, id j-013, then 11-17 Sept and 0.92 [q:abc-1]";
+    const found = numberMatchesIn(text, ["[q:abc-1]"]);
+    expect(found.map((n) => n.value)).toEqual(numbersIn(text, ["[q:abc-1]"]));
+    expect(found.map((n) => n.value)).toEqual([3000, 5.4, 11, 0.92]);
+    expect(found.map((n) => n.index)).toEqual([text.indexOf("3,000"), text.indexOf("5.4"), text.indexOf("11-17"), text.indexOf("0.92")]);
+  });
+
+  it("finds day ranges with the month after or before, with or without a year", () => {
+    expect(dayRangesIn(GAP)).toEqual([{ text: "11-17 Sept 2026", index: GAP.indexOf("11-17"), month: 9, year: 2026, firstDay: 11, lastDay: 17 }]);
+    expect(dayRangesIn("between 11\u201317 Sep, then")).toEqual([expect.objectContaining({ month: 9, year: null, firstDay: 11, lastDay: 17 })]);
+    expect(dayRangesIn("Sept 11-17, 2026 and Oct 1-2")).toEqual([
+      expect.objectContaining({ text: "Sept 11-17, 2026", month: 9, year: 2026, firstDay: 11, lastDay: 17 }),
+      expect.objectContaining({ text: "Oct 1-2", month: 10, year: null, firstDay: 1, lastDay: 2 }),
+    ]);
+  });
+
+  it("finds no range in a backwards range, a decimal or plain numbers", () => {
+    expect(dayRangesIn("17-11 Sept")).toEqual([]);
+    expect(dayRangesIn("5.11-17 Sept")).toEqual([]);
+    expect(dayRangesIn("rose 5.4% on 11 trades, 17 Sep")).toEqual([]);
   });
 });
 

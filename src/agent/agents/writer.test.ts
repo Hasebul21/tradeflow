@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig, type Config } from "../config";
 import type { Finding } from "../guards";
+import { forModel, type ResultStore } from "../context";
+import type { QueryResult, Row } from "../queries";
 import type { CompleteOptions, CompleteResult } from "../llm";
 import { openMemory, type RecalledMemory } from "../memory";
 import { RunState } from "../run-state";
@@ -12,7 +14,7 @@ import type { TraceInput, Tracer } from "../trace";
 import { analyse, codeGaps } from "./analyst";
 import { evaluate } from "./evaluator";
 import { plan } from "./planner";
-import { DISCLAIMER, checkReview, countNumbers, write, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
+import { DISCLAIMER, RETRY_ASK, checkReview, countNumbers, write, writerReplySchema, type RunCounts, type WriteInput } from "./writer";
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so the memory it writes lands in that copy and
 // never in data/. A fake tracer keeps every line in memory; the sample model answers unless a test stubs it.
@@ -339,5 +341,143 @@ describe("checkReview and the run's own counts", () => {
     expect(countNumbers({ findings: 11, proposals: null, citations: 4, rounds: 2 })).toEqual([11, 4, 2]);
     expect(countNumbers(COUNTS)).toEqual([4, 1, 1, 4]);
     expect(countNumbers(undefined)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// example_4, real-model run of 23 Oct 2026 (logs/trace-example_4.jsonl, main at 553323a): the Writer's draft said
+// "in the window 11-17 Sept 2026" in its "Not covered" line, copying the Analyst's gap. numbersIn read the 11 as a
+// number, so the check refused the draft twice and the run ended needs_human (writer_rejected). The results, findings,
+// gaps and draft below are the run's own, from logs/e2e-live/example_4.json. Left out: rule_findings (no finding cites
+// it, and the reply has no rows for it). The dividends_between run_query_id is made up; the run's is not in the reply.
+
+const E4_AS_OF = "2026-09-17";
+const E4_QUESTION = "Why did my bank shares move this week?";
+const result = (run_query_id: string, query_id: QueryResult["query_id"], params: Record<string, unknown>, rows: Row[]): QueryResult => ({ run_query_id, query_id, params, rows, source: "zetaris", sql_head: null });
+const E4_DIVIDENDS = result("00000000-0000-4000-8000-0000000000d4", "dividends_between", { from: "2026-09-11", to: "2026-09-17" }, []);
+const E4_STORE: ResultStore = Object.fromEntries(
+  [
+  result("582c65b3-ba02-41f2-bc5d-ce295cf99d5c", "week_moves", {"as_of": "2026-09-17", "sessions": 5}, [
+    {"symbol": "PORTFOLIO", "from_date": "2026-09-10", "to_date": "2026-09-17", "change_pct": 0.92, "change_bdt": 5780.2, "index_change_pct": -0.26, "vs_index_pts": 1.18},
+    {"symbol": "BRACBANK", "sector": "Bank", "shares": 1520, "from_close": 47.9, "to_close": 50.4, "change_pct": 5.22, "contribution_bdt": 3800, "contribution_pts": 0.6, "sector_change_pct": 5.4, "index_change_pct": -0.26, "vs_sector_pts": -0.18, "comparison": "in line with sector", "weight_pct": 12.07},
+    {"symbol": "CITYBANK", "sector": "Bank", "shares": 1300, "from_close": 28.8, "to_close": 30.5, "change_pct": 5.9, "contribution_bdt": 2210, "contribution_pts": 0.35, "sector_change_pct": 5.4, "index_change_pct": -0.26, "vs_sector_pts": 0.51, "comparison": "in line with sector", "weight_pct": 6.25},
+    {"symbol": "SQURPHARMA", "sector": "Pharmaceuticals & Chemicals", "shares": 655, "from_close": 236.9, "to_close": 234.1, "change_pct": -1.18, "contribution_bdt": -1834, "contribution_pts": -0.29, "sector_change_pct": -0.6, "index_change_pct": -0.26, "vs_sector_pts": -0.59, "comparison": "in line with sector", "weight_pct": 24.16},
+    {"symbol": "EBL", "sector": "Bank", "shares": 1200, "from_close": 24.2, "to_close": 25.7, "change_pct": 6.2, "contribution_bdt": 1800, "contribution_pts": 0.29, "sector_change_pct": 5.4, "index_change_pct": -0.26, "vs_sector_pts": 0.8, "comparison": "in line with sector", "weight_pct": 4.86},
+    {"symbol": "BXPHARMA", "sector": "Pharmaceuticals & Chemicals", "shares": 320, "from_close": 167.7, "to_close": 166.3, "change_pct": -0.83, "contribution_bdt": -448, "contribution_pts": -0.07, "sector_change_pct": -0.6, "index_change_pct": -0.26, "vs_sector_pts": -0.24, "comparison": "in line with sector", "weight_pct": 8.38},
+    {"symbol": "BATBC", "sector": "Food & Allied", "shares": 80, "from_close": 494.8, "to_close": 497.5, "change_pct": 0.55, "contribution_bdt": 216, "contribution_pts": 0.03, "sector_change_pct": 0.27, "index_change_pct": -0.26, "vs_sector_pts": 0.27, "comparison": "in line with sector", "weight_pct": 6.27},
+    {"symbol": "SUMITPOWER", "sector": "Fuel & Power", "shares": 600, "from_close": 29.5, "to_close": 29.8, "change_pct": 1.02, "contribution_bdt": 180, "contribution_pts": 0.03, "sector_change_pct": 0.26, "index_change_pct": -0.26, "vs_sector_pts": 0.76, "comparison": "in line with sector", "weight_pct": 2.82},
+    {"symbol": "RENATA", "sector": "Pharmaceuticals & Chemicals", "shares": 36, "from_close": 919.6, "to_close": 915.8, "change_pct": -0.41, "contribution_bdt": -136.8, "contribution_pts": -0.02, "sector_change_pct": -0.6, "index_change_pct": -0.26, "vs_sector_pts": 0.18, "comparison": "in line with sector", "weight_pct": 5.19},
+    {"symbol": "LHBL", "sector": "Cement", "shares": 400, "from_close": 71.4, "to_close": 71.7, "change_pct": 0.42, "contribution_bdt": 120, "contribution_pts": 0.02, "sector_change_pct": -0.26, "index_change_pct": -0.26, "vs_sector_pts": 0.68, "comparison": "in line with sector", "weight_pct": 4.52},
+    {"symbol": "UPGDCL", "sector": "Fuel & Power", "shares": 250, "from_close": 167.3, "to_close": 167, "change_pct": -0.18, "contribution_bdt": -75, "contribution_pts": -0.01, "sector_change_pct": 0.26, "index_change_pct": -0.26, "vs_sector_pts": -0.44, "comparison": "in line with sector", "weight_pct": 6.58},
+    {"symbol": "OLYMPIC", "sector": "Food & Allied", "shares": 100, "from_close": 165.4, "to_close": 164.8, "change_pct": -0.36, "contribution_bdt": -60, "contribution_pts": -0.01, "sector_change_pct": 0.27, "index_change_pct": -0.26, "vs_sector_pts": -0.64, "comparison": "in line with sector", "weight_pct": 2.6},
+    {"symbol": "GP", "sector": "Telecommunication", "shares": 240, "from_close": 375.8, "to_close": 376, "change_pct": 0.05, "contribution_bdt": 48, "contribution_pts": 0.01, "sector_change_pct": 0.01, "index_change_pct": -0.26, "vs_sector_pts": 0.04, "comparison": "in line with sector", "weight_pct": 14.22},
+    {"symbol": "ROBI", "sector": "Telecommunication", "shares": 400, "from_close": 33.4, "to_close": 33.3, "change_pct": -0.3, "contribution_bdt": -40, "contribution_pts": -0.01, "sector_change_pct": 0.01, "index_change_pct": -0.26, "vs_sector_pts": -0.31, "comparison": "in line with sector", "weight_pct": 2.1},
+  ]),
+  result("efa2ea50-5e33-412a-b422-3fdfe51c27b0", "sector_vs_stock", {"as_of": "2026-09-17", "sessions": 5}, [
+    {"sector": "Pharmaceuticals & Chemicals", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1222.79, "change_pct": -0.6, "index_change_pct": -0.26, "vs_index_pts": -0.34, "contribution_bdt": -2418.8, "contribution_pts": -0.38},
+    {"sector": "Engineering", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1198.95, "change_pct": -0.44, "index_change_pct": -0.26, "vs_index_pts": -0.18, "contribution_bdt": 0, "contribution_pts": 0},
+    {"sector": "Cement", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1097.12, "change_pct": -0.26, "index_change_pct": -0.26, "vs_index_pts": 0, "contribution_bdt": 120, "contribution_pts": 0.02},
+    {"sector": "Telecommunication", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1164.35, "change_pct": 0.01, "index_change_pct": -0.26, "vs_index_pts": 0.27, "contribution_bdt": 8, "contribution_pts": 0},
+    {"sector": "Fuel & Power", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1286.91, "change_pct": 0.26, "index_change_pct": -0.26, "vs_index_pts": 0.52, "contribution_bdt": 105, "contribution_pts": 0.02},
+    {"sector": "Food & Allied", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1233.36, "change_pct": 0.27, "index_change_pct": -0.26, "vs_index_pts": 0.54, "contribution_bdt": 156, "contribution_pts": 0.02},
+    {"sector": "Bank", "from_date": "2026-09-10", "to_date": "2026-09-17", "close": 1165.76, "change_pct": 5.4, "index_change_pct": -0.26, "vs_index_pts": 5.66, "contribution_bdt": 7810, "contribution_pts": 1.24},
+  ]),
+  result("4627a537-84eb-4202-9c8c-7eb49d09f029", "announcements_between", {"from": "2026-09-11", "to": "2026-09-17"}, [
+    {"id": "a-064", "symbol": "GP", "published_at": "2026-09-17T09:00:00.000Z", "category": "other", "title": "Record date for the cash dividend", "body": "Shareholders on the register on the record date, 21 Sept 2026, will receive the cash dividend. The shares trade ex-dividend from the next session.", "price_sensitive": false, "published_on": "2026-09-17"},
+  ]),
+    E4_DIVIDENDS,
+  ].map((r) => [r.run_query_id, r]),
+);
+const E4_FINDINGS: Finding[] = [
+  {"kind": "move", "subject": "PORTFOLIO", "claim": "The data shows the portfolio rose 0.9% over the week, 1.2 points ahead of DSEX.", "numbers": [{"value": 0.92, "label": "portfolio change %"}, {"value": 1.18, "label": "points against DSEX"}], "cites": ["582c65b3-ba02-41f2-bc5d-ce295cf99d5c"], "verdict": null, "proposed_fix": null, "memory_ids": []},
+  {"kind": "sector", "subject": "Bank", "claim": "The data shows the banking sector rose 5.4% over the week, 5.7 points ahead of DSEX, driving the portfolio's gain.", "numbers": [{"value": 5.4, "label": "sector change %"}, {"value": 5.66, "label": "points against DSEX"}], "cites": ["efa2ea50-5e33-412a-b422-3fdfe51c27b0"], "verdict": null, "proposed_fix": null, "memory_ids": []},
+  {"kind": "move", "subject": "BRACBANK", "claim": "The data shows BRACBANK rose 5.2% over the week, in line with its sector, adding 3800 BDT and 0.6 points to the portfolio.", "numbers": [{"value": 5.22, "label": "change %"}, {"value": 0.6, "label": "contribution pts"}, {"value": 3800, "label": "contribution bdt"}], "cites": ["582c65b3-ba02-41f2-bc5d-ce295cf99d5c"], "verdict": null, "proposed_fix": null, "memory_ids": []},
+  {"kind": "move", "subject": "CITYBANK", "claim": "The data shows CITYBANK rose 5.9% over the week, in line with its sector, adding 2210 BDT and 0.35 points to the portfolio.", "numbers": [{"value": 5.9, "label": "change %"}, {"value": 0.35, "label": "contribution pts"}, {"value": 2210, "label": "contribution bdt"}], "cites": ["582c65b3-ba02-41f2-bc5d-ce295cf99d5c"], "verdict": null, "proposed_fix": null, "memory_ids": []},
+  {"kind": "move", "subject": "EBL", "claim": "The data shows EBL rose 6.2% over the week, in line with its sector, adding 1800 BDT and 0.8 points to the portfolio.", "numbers": [{"value": 6.2, "label": "change %"}, {"value": 0.8, "label": "contribution pts"}, {"value": 1800, "label": "contribution bdt"}], "cites": ["582c65b3-ba02-41f2-bc5d-ce295cf99d5c"], "verdict": null, "proposed_fix": null, "memory_ids": []},
+  {"kind": "move", "subject": "GP", "claim": "The data shows GP fell 0.0% over the week, in line with its sector, adding 48 BDT and 0.01 points to the portfolio, after the record date for a cash dividend on 17 Sept 2026.", "numbers": [{"value": 0.05, "label": "change %"}, {"value": 0.01, "label": "contribution pts"}, {"value": 48, "label": "contribution bdt"}], "cites": ["582c65b3-ba02-41f2-bc5d-ce295cf99d5c", "4627a537-84eb-4202-9c8c-7eb49d09f029"], "verdict": null, "proposed_fix": null, "memory_ids": []},
+];
+const E4_ANALYST_GAP = "Whether any bank-specific announcement drove the sector move: the data shows no price-sensitive announcements for the bank holdings in the window 11-17 Sept 2026.";
+const E4_CODE_GAP = codeGaps([{ ...forModel(E4_DIVIDENDS), row_count: 0 }], [])[0];
+const E4_DRAFT = {
+  summary: "Your portfolio rose 0.92% in the week to 17 Sep, 1.18 points ahead of DSEX; EBL's 6.2% rise explains most of it.",
+  review_markdown: "Your portfolio rose 0.92% in the week to 17 Sep, 1.18 points ahead of DSEX; EBL's 6.2% rise explains most of it.\n\n- EBL rose 6.2%, 0.8 points ahead of its sector index, in line with sector. [q:582c65b3-ba02-41f2-bc5d-ce295cf99d5c]\n- CITYBANK rose 5.9%, 0.51 points ahead of its sector index, in line with sector. [q:582c65b3-ba02-41f2-bc5d-ce295cf99d5c]\n- BRACBANK rose 5.2%, 0.6 points against its sector index, in line with sector. [q:582c65b3-ba02-41f2-bc5d-ce295cf99d5c]\n- SQURPHARMA fell 1.18%, 0.59 points behind its sector index, in line with sector. [q:582c65b3-ba02-41f2-bc5d-ce295cf99d5c]\n- BATBC rose 0.55%, 0.27 points ahead of its sector index, in line with sector. [q:582c65b3-ba02-41f2-bc5d-ce295cf99d5c]\n\n**What I remembered**\n\n**What to look at next**\n- EBL\n- SQURPHARMA\n\nNot covered: Whether any bank-specific announcement drove the sector move; the data shows no price-sensitive announcements for the bank holdings in the window 11-17 Sept 2026. Dividends between 11-17 Sept returned no rows, so this review says nothing it would have shown.\n\nThis is a review of your own records, not financial advice.",
+  // The draft's memory_note (68 characters) is not in the reply; this one is made up, with figures from the findings.
+  memory_note: "Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.",
+};
+
+describe("example_4: a date range the run queried, and a retry the model can act on", () => {
+  const check = (reply: typeof E4_DRAFT, extra: { gaps?: string[] } = {}) =>
+    checkReview(reply, { findings: E4_FINDINGS, results: E4_STORE, memories: [], task: "explain_week", question: E4_QUESTION, code_gaps: [E4_CODE_GAP], gaps: extra.gaps ?? [E4_ANALYST_GAP, E4_CODE_GAP], as_of: E4_AS_OF });
+  const e4Input = (): WriteInput => ({ task: "explain_week", question: E4_QUESTION, as_of: E4_AS_OF, findings: E4_FINDINGS, results: E4_STORE, gaps: [E4_ANALYST_GAP, E4_CODE_GAP], code_gaps: [E4_CODE_GAP], declined_advice: false, escalation: null, memories: [], runId: "example_4" });
+  const withReview = (from: string, to: string) => ({ ...E4_DRAFT, review_markdown: E4_DRAFT.review_markdown.split(from).join(to) });
+
+  it("builds the fixture from the run's facts: the code gap is the run's own text", () => {
+    expect(E4_CODE_GAP).toBe('dividends_between {"from":"2026-09-11","to":"2026-09-17"} returned no rows, so this review says nothing it would have shown.');
+    expect(E4_DRAFT.review_markdown).toHaveLength(1121);
+    expect(E4_DRAFT.review_markdown).toContain("in the window 11-17 Sept 2026");
+  });
+
+  it("accepts the run's draft: 11-17 Sept is the window announcements_between and dividends_between ran on", () => {
+    expect(check(E4_DRAFT)).toEqual({ ok: true });
+  });
+
+  it("still refuses a range whose first day the run never had, and says so", () => {
+    const result = check(withReview("11-17 Sept", "13-17 Sept"));
+    expect(result).toMatchObject({ ok: false });
+    const reason = (result as { reason: string }).reason;
+    expect(reason).toMatch(/review_markdown has the number 13, which is in no accepted finding, cited row or recalled memory/);
+    expect(reason).toMatch(/"13-17 Sept 2026" is a date range this run never had, so its day 13 counts as a number/);
+  });
+
+  it("still refuses a range whose last day the run never had", () => {
+    expect(check(withReview("11-17 Sept", "11-19 Sept"))).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 11, which is in no accepted finding/) });
+  });
+
+  it("still refuses 11 as a count, even with the 11-17 Sept window in the same review", () => {
+    const result = check(withReview("- CITYBANK rose 5.9%", "- EBL traded on 11 sessions.\n- CITYBANK rose 5.9%"));
+    expect(result).toMatchObject({ ok: false });
+    const reason = (result as { reason: string }).reason;
+    expect(reason).toMatch(/review_markdown has the number 11, which is in no accepted finding/);
+    expect(reason).toMatch(/in "\.\.\..*EBL traded on 11 sessions/);
+    expect(reason).not.toMatch(/date range/);
+  });
+
+  it("names a figure copied from a gap the Analyst wrote", () => {
+    const gap = "37 broker lines were unclear.";
+    const result = check({ ...E4_DRAFT, summary: `${E4_DRAFT.summary} 37 broker lines were unclear.` }, { gaps: [gap, E4_CODE_GAP] });
+    expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/summary has the number 37, .*copied from a gap the Analyst wrote/) });
+  });
+
+  it("write() accepts the run's draft on the first call, where the real run was refused twice", async () => {
+    const calls: CompleteOptions[] = [];
+    const { lines, tracer } = collector();
+    const outcome = await write(e4Input(), { tracer, config, sampleMode: true, remember: false, complete: scripted([E4_DRAFT], calls) });
+    expect(outcome).toMatchObject({ ok: true, attempts: 1, review_markdown: E4_DRAFT.review_markdown });
+    expect(calls).toHaveLength(1);
+    expect(writerLines(lines, "code_check").map((line) => line.status)).toEqual(["ok"]);
+  });
+
+  it("write()'s retry names the refused number, the words around it and what to do, so the second call differs", async () => {
+    const calls: CompleteOptions[] = [];
+    const { lines, tracer } = collector();
+    const invented = withReview("- BATBC rose 0.55%", "- BATBC rose 0.55% over 19 sessions");
+    const outcome = await write(e4Input(), { tracer, config, sampleMode: true, remember: false, complete: scripted([invented, E4_DRAFT], calls) });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].user).not.toBe(calls[0].user);
+    expect(JSON.parse(calls[0].user).retry_reason).toBeNull();
+    const retryReason = JSON.parse(calls[1].user).retry_reason as string;
+    expect(retryReason).toMatch(/^review_markdown has the number 19, which is in no accepted finding, cited row or recalled memory \(in "\.\.\..*BATBC rose 0\.55% over 19 sessions/);
+    expect(retryReason.endsWith(RETRY_ASK)).toBe(true);
+    expect(outcome).toMatchObject({ ok: true, attempts: 2, review_markdown: E4_DRAFT.review_markdown });
+    expect(writerLines(lines, "retry")).toEqual([expect.objectContaining({ status: "retry", why: expect.stringMatching(/the number 19, .*over 19 sessions/) })]);
+  });
+
+  it("write() still ends honestly when both replies keep the invented number: ok false with the draft and the reason", async () => {
+    const { lines, tracer } = collector();
+    const invented = withReview("- BATBC rose 0.55%", "- BATBC rose 0.55% over 19 sessions");
+    const outcome = await write(e4Input(), { tracer, config, sampleMode: true, remember: false, complete: scripted([invented]) });
+    expect(outcome).toMatchObject({ ok: false, attempts: 2, review_markdown: invented.review_markdown, reason: expect.stringMatching(/the number 19/) });
+    expect(writerLines(lines, "write")).toEqual([expect.objectContaining({ status: "needs_human" })]);
   });
 });

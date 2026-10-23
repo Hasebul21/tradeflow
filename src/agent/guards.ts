@@ -236,22 +236,64 @@ const MONTHS = "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|J
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const NUMBER = /(?<![A-Za-z0-9_])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![A-Za-z0-9_])/g;
 
+/** Spaces as long as the match, so a masked text keeps every position of the original. */
+const blank = (match: string) => " ".repeat(match.length);
+
+/** A number in a text: its value and where it starts. */
+export type NumberMatch = { value: number; index: number };
+
+/** numbersIn with positions: each number and its index in `text`. The masking keeps the text's length. */
+export function numberMatchesIn(text: string, ignore: readonly string[] = []): NumberMatch[] {
+  let t = text;
+  for (const id of [...ignore].filter((s) => s.length > 0).sort((a, b) => b.length - a.length)) t = t.split(id).join(blank(id));
+  t = t
+    .replace(UUID, blank)
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, blank)
+    .replace(new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${MONTHS})\\b\\.?(?:\\s+\\d{4})?`, "gi"), blank)
+    .replace(new RegExp(`\\b(?:${MONTHS})\\b\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4})?`, "gi"), blank)
+    .replace(/\b[A-Za-z]+(?:-\d+)+\b/g, blank)
+    .replace(/\b(?:19|20)\d{2}\b/g, blank)
+    .replace(/\bTk\.?\s*/gi, blank);
+  return [...t.matchAll(NUMBER)]
+    .map((match) => ({ value: Number(match[0].replace(/,/g, "")), index: match.index }))
+    .filter((n) => Number.isFinite(n.value));
+}
+
 /**
  * The numbers a text holds, as positive values. Dates (2026-10-01, 1 Oct, Oct 1), years, ids (j-013, BRK-20260802-035),
  * the `ignore` strings (run_query_ids), words with digits in them and a Tk prefix are not numbers. 3,000 is 3000.
+ * The first day of a range such as 11-17 Sept is still a number here: a caller that can prove the range's days are
+ * dates of its run blanks the range first (writer.ts, checkReview).
  */
 export function numbersIn(text: string, ignore: readonly string[] = []): number[] {
-  let t = text;
-  for (const id of [...ignore].filter((s) => s.length > 0).sort((a, b) => b.length - a.length)) t = t.split(id).join(" ");
-  t = t
-    .replace(UUID, " ")
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ")
-    .replace(new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${MONTHS})\\b\\.?(?:\\s+\\d{4})?`, "gi"), " ")
-    .replace(new RegExp(`\\b(?:${MONTHS})\\b\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4})?`, "gi"), " ")
-    .replace(/\b[A-Za-z]+(?:-\d+)+\b/g, " ")
-    .replace(/\b(?:19|20)\d{2}\b/g, " ")
-    .replace(/\bTk\.?\s*/gi, " ");
-  return [...t.matchAll(NUMBER)].map((match) => Number(match[0].replace(/,/g, ""))).filter((n) => Number.isFinite(n));
+  return numberMatchesIn(text, ignore).map((match) => match.value);
+}
+
+/** Days in one month written as a range, such as 11-17 Sept 2026 or Sep 11-17. month is 1 to 12; year is null when the text gives none. */
+export type DayRange = { text: string; index: number; month: number; year: number | null; firstDay: number; lastDay: number };
+
+const DAY = "(\\d{1,2})(?:st|nd|rd|th)?";
+const DASH = "\\s*[-\\u2013\\u2014]\\s*";
+const RANGE_DAYS_FIRST = new RegExp(`(?<![\\d.,])\\b${DAY}${DASH}${DAY}\\s+(${MONTHS})\\b\\.?(?:\\s+(\\d{4})\\b)?`, "gi");
+const RANGE_MONTH_FIRST = new RegExp(`\\b(${MONTHS})\\b\\.?\\s+${DAY}${DASH}${DAY}\\b(?![.,]\\d)(?:,?\\s+(\\d{4})\\b)?`, "gi");
+const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * The day ranges in a text: a first and a last day joined by a hyphen or a dash, with one month name before or after
+ * (11-17 Sept 2026, 11–17 Sep, Sep 11-17, 2026). Only ranges whose first day is before the last and both are 1 to 31.
+ * numbersIn reads the day that has no month next to it as a number; this says where such ranges are, nothing more.
+ */
+export function dayRangesIn(text: string): DayRange[] {
+  const out: DayRange[] = [];
+  const push = (match: RegExpMatchArray, first: string, last: string, month: string, year: string | undefined) => {
+    const firstDay = Number(first);
+    const lastDay = Number(last);
+    if (firstDay < 1 || lastDay > 31 || firstDay >= lastDay) return;
+    out.push({ text: match[0], index: match.index ?? 0, month: MONTH_KEYS.indexOf(month.slice(0, 3).toLowerCase()) + 1, year: year === undefined ? null : Number(year), firstDay, lastDay });
+  };
+  for (const m of text.matchAll(RANGE_DAYS_FIRST)) push(m, m[1], m[2], m[3], m[4]);
+  for (const m of text.matchAll(RANGE_MONTH_FIRST)) push(m, m[2], m[3], m[1], m[4]);
+  return out.sort((a, b) => a.index - b.index);
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
