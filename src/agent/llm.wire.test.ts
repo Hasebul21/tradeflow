@@ -78,7 +78,7 @@ describe("502 empty_response retries within the round (fake timers)", () => {
   let lines: TraceInput[] = [];
   const tracer = { log: (input: TraceInput) => (lines.push(input), input as never) };
   const retries = () => lines.filter((line) => line.action === "empty_response_retry");
-  // A fresh round: ROUND_TIMEOUT_MS (360 s) left, so both waits (15 s, 30 s) leave over MODEL_TIMEOUT_CAP_MS (240 s).
+  // A fresh round: ROUND_TIMEOUT_MS (900 s) left, so both waits (15 s, 30 s) leave over MODEL_TIMEOUT_CAP_MS (420 s).
   const inRound = (leftMs: number): CompleteOptions => ({
     ...base,
     tracer,
@@ -94,7 +94,7 @@ describe("502 empty_response retries within the round (fake timers)", () => {
 
   it("2 empty replies, then a good one: success after waits of 15 s and 30 s, 2 empty_response_retry lines", async () => {
     fetchMock.mockResolvedValueOnce(empty()).mockResolvedValueOnce(empty()).mockResolvedValueOnce(jsonResponse(200, ok));
-    const pending = complete(inRound(300000));
+    const pending = complete(inRound(900000));
     await vi.advanceTimersByTimeAsync(14999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
@@ -113,7 +113,7 @@ describe("502 empty_response retries within the round (fake timers)", () => {
 
   it("1 empty reply, then a good one: model_calls 2 on the result and on the trace lines", async () => {
     fetchMock.mockResolvedValueOnce(empty()).mockResolvedValueOnce(jsonResponse(200, ok));
-    const pending = complete(inRound(300000));
+    const pending = complete(inRound(900000));
     await vi.advanceTimersByTimeAsync(15000);
     const result = await pending;
     expect(result.text).toBe("hi");
@@ -126,7 +126,7 @@ describe("502 empty_response retries within the round (fake timers)", () => {
 
   it("sends no retry past modelCallsLeft: BudgetExhaustedError, with the failed request counted", async () => {
     fetchMock.mockImplementation(async () => empty());
-    const error = await complete({ ...inRound(300000), modelCallsLeft: 1 }).catch((e: unknown) => e);
+    const error = await complete({ ...inRound(900000), modelCallsLeft: 1 }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(BudgetExhaustedError);
     expect((error as BudgetExhaustedError).stop_reason).toBe("max_model_calls");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -136,7 +136,7 @@ describe("502 empty_response retries within the round (fake timers)", () => {
 
   it("3 empty replies: a ModelHttpError(502) naming 3 failed tries, and no fourth request", async () => {
     fetchMock.mockImplementation(async () => empty());
-    const pending = complete(inRound(300000)).catch((e: unknown) => e);
+    const pending = complete(inRound(900000)).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(45000);
     const error = await pending;
     expect(error).toBeInstanceOf(ModelHttpError);
@@ -148,9 +148,9 @@ describe("502 empty_response retries within the round (fake timers)", () => {
     expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(3);
   });
 
-  it("1 empty reply with 300000 ms left in the round: the retry starts after the 15 s wait", async () => {
+  it("1 empty reply with 900000 ms left in the round: the retry starts after the 15 s wait", async () => {
     fetchMock.mockResolvedValueOnce(empty()).mockResolvedValueOnce(jsonResponse(200, ok));
-    const pending = complete(inRound(300000));
+    const pending = complete(inRound(900000));
     await vi.advanceTimersByTimeAsync(15000);
     expect((await pending).text).toBe("hi");
     expect(fetchMock).toHaveBeenCalledTimes(2);

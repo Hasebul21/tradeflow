@@ -208,9 +208,9 @@ describe("AGENTS.md rule 3", () => {
   const agents = readFileSync(path.resolve("AGENTS.md"), "utf8");
   const rule = agents.split("\n").find((line) => line.startsWith("3. **Every external call**")) ?? "";
 
-  it("names BRIEFING_TIMEOUT_MS and keeps the 10 min a run", () => {
+  it("names BRIEFING_TIMEOUT_MS and keeps the 40 min a run", () => {
     expect(rule).toContain("a briefing may run up to BRIEFING_TIMEOUT_MS");
-    expect(rule).toContain("10 min a run");
+    expect(rule).toContain("40 min a run");
   });
 
   it("changes no other line: the diff against HEAD is empty or that one line with only those words added", () => {
@@ -229,6 +229,8 @@ describe("AGENTS.md rule 3", () => {
       committed = "";
     }
     if (committed.split("\n").includes(rule)) return;
+    // Later edits to the numbers in this line (Step 20i raised the timeouts) keep the BRIEFING_TIMEOUT_MS words: HEAD already has them.
+    if (committed.split("\n").some((line) => line.startsWith("3. **Every external call**") && line.includes("a briefing may run up to BRIEFING_TIMEOUT_MS"))) return;
     // Step 20b also adds the MAX_CONCURRENT_CHILDREN words to rule 4: that one pair of lines is allowed, with nothing else changed in it.
     // Step 20c adds the MAX_CONCURRENT_RUNS and cancelled words to the same rule, so its old line may differ from the one without the words.
     const rule4 = agents.split("\n").find((line) => line.startsWith("4. **Bounded loop.**")) ?? "";

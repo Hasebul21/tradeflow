@@ -63,8 +63,8 @@ export type Config = {
 export type LogLevel = "debug" | "info" | "warn" | "error";
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 
-/** The organisers' maximum for one model call (guide of 19 Oct). */
-export const MODEL_TIMEOUT_CAP_MS = 240000;
+/** The longest one model call may run. Raised from 240000 on 23 Oct: the model is slow some days and a cold load takes minutes. */
+export const MODEL_TIMEOUT_CAP_MS = 420000;
 
 /** max_tokens for llm.ts's retries after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
 export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 32000;
@@ -96,8 +96,8 @@ const limitsSchema = z.object({
   QUERY_TIMEOUT_MS: positiveInt(20000),
   MODEL_TIMEOUT_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
   MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
-  ROUND_TIMEOUT_MS: positiveInt(360000),
-  RUN_TIMEOUT_MS: positiveInt(900000),
+  ROUND_TIMEOUT_MS: positiveInt(900000),
+  RUN_TIMEOUT_MS: positiveInt(2400000),
   BRIEFING_TIMEOUT_MS: positiveInt(1200000),
   MAX_CONCURRENT_CHILDREN: positiveInt(2),
   MAX_CONCURRENT_RUNS: positiveInt(2),

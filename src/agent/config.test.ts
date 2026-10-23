@@ -17,10 +17,10 @@ describe("limits and defaults", () => {
       MAX_TOOL_ROUNDS: 2,
       MAX_TOKENS_PER_RUN: 250000,
       QUERY_TIMEOUT_MS: 20000,
-      MODEL_TIMEOUT_MS: 240000,
-      MODEL_TIMEOUT_STRONG_MS: 240000,
-      ROUND_TIMEOUT_MS: 360000,
-      RUN_TIMEOUT_MS: 900000,
+      MODEL_TIMEOUT_MS: 420000,
+      MODEL_TIMEOUT_STRONG_MS: 420000,
+      ROUND_TIMEOUT_MS: 900000,
+      RUN_TIMEOUT_MS: 2400000,
       BRIEFING_TIMEOUT_MS: 1200000,
       MAX_CONCURRENT_CHILDREN: 2,
       MAX_CONCURRENT_RUNS: 2,
@@ -37,14 +37,14 @@ describe("limits and defaults", () => {
     expect(cfg.models.strong).toBeUndefined();
   });
 
-  it("clamps a model timeout above 240000 to 240000", () => {
+  it("clamps a model timeout above 420000 to 420000", () => {
     const cfg = loadConfig({ MODEL_TIMEOUT_MS: "999999", MODEL_TIMEOUT_STRONG_MS: "999999" }, () => {});
-    expect(cfg.MODEL_TIMEOUT_MS).toBe(240000);
-    expect(cfg.MODEL_TIMEOUT_STRONG_MS).toBe(240000);
+    expect(cfg.MODEL_TIMEOUT_MS).toBe(420000);
+    expect(cfg.MODEL_TIMEOUT_STRONG_MS).toBe(420000);
   });
 
-  it("sets the model-call cap to 240000 and keeps the empty-reply retry at 32000 tokens", () => {
-    expect(MODEL_TIMEOUT_CAP_MS).toBe(240000);
+  it("sets the model-call cap to 420000 and keeps the empty-reply retry at 32000 tokens", () => {
+    expect(MODEL_TIMEOUT_CAP_MS).toBe(420000);
     expect(EMPTY_RESPONSE_RETRY_MAX_TOKENS).toBe(32000);
   });
 
