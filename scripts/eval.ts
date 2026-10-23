@@ -1,6 +1,6 @@
 // npm run eval [-- --no-results]: runs every input_examples/*.json in name order, then every case in
 // evals/redteam/cases.json, in one process, and checks each result against evals/expectations.json or the case's
-// expect block, the checks every result gets, and the trace path of its task. Prints a table and exits 1 on any
+// expect block (no_query reads the run's trace), the checks every result gets, and the trace path of its task. Prints a table and exits 1 on any
 // failure. A plain run writes evals/RESULTS.md: a sample-mode run replaces its "Sample mode" section, a real-model
 // run appends a "Real model, run <n>" section. --no-results (npm run check) writes nothing.
 //
@@ -161,7 +161,7 @@ async function main(argv: string[]): Promise<number> {
       rows.push({ id, verdict: "rate-limited", result, failed: [], seconds });
       return;
     }
-    const all = [...(exp === undefined ? [] : checks.checkExpectation(result, exp, real)), ...checks.universalChecks(result), ...checks.tracePathChecks(id, result, traceOf(id))];
+    const all = [...(exp === undefined ? [] : checks.checkExpectation(result, exp, real, traceOf(id))), ...checks.universalChecks(result), ...checks.tracePathChecks(id, result, traceOf(id))];
     const failed = all.filter((c) => !c.pass);
     rows.push({ id, verdict: failed.length === 0 ? "pass" : "fail", result, failed, seconds });
     process.stdout.write(`${failed.length === 0 ? "pass" : "FAIL"} ${id}: ${result.status}${failed.length === 0 ? "" : ` (${failed.map((c) => `${c.name}: ${c.detail}`).join("; ")})`}\n`);

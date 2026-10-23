@@ -717,7 +717,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         if (stop !== null) return stopped(stop);
         let whatIf: QueryResult;
         try {
-          whatIf = await state.query(fixed[0].query_id, fixed[0].params);
+          whatIf = await state.query(fixed[0].query_id, fixed[0].params, { caller: AGENT, task: "pre_trade" });
         } catch (error) {
           if (error instanceof QueryBlockedError) return invalid(error.reason);
           throw error;
@@ -753,7 +753,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         stop = budgetStop(true);
         if (stop !== null) return stopped(stop);
         try {
-          reconciliation = await state.query("reconciliation", {});
+          reconciliation = await state.query("reconciliation", {}, { caller: AGENT, task: "reconcile" });
         } catch (error) {
           if (error instanceof QueryBlockedError) return invalid(error.reason);
           throw error;
@@ -1069,7 +1069,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
 
     const state = new RunState({ runId, tracer, config, sampleMode, signal, localReason: "reconcile_approve reads the files as they are now, never Zetaris" });
     run = state;
-    const current = await state.query("reconciliation", {});
+    const current = await state.query("reconciliation", {}, { caller: AGENT, task: APPROVE });
     const row: Row | undefined = current.rows.find((candidate) => String(candidate.issue_id) === issueId);
     if (row === undefined) {
       tracer.log({ agent_name: AGENT, action: "approval_refused", input_summary: capped(`issue_id=${issueId}`), output_summary: capped(`not an open difference now; open: ${current.rows.map((r) => String(r.issue_id)).join(", ") || "none"}`), status: "error", why: "the issue is not in the current reconciliation rows" });

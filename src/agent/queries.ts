@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Config } from "./config";
-import { beforeQuery } from "./guards";
+import { beforeQuery, type QueryWho } from "./guards";
 import type { Tracer } from "./trace";
 import { createZetarisClient, rowsFromArrays, type ZetarisClient } from "./zetaris";
 import { attributionAsOf, sectorMovesAsOf } from "@/lib/market-views";
@@ -1035,6 +1035,8 @@ export type RunQueryArgs = {
   queriesUsed?: number;
   /** The run's cancel signal: checked before the call and passed to the Zetaris request. A cancelled call throws the signal's reason and writes no Query line. */
   signal?: AbortSignal;
+  /** Who runs the call and for which task; guards.beforeQuery checks src/agent/policy.ts when it is set. */
+  who?: QueryWho;
 };
 
 /**
@@ -1053,6 +1055,7 @@ export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
     { used: args.queriesUsed ?? 0, max: args.maxQueries ?? config.MAX_QUERY_CALLS },
     tracer,
     data,
+    args.who,
   );
   if (!guard.ok) throw new QueryBlockedError(guard.reason);
   let prepared: ReturnType<typeof prepareQuery>;

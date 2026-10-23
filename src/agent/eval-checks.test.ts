@@ -153,3 +153,24 @@ describe("tracePathChecks", () => {
     expect(failed(tracePathChecks("non-trading-day", result({}), moved))).toEqual([]);
   });
 });
+
+describe("checkExpectation no_query", () => {
+  const ok = result({});
+  const line = (agent_name: string, action: string, input_summary: string, extra: Partial<TraceLine> = {}): TraceLine => ({ agent_name, action, input_summary, output_summary: "14 rows", status: "ok", ...extra });
+
+  it("passes when no Query or tool_call line ran the query; a policy_denied line and a refused tool_call do not count", () => {
+    const trace = [
+      line("Query", "query", 'week_moves {"as_of":"2026-10-01"} source=local'),
+      line("Guard", "policy_denied", "beforeQuery what_if {}", { status: "blocked" }),
+      line("Analyst", "tool_call", 'what_if {"symbol":"WALTONHIL"}', { output_summary: "not run: policy: Analyst may not run what_if for explain_week", status: "blocked" }),
+    ];
+    expect(checkExpectation(ok, { no_query: "what_if" }, false, trace)).toEqual([expect.objectContaining({ name: "no_query", pass: true })]);
+  });
+
+  it("fails when a Query line or a tool_call that ran what_if is in the trace", () => {
+    const queried = [line("Query", "query", 'what_if {"symbol":"WALTONHIL"} source=local')];
+    expect(checkExpectation(ok, { no_query: "what_if" }, false, queried)).toEqual([expect.objectContaining({ name: "no_query", pass: false })]);
+    const tooled = [line("Analyst", "tool_call", 'what_if {"symbol":"WALTONHIL"}', { output_summary: "3 rows, run_query_id abc" })];
+    expect(checkExpectation(ok, { no_query: "what_if" }, false, tooled)).toEqual([expect.objectContaining({ name: "no_query", pass: false })]);
+  });
+});

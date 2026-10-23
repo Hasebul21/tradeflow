@@ -6,6 +6,7 @@ import { z } from "zod";
 import { loadConfig } from "./config";
 import { QUERIES, isQueryId, loadQueryData, type QueryData, type QueryResult } from "./queries";
 import type { RecalledMemory } from "./memory";
+import { allowedMemoryWrite, allowedQuery } from "./policy";
 import type { Tracer } from "./trace";
 import { resolveAsOf } from "@/lib/portfolio-view";
 import { normalizeSymbol } from "@/lib/symbol";
@@ -26,10 +27,18 @@ function block(tracer: Tracer | undefined, input: string, reason: string): { ok:
   return { ok: false, reason };
 }
 
+/** A refusal by src/agent/policy.ts: one Guard line, action "policy_denied", status "blocked". */
+function policyDenied(tracer: Tracer | undefined, input: string, reason: string): { ok: false; reason: string } {
+  tracer?.log({ agent_name: GUARD, action: "policy_denied", input_summary: capped(input), output_summary: capped(reason), status: "blocked", why: reason });
+  return { ok: false, reason };
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // beforeQuery
 
 export type QueryCall = { query_id: string; params: unknown };
+/** Who asks and for which task; the policy is checked only when a caller says it. */
+export type QueryWho = { caller: string; task: string };
 /** `used` is the calls this run has already made; `max` is MAX_QUERY_CALLS. */
 export type QueryBudget = { used: number; max: number };
 export type BeforeQueryResult = { ok: true; params: Record<string, unknown> } | { ok: false; reason: string };
@@ -43,7 +52,17 @@ function defaultMaxQueries(): number {
 }
 
 /**
- * Lets one named query through, or says why not: the id is in the registry, the params pass its schema, `as_of`
+ * Checks src/agent/policy.ts for one call: may `who.caller` run this query for `who.task`? A refusal writes the
+ * "policy_denied" Guard line. RunState.query uses it before a cache hit, so a cached result is no way round the policy.
+ */
+export function checkQueryPolicy(call: QueryCall, who: QueryWho, tracer?: Tracer): GuardResult {
+  const verdict = allowedQuery({ caller: who.caller, task: who.task, query_id: String(call.query_id) });
+  return verdict.ok ? { ok: true } : policyDenied(tracer, `beforeQuery ${String(call.query_id)} ${safeJson(call.params)}`, verdict.reason);
+}
+
+/**
+ * Lets one named query through, or says why not: the id is in the registry, `who` (when given) may run it for its
+ * task under src/agent/policy.ts, the params pass its schema, `as_of`
  * is inside the dates of the bars (a Friday or Saturday moves to the Thursday before, traced once as
  * "as_of_moved"), a what_if names a known symbol and a positive whole quantity, and the run's budget is not spent.
  * On success `params` holds the params with `as_of` resolved. `data` is loaded when the caller has none.
@@ -53,11 +72,17 @@ export async function beforeQuery(
   budget: QueryBudget = { used: 0, max: defaultMaxQueries() },
   tracer?: Tracer,
   data?: QueryData,
+  who?: QueryWho,
 ): Promise<BeforeQueryResult> {
   const id = String(call.query_id);
   const summary = `beforeQuery ${id} ${safeJson(call.params)}`;
 
   if (!isQueryId(id)) return block(tracer, summary, `Unknown query ${id}. It is not in the registry.`);
+
+  if (who !== undefined) {
+    const verdict = checkQueryPolicy(call, who, tracer);
+    if (!verdict.ok) return verdict;
+  }
 
   // The schema also rejects these, but the reason says what is wrong with the trade.
   if (id === "what_if" && isRecord(call.params) && "quantity" in call.params) {
@@ -316,13 +341,15 @@ export function checkCitations(
 // beforeRemember
 
 export const MAX_MEMORY_CHARS = 600;
-export type MemoryWrite = { kind: "review" | "correction" | "decision"; text: string };
+/** `caller` is who writes: "Writer", "feedback" or "reconcile_approve". A write with no caller skips the policy check. */
+export type MemoryWrite = { kind: "review" | "correction" | "decision"; text: string; caller?: string };
 
 /**
  * What may enter memory: an accepted review's memory_note, an owner correction or an owner decision such as an
  * approval. Never raw rows (JSON), never empty, at most 600 characters, and never text that reads like an
  * instruction to the agents: the same injection phrases afterModel detects. A memory is read by every later run,
- * so an instruction stored once would reach every model after it.
+ * so an instruction stored once would reach every model after it. With a `caller`, src/agent/policy.ts must allow
+ * that caller to write that kind; a refusal is a "policy_denied" Guard line.
  */
 export function beforeRemember(write: MemoryWrite, tracer?: Tracer): GuardResult {
   const kind = String(write?.kind);
@@ -330,6 +357,10 @@ export function beforeRemember(write: MemoryWrite, tracer?: Tracer): GuardResult
   const summary = `beforeRemember kind=${kind}, ${text.length} chars`;
   if (!["review", "correction", "decision"].includes(kind)) {
     return block(tracer, summary, `A ${kind} is not stored: memory keeps only a review's memory_note, an owner correction or an owner decision.`);
+  }
+  if (typeof write?.caller === "string") {
+    const verdict = allowedMemoryWrite({ caller: write.caller, kind });
+    if (!verdict.ok) return policyDenied(tracer, `${summary}, caller=${write.caller}`, verdict.reason);
   }
   if (text.trim() === "") return block(tracer, summary, "The memory text is empty.");
   if (text.length > MAX_MEMORY_CHARS) {

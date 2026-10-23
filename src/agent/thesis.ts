@@ -100,7 +100,7 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
   const gaps: string[] = [];
   const attempt = async (query_id: string, params: Record<string, unknown>): Promise<QueryResult | null> => {
     try {
-      return await state.query(query_id, params);
+      return await state.query(query_id, params, { caller: AGENT, task: "thesis_check" });
     } catch (error) {
       if (!(error instanceof QueryBlockedError) && !(error instanceof QueryError)) throw error;
       const reason = error instanceof QueryBlockedError ? error.reason : error.message;

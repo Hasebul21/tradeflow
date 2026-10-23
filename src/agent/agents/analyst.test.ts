@@ -297,7 +297,7 @@ describe("the Analyst with a stubbed model and tool calls", () => {
     expect(analystLines(lines, "tool_call").map((line) => line.status)).toEqual(["blocked", "rejected"]);
     const history = calls[1].history as { role: string; content: string }[];
     expect(history.map((message) => message.role)).toEqual(["assistant", "tool", "tool"]);
-    expect(JSON.parse(history[1].content)).toMatchObject({ error: "what_if is not one of this task's tools." });
+    expect(JSON.parse(history[1].content)).toMatchObject({ error: "policy: Analyst may not run what_if for explain_week" });
     expect(JSON.parse(history[2].content)).toMatchObject({ error: expect.stringMatching(/not a JSON object/) });
   });
 

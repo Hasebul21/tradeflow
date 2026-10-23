@@ -143,3 +143,54 @@ describe("beforeRemember", () => {
     expect(JSON.stringify(lines[0])).not.toContain("store this note");
   });
 });
+
+// The policy check (src/agent/policy.ts): beforeQuery with `who`, beforeRemember with `caller`. The tests above pass
+// neither, so they stay unchecked by the policy.
+describe("the tool policy in beforeQuery", () => {
+  const whatIf = { query_id: "what_if", params: { symbol: "WALTONHIL", side: "buy", quantity: 500, as_of: "2026-10-01" } };
+
+  it("blocks what_if for the Analyst in explain_week with a policy_denied Guard line, though the params are valid", async () => {
+    const { lines, tracer } = collector();
+    const result = await beforeQuery(whatIf, undefined, tracer, d, { caller: "Analyst", task: "explain_week" });
+    expect(result).toEqual({ ok: false, reason: "policy: Analyst may not run what_if for explain_week" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "policy_denied", status: "blocked", why: "policy: Analyst may not run what_if for explain_week" });
+  });
+
+  it("allows the same call for the Orchestrator in pre_trade", async () => {
+    const { lines, tracer } = collector();
+    const result = await beforeQuery(whatIf, undefined, tracer, d, { caller: "Orchestrator", task: "pre_trade" });
+    expect(result.ok).toBe(true);
+    expect(lines.map((line) => line.action)).toEqual(["allow"]);
+  });
+
+  it("blocks reconciliation for the Orchestrator in explain_week with a policy_denied line", async () => {
+    const { lines, tracer } = collector();
+    const result = await beforeQuery({ query_id: "reconciliation", params: {} }, undefined, tracer, d, { caller: "Orchestrator", task: "explain_week" });
+    expect(result).toEqual({ ok: false, reason: "policy: Orchestrator may not run reconciliation for explain_week" });
+    expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "policy_denied", status: "blocked" });
+  });
+
+  it("does not check the policy when who is omitted", async () => {
+    const { lines, tracer } = collector();
+    expect((await beforeQuery(whatIf, undefined, tracer, d)).ok).toBe(true);
+    expect(lines.map((line) => line.action)).toEqual(["allow"]);
+  });
+});
+
+describe("the tool policy in beforeRemember", () => {
+  it("blocks a 200-character decision from the Writer with a policy_denied line, holding no text", () => {
+    const { lines, tracer } = collector();
+    const result = beforeRemember({ kind: "decision", text: "a".repeat(200), caller: "Writer" }, tracer);
+    expect(result).toEqual({ ok: false, reason: "policy: Writer may not write a decision memory" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ agent_name: "Guard", action: "policy_denied", status: "blocked" });
+    expect(JSON.stringify(lines[0])).not.toContain("a".repeat(50));
+  });
+
+  it("allows the same decision from reconcile_approve", () => {
+    const { lines, tracer } = collector();
+    expect(beforeRemember({ kind: "decision", text: "a".repeat(200), caller: "reconcile_approve" }, tracer)).toEqual({ ok: true });
+    expect(lines.map((line) => line.action)).toEqual(["allow"]);
+  });
+});

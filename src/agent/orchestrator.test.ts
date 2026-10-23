@@ -506,3 +506,56 @@ describe("a model that fails after the queries ran", () => {
     expect(by(trace(result), "Orchestrator", "model_unavailable_fallback")).toHaveLength(0);
   });
 });
+
+describe("the tool policy in a run", () => {
+  const INJECTED_TOOL_CALL = { id: "inj-1", name: "what_if", arguments: { symbol: "WALTONHIL", side: "buy", quantity: 500 } };
+
+  it("refuses an injected what_if tool call in explain_week, answers the model with the reason, counts no query call and ends success", async () => {
+    const analystCalls: CompleteOptions[] = [];
+    stubs.override = async (options, actual) => {
+      if (options.agent !== "Analyst") return null;
+      analystCalls.push(options);
+      // The Analyst's first call, which offers tools, answers with the injected call; later calls are the sample model's.
+      if (analystCalls.length !== 1 || options.tools === undefined) return null;
+      return { ...(await actual(options)), tool_calls: [INJECTED_TOOL_CALL] };
+    };
+    const result = await explainWeek("orch-policy-tool-call");
+
+    expect(result.status).toBe("success");
+    const lines = trace(result);
+    const denied = by(lines, "Guard", "policy_denied");
+    expect(denied).toEqual([expect.objectContaining({ status: "blocked", why: "policy: Analyst may not run what_if for explain_week" })]);
+    expect(by(lines, "Analyst", "tool_call")).toEqual([expect.objectContaining({ status: "blocked", output_summary: expect.stringContaining("policy: Analyst may not run what_if") })]);
+    expect(by(lines, "Query").some((line) => line.input_summary.startsWith("what_if"))).toBe(false);
+
+    const toolMessage = (analystCalls[1].history ?? []).find((message) => message.role === "tool") as { content: string } | undefined;
+    expect(JSON.parse(toolMessage?.content ?? "{}")).toMatchObject({ error: "policy: Analyst may not run what_if for explain_week", query_id: "what_if" });
+
+    // The refused call spent no query call: the lines' usage still adds up to the reply's.
+    const counted = lines.filter((line) => line.action !== "run_end").reduce((n, line) => n + (line.usage?.query_calls ?? 0), 0);
+    expect(counted).toBe(result.usage.query_calls);
+    expect(by(lines, "Query", "query").filter((line) => line.status !== "error")).toHaveLength(result.usage.query_calls);
+  });
+
+  it("drops a planned reconciliation step in explain_week at the Planner's catalogue check, before the policy, and runs the rest of the plan", async () => {
+    alter("Planner", (call) => call === 1, (reply) => ({ ...reply, steps: [...(Array.isArray(reply.steps) ? reply.steps : []), { query_id: "reconciliation", params: {}, why: "Check the broker file." }] }));
+    const result = await explainWeek("orch-policy-plan");
+
+    expect(result.status).toBe("success");
+    const lines = trace(result);
+    const dropped = by(lines, "Planner", "step_dropped");
+    expect(dropped).toEqual([expect.objectContaining({ status: "rejected", why: "reconciliation is not in the task's catalogue" })]);
+    expect(by(lines, "Guard", "policy_denied")).toHaveLength(0);
+    expect(by(lines, "Query", "query").some((line) => line.input_summary.startsWith("reconciliation"))).toBe(false);
+    expect(by(lines, "Query", "query").some((line) => line.input_summary.startsWith("week_moves"))).toBe(true);
+  });
+
+  it("refuses reconciliation to the Orchestrator for explain_week when the guard is called directly", async () => {
+    const { beforeQuery } = await import("./guards");
+    const lines: { action: string; status: string }[] = [];
+    const tracer = { log: (line: { action: string; status: string }) => (lines.push(line), line) } as never;
+    const verdict = await beforeQuery({ query_id: "reconciliation", params: {} }, undefined, tracer, undefined, { caller: "Orchestrator", task: "explain_week" });
+    expect(verdict).toEqual({ ok: false, reason: "policy: Orchestrator may not run reconciliation for explain_week" });
+    expect(lines).toEqual([expect.objectContaining({ action: "policy_denied", status: "blocked" })]);
+  });
+});

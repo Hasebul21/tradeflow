@@ -202,6 +202,7 @@ describe("briefing", () => {
 });
 
 const RULE4_WORDS = ", and at most `MAX_CONCURRENT_CHILDREN` briefing children at a time (set it to 1 if the model provider rate-limits parallel calls)";
+const RULE6_WORDS = '`beforeQuery` and `beforeRemember` also check `src/agent/policy.ts`, who may run which query for which task and who may write which memory kind; a refusal is a Guard line "policy_denied".';
 
 describe("AGENTS.md rule 3", () => {
   const agents = readFileSync(path.resolve("AGENTS.md"), "utf8");
@@ -223,10 +224,14 @@ describe("AGENTS.md rule 3", () => {
     // Step 20c adds the MAX_CONCURRENT_RUNS and cancelled words to the same rule, so its old line may differ from the one without the words.
     const rule4 = agents.split("\n").find((line) => line.startsWith("4. **Bounded loop.**")) ?? "";
     expect(rule4).toContain(RULE4_WORDS);
+    // Step 20e adds one sentence to rule 6 (the tool policy): that pair of lines is allowed too, and nothing else of it.
+    const rule6 = agents.split("\n").find((line) => line.startsWith("6. **Guards.**")) ?? "";
+    expect(rule6).toContain(RULE6_WORDS);
     const changed = diff
       .split("\n")
       .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line))
-      .filter((line) => line !== `+${rule4}` && line !== `-${rule4.replace(RULE4_WORDS, "")}` && !line.startsWith("-4. **Bounded loop.**"));
+      .filter((line) => line !== `+${rule4}` && line !== `-${rule4.replace(RULE4_WORDS, "")}` && !line.startsWith("-4. **Bounded loop.**"))
+      .filter((line) => line !== `+${rule6}` && line !== `-${rule6.replace(` ${RULE6_WORDS}`, "")}`);
     if (changed.length === 0) return; // already committed
     expect(changed).toHaveLength(2);
     const [removed, added] = changed;

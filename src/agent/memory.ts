@@ -187,7 +187,7 @@ export class MemoryBlockedError extends Error {
  * guards.beforeRemember runs first: a refused write throws MemoryBlockedError and stores nothing. */
 async function rememberUnlocked(a: { content: string; task: string; asOf: string; runId: string; tracer: Tracer }): Promise<string> {
   assertYmd(a.asOf, "asOf");
-  const guard = beforeRemember({ kind: "review", text: a.content }, a.tracer);
+  const guard = beforeRemember({ kind: "review", text: a.content, caller: "Writer" }, a.tracer);
   if (!guard.ok) throw new MemoryBlockedError(guard.reason);
   const started = Date.now();
   const tags = ["review", a.task, a.asOf, `run:${a.runId}`];
@@ -218,7 +218,7 @@ async function rememberUnlocked(a: { content: string; task: string; asOf: string
  * a refused write throws MemoryBlockedError and stores nothing.
  */
 async function rememberDecisionUnlocked(a: { content: string; task: string; issueId: string; reviewRunId: string; tracer: Tracer }): Promise<string> {
-  const guard = beforeRemember({ kind: "decision", text: a.content }, a.tracer);
+  const guard = beforeRemember({ kind: "decision", text: a.content, caller: "reconcile_approve" }, a.tracer);
   if (!guard.ok) throw new MemoryBlockedError(guard.reason);
   const started = Date.now();
   const tags = ["decision", a.task, a.issueId, `run:${a.reviewRunId}`];
@@ -383,7 +383,7 @@ async function learnCorrectionUnlocked(a: { review_run_id: string; text: string;
   const unknown = wrong.filter((id) => typeof id !== "string" || hmem.store.get(id) === undefined);
   if (unknown.length > 0) return refused(`wrong_memory_ids holds ids no memory has: ${unknown.map((id) => JSON.stringify(id)).join(", ")}.`);
 
-  const guard = beforeRemember({ kind: "correction", text }, a.tracer);
+  const guard = beforeRemember({ kind: "correction", text, caller: "feedback" }, a.tracer);
   if (!guard.ok) return refused(guard.reason);
 
   const learned = (id: string, how: string, tags: string[], started: number) =>
@@ -400,7 +400,7 @@ async function learnCorrectionUnlocked(a: { review_run_id: string; text: string;
   let started = Date.now();
   const mined = await hmem.mine("user_correction", text);
   for (const record of mined) {
-    const check = beforeRemember({ kind: "correction", text: record.content }, a.tracer);
+    const check = beforeRemember({ kind: "correction", text: record.content, caller: "feedback" }, a.tracer);
     if (!check.ok) {
       hmem.store.delete(record.id, `guards.beforeRemember: ${check.reason}`);
       a.tracer.log({

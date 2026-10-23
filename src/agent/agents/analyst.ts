@@ -11,7 +11,7 @@ import { afterModel, findingSchema, type Finding } from "../guards";
 import { complete as completeModel, failedCallUsage, type CompleteOptions, type CompleteResult, type HistoryMessage, type ToolCallResult, type ToolSpec } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
-import { QueryBlockedError, QueryError, isQueryId, type QueryResult } from "../queries";
+import { QueryBlockedError, QueryError, type QueryResult } from "../queries";
 import type { RunState } from "../run-state";
 import type { TraceStatus } from "../trace";
 import type { PlannedStep, PlannerTrade } from "./planner";
@@ -189,7 +189,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   const skipped: SkippedStep[] = [];
   for (const [index, step] of request.steps.entries()) {
     try {
-      const result = await run.query(step.query_id, step.params);
+      const result = await run.query(step.query_id, step.params, { caller: "Orchestrator", task: request.task });
       if (!seen.has(result.run_query_id)) seen.set(result.run_query_id, result);
     } catch (error) {
       if (!(error instanceof QueryBlockedError) && !(error instanceof QueryError)) throw error;
@@ -229,7 +229,6 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   // 2. The model, with the task's queries as tools; each tool call runs through the same cache and guard.
   // thesis_check and pre_trade: code has run every query, so the model is offered no tools.
   const tools = request.theses === undefined && request.noTools !== true ? toolsFor(request.task) : [];
-  const allowed = new Set<string>(catalogueFor(request.task).map((entry) => entry.id));
   const history: HistoryMessage[] = [];
   const model: AnalysisBase["model"] = { model_id: "", source: "sample-model", usage: null, calls: 0, duration_ms: 0 };
   let toolRounds = 0;
@@ -282,7 +281,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     });
     for (const c of calls) {
       toolCalls += 1;
-      const outcome = await runToolCall(c, { run, allowed, round, model: result.model_id });
+      const outcome = await runToolCall(c, { run, task: request.task, round, model: result.model_id });
       if (outcome.result !== undefined && !seen.has(outcome.result.run_query_id)) {
         seen.set(outcome.result.run_query_id, outcome.result);
         results.push(trimmed(outcome.result));
@@ -358,10 +357,10 @@ type ToolOutcome = { content: string; result?: QueryResult };
 
 /**
  * One tool call, run by code: a query of this task through the run's cache and runQuery (guards.beforeQuery), its
- * trimmed result sent back as the tool message. A blocked, refused or malformed call goes back as a tool message
+ * trimmed result sent back as the tool message. A blocked (policy included), refused or malformed call goes back as a tool message
  * with the reason; nothing is thrown for it. Traced as agent "Analyst", action "tool_call".
  */
-async function runToolCall(c: ToolCallResult, ctx: { run: RunState; allowed: ReadonlySet<string>; round: number; model: string }): Promise<ToolOutcome> {
+async function runToolCall(c: ToolCallResult, ctx: { run: RunState; task: string; round: number; model: string }): Promise<ToolOutcome> {
   const { run, round } = ctx;
   const summary = capped(`${c.name} ${safeJson(c.arguments)}`);
   const log = (status: TraceStatus, output: string, why?: string) =>
@@ -382,12 +381,11 @@ async function runToolCall(c: ToolCallResult, ctx: { run: RunState; allowed: Rea
   };
 
   if (c.error === "bad_arguments") return refused("The tool call's arguments are not a JSON object, so it did not run.", "rejected");
-  // A registry query that is not one of this task's tools never runs; an unknown name goes to the guard, which names it.
-  if (isQueryId(c.name) && !ctx.allowed.has(c.name)) return refused(`${c.name} is not one of this task's tools.`, "blocked");
-
+  // A query outside this task's tools never runs: src/agent/policy.ts refuses it inside guards.beforeQuery, with the
+  // reason sent back to the model, and an unknown name is refused there too. Neither counts a query call.
   const before = run.usage.query_calls;
   try {
-    const result = await run.query(c.name, c.arguments);
+    const result = await run.query(c.name, c.arguments, { caller: AGENT, task: ctx.task });
     const cached = run.usage.query_calls === before;
     log("ok", `${result.rows.length} rows, run_query_id ${result.run_query_id}${cached ? " (from the cache)" : ""}`);
     return { content: JSON.stringify(forModel(result, run.config.MAX_ROWS_PER_QUERY)), result };

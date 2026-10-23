@@ -6,7 +6,8 @@
 import { loadConfig, type Config } from "./config";
 import type { ResultStore } from "./context";
 import type { CompleteResult, FailedCallUsage } from "./llm";
-import { QUERIES, isQueryId, loadQueryData, runQuery, type QueryData, type QueryResult } from "./queries";
+import { checkQueryPolicy, type QueryWho } from "./guards";
+import { QUERIES, QueryBlockedError, isQueryId, loadQueryData, runQuery, type QueryData, type QueryResult } from "./queries";
 import type { Tracer } from "./trace";
 import type { ZetarisClient } from "./zetaris";
 
@@ -120,12 +121,18 @@ export class RunState {
   /**
    * Runs one named query once per run. A call already made comes back from the cache with the same run_query_id,
    * traced as agent "Query", action "cached", status "ok", and counts no query call. Otherwise runQuery runs it
-   * (guards.beforeQuery first) with this run's query budget, the result is stored, and the call is counted. Throws
+   * (guards.beforeQuery first, with `who` when given) with this run's query budget, the result is stored, and the call is counted. Throws
    * what runQuery throws: QueryBlockedError when the guard refuses, QueryError when local() refuses.
    */
-  async query(query_id: string, params: unknown): Promise<QueryResult> {
+  async query(query_id: string, params: unknown, who?: QueryWho): Promise<QueryResult> {
     const key = cacheKey(query_id, params);
     const hit = this.cache.get(key);
+    // The policy comes before the cache: a result another caller fetched is no way round it. An unknown id is not
+    // checked here: beforeQuery names it as unknown.
+    if (who !== undefined && isQueryId(query_id)) {
+      const verdict = checkQueryPolicy({ query_id, params }, who, this.tracer);
+      if (!verdict.ok) throw new QueryBlockedError(verdict.reason);
+    }
     if (hit !== undefined) {
       this.tracer.log({
         agent_name: "Query",
@@ -153,6 +160,7 @@ export class RunState {
       ...(this.localReason === undefined ? {} : { localReason: this.localReason }),
       maxQueries: this.config.MAX_QUERY_CALLS,
       queriesUsed: this.usage.query_calls,
+      ...(who === undefined ? {} : { who }),
     });
     this.usage.query_calls += 1;
     const result = this.onResult === undefined ? fresh : this.onResult(fresh);

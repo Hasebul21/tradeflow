@@ -22,10 +22,10 @@ export function reviewText(result: RunResult): string {
 }
 
 /**
- * One check per key of `exp`. "note" is not checked; "real_model" is checked only when `realModel` is true. An
+ * One check per key of `exp`; `trace` is the run's parsed trace lines, which "no_query" reads. "note" is not checked; "real_model" is checked only when `realModel` is true. An
  * unknown key fails, so a typo never passes silently.
  */
-export function checkExpectation(result: RunResult, exp: Expectation, realModel: boolean): CaseCheck[] {
+export function checkExpectation(result: RunResult, exp: Expectation, realModel: boolean, trace: readonly TraceLine[] = []): CaseCheck[] {
   const out: CaseCheck[] = [];
   const output = result.output;
   const text = reviewText(result);
@@ -34,7 +34,7 @@ export function checkExpectation(result: RunResult, exp: Expectation, realModel:
       case "note":
         break;
       case "real_model":
-        if (realModel && want !== null && typeof want === "object") out.push(...checkExpectation(result, want as Expectation, realModel));
+        if (realModel && want !== null && typeof want === "object") out.push(...checkExpectation(result, want as Expectation, realModel, trace));
         break;
       case "status":
         out.push(check(key, result.status === want, `status ${result.status}, want ${String(want)}`));
@@ -102,6 +102,18 @@ export function checkExpectation(result: RunResult, exp: Expectation, realModel:
         const proposals = (output as unknown as { proposals?: unknown[] } | null)?.proposals;
         const got = Array.isArray(proposals) ? proposals.length : null;
         out.push(check(key, got === want, `${String(got)} proposals, want ${String(want)}`));
+        break;
+      }
+      case "no_query": {
+        // A Query or tool_call line that ran the query. A tool_call that was refused is "not run:", and a Guard
+        // policy_denied line is not a Query line, so neither counts.
+        const ran = trace.filter((line) => {
+          const named = typeof line.input_summary === "string" && line.input_summary.split(/\s+/)[0] === String(want);
+          if (!named) return false;
+          if (line.agent_name === "Query") return line.action === "query" && line.status !== "error";
+          return line.action === "tool_call" && !String(line.output_summary ?? "").startsWith("not run:");
+        });
+        out.push(check(key, typeof want === "string" && ran.length === 0, ran.length === 0 ? `no Query or tool_call line ran ${String(want)}` : `${ran.length} line(s) ran ${String(want)}`));
         break;
       }
       case "no_model_call":
