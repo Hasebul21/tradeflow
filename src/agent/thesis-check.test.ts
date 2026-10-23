@@ -84,3 +84,23 @@ describe("thesis_check, sample model", () => {
     expect(claim).toMatch(/owed, not paid/);
   });
 });
+
+describe("thesis evidence gaps", () => {
+  it("puts only the query id in code_gaps for a query that did not run, and the params and reason in gaps", async () => {
+    const { loadQueryData } = await import("./queries");
+    const { RunState } = await import("./run-state");
+    const { prepareThesisEvidence } = await import("./thesis");
+    const { numbersIn } = await import("./guards");
+    const tracer = { log: (line: unknown) => line } as never;
+    // Three query calls: the journal and two fundamentals run; the rest are refused by the budget and become gaps.
+    const tight = loadConfig({ SAMPLE_MODE: "true", MAX_QUERY_CALLS: "3" }, () => {});
+    const state = new RunState({ runId: "thesis-gaps", tracer, config: tight, sampleMode: true, data: await loadQueryData() });
+    const prepared = await prepareThesisEvidence({ state, tracer, asOf: AS_OF, steps: [], round: 0 });
+    expect(prepared.gaps.length).toBeGreaterThan(0);
+    expect(prepared.gaps.some((gap) => /^fundamentals_latest \{.*\} did not run: /.test(gap))).toBe(true);
+    expect(prepared.code_gaps).toContain("fundamentals_latest did not run.");
+    expect(prepared.code_gaps.every((gap) => /^[a-z_]+ did not run\.$/.test(gap))).toBe(true);
+    expect(prepared.code_gaps.flatMap((gap) => numbersIn(gap))).toEqual([]);
+    expect(prepared.theses.every((thesis) => thesis.journal_run_query_id !== null)).toBe(true);
+  });
+});

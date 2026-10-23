@@ -1,7 +1,8 @@
 // The Evaluator: judges the Analyst's draft. Code runs first, in this order: guards.checkCitations (every number is
 // in a cited row), guards.afterModel (no advice, every finding matches the schema), then coverage (the task's
-// required findings are there). Each failure is a rejection with a one-sentence fix written by code that the
-// Planner and the Analyst can act on; no model is called. A draft that passes goes to the fast model with
+// required findings are there). All three always run; any failure is a rejection with a fix written by code that
+// names every problem found, and the numbers of the findings it flags, so the Planner and the Analyst can act on all
+// of them in one round; no model is called. A draft that passes goes to the fast model with
 // prompts/evaluator.md as-is and one JSON user message (rule 7): the draft and only the rows it cites. The three
 // scores add up to a total out of 9; total / 9 rounded to two decimals is the trace's confidence (7 of 9 is 0.78);
 // 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's retries
@@ -11,7 +12,7 @@
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
-import { afterModel, checkCitations, type Finding } from "../guards";
+import { afterModel, checkCitations, numbersIn, type Finding } from "../guards";
 import { BadJson, complete as completeModel, failedCallUsage, ModelHttpError, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
@@ -102,8 +103,13 @@ export type EvaluateOutcome = {
   total: number | null;
   /** total / 9 rounded to two decimals; 0 when code rejected the draft or the reply was unusable; null when the score is unavailable. */
   confidence: number | null;
-  /** One instruction for the Planner and the Analyst; empty when accepted. */
+  /** The fix for the Planner and the Analyst, naming every problem found; empty when accepted. */
   fix: string;
+  /**
+   * The findings the rejection names, by number counting from 1: those a code check failed, or whose subject or
+   * number the model's fix names. Empty when accepted. orchestrator.ts carries every other finding into the next draft.
+   */
+  flagged: number[];
   code_checks: CodeCheck[];
   target_agent: RejectTarget | "Writer";
   model: {
@@ -222,8 +228,10 @@ export function coverage(task: Task, findings: readonly Finding[], store: Result
       const ids = [...new Set(results.flatMap((result) => result.rows.map((row) => str(row.issue_id))).filter((id) => id !== ""))];
       const missing = ids.filter((id) => !findings.some((finding) => finding.kind === "reconciliation" && finding.subject === id));
       if (missing.length > 0) {
-        const more = missing.length > 1 ? ` (and ${missing.length - 1} more)` : "";
-        return { ok: false, reason: `issue ${missing[0]} has no finding${more}`, fix: `Add a finding and a proposed fix for issue ${missing[0]}: it has no finding${more}.` };
+        // Every missing issue is named, so the Analyst sees all of them in one round.
+        const rest = missing.slice(1);
+        const nor = rest.length === 0 ? "" : ` (nor ${rest.length === 1 ? "does issue" : "do issues"} ${listed(rest)})`;
+        return { ok: false, reason: `issue ${missing[0]} has no finding${nor}`, fix: `Add a finding and a proposed fix for issue ${missing[0]}: it has no finding${nor}.` };
       }
       return { ok: true, reason: ids.length === 0 ? "the reconciliation has no difference to cover" : `every difference (${ids.join(", ")}) has a finding` };
     }
@@ -232,15 +240,112 @@ export function coverage(task: Task, findings: readonly Finding[], store: Result
   }
 }
 
+/** "A", "A and B", "A, B and C". */
+function listed(items: readonly string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+/**
+ * One finding the coverage check requires, as a predicate on a finding: its kind (null for any), its subject (null
+ * for any) and whether it needs a verdict. orchestrator.ts uses these to restore a required finding the Analyst
+ * dropped in a revision, so a draft never loses what coverage asks for.
+ */
+export type Requirement = { kind: string | null; subject: string | null; verdict: boolean; why: string };
+
+export const meetsRequirement = (finding: Finding, need: Requirement): boolean =>
+  (need.kind === null || finding.kind === need.kind) && (need.subject === null || finding.subject === need.subject) && (!need.verdict || finding.verdict !== null);
+
+/** The findings coverage() requires for the task, from this run's rows; empty when the evidence query never ran. */
+export function requiredFindings(task: Task, store: ResultStore, asOf: string): Requirement[] {
+  switch (task) {
+    case "explain_week": {
+      const largest = largestHolding(resultsOf(store, "week_moves", asOf).flatMap((result) => result.rows));
+      if (largest === undefined) return [];
+      const symbol = str(largest.symbol);
+      return [{ kind: null, subject: symbol, verdict: false, why: `${symbol} is the largest move of the week, and the coverage check requires a finding on it` }];
+    }
+    case "thesis_check": {
+      const ids = [...new Set(resultsOf(store, "journal_for_symbol", asOf).flatMap((result) => result.rows.map((row) => str(row.id))).filter((id) => id !== ""))];
+      return ids.map((id) => ({ kind: "thesis", subject: id, verdict: true, why: `the coverage check requires one thesis finding with a verdict for ${id}` }));
+    }
+    case "pre_trade":
+      return [{ kind: "pre_trade", subject: null, verdict: false, why: "the coverage check requires a pre_trade finding" }];
+    case "reconcile": {
+      const ids = [...new Set(resultsOf(store, "reconciliation").flatMap((result) => result.rows.map((row) => str(row.issue_id))).filter((id) => id !== ""))];
+      return ids.map((id) => ({ kind: "reconciliation", subject: id, verdict: false, why: `the coverage check requires a reconciliation finding for issue ${id}` }));
+    }
+    default:
+      return [];
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The fixes code writes for the first two checks.
 
-function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[]): string {
-  const first = failures[0];
-  const finding = findings[first.finding - 1];
-  const who = finding === undefined ? `finding ${first.finding}` : `finding ${first.finding} (${finding.kind} ${finding.subject})`;
-  const more = failures.length > 1 ? ` (and ${failures.length - 1} more ${failures.length === 2 ? "problem" : "problems"})` : "";
-  return `Fix ${who}: ${first.problem}; use only figures from the rows it cites${more}.`;
+const REFUSED = /^(?:the claim has|the number) (\d+(?:\.\d+)?)\b/;
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** Every number in a result's rows, numbers inside strings too (the owner's "Sell if it gains 10%"), as positive values. */
+function numbersOf(value: unknown, ignore: readonly string[], out: number[] = [], depth = 0): number[] {
+  if (depth > 8) return out;
+  if (typeof value === "number" && Number.isFinite(value)) out.push(Math.abs(value));
+  else if (typeof value === "string") out.push(...numbersIn(value, ignore));
+  else if (Array.isArray(value)) for (const item of value) numbersOf(item, ignore, out, depth + 1);
+  else if (value !== null && typeof value === "object") for (const item of Object.values(value)) numbersOf(item, ignore, out, depth + 1);
+  return out;
+}
+
+/**
+ * Where a refused figure is, so the fix is one the Analyst can act on: the results of this run (at most two) that
+ * hold it as the check reads a row (the same value, or that value rounded to one decimal place) and the finding does
+ * not cite, or none. A hint only: the check itself is unchanged, and the finding still has to cite the row.
+ */
+/** Each result's numbers, read once per evaluate (whereIs asks for them once per refused figure). */
+type NumbersByResult = ReadonlyMap<string, readonly number[]>;
+
+function numbersByResult(store: ResultStore): NumbersByResult {
+  const ids = Object.keys(store);
+  return new Map(Object.values(store).map((result) => [result.run_query_id, numbersOf(result.rows, ids)]));
+}
+
+function whereIs(value: number, cites: readonly string[], store: ResultStore, numbers: NumbersByResult): string {
+  const of = (result: QueryResult) => numbers.get(result.run_query_id) ?? [];
+  const holders = Object.values(store).filter((result) => !cites.includes(result.run_query_id) && of(result).some((n) => Math.abs(n - value) < 1e-9 || Math.abs(round1(n) - value) < 1e-9));
+  if (holders.length === 0) {
+    // A figure rounded the wrong way (2.2 for 2.25, 7259 for 7259.4): name the row value it most likely came from.
+    for (const result of Object.values(store)) {
+      const near = of(result).find((n) => Math.abs(n - value) < 0.1 || (Number.isInteger(value) && Math.round(n) === value && n !== value));
+      if (near !== undefined) return `no result of this run holds ${value}; ${result.query_id} ${result.run_query_id} has ${near}: write it as the row gives it or rounded half up to one decimal place, or leave it out`;
+    }
+    return `no result of this run holds ${value}, so leave it out`;
+  }
+  const named = holders.slice(0, 2).map((result) => `${result.query_id} ${result.run_query_id}`);
+  return `${value} is in ${listed(named)}${holders.length > 2 ? ` and ${holders.length - 2} more` : ""}: cite the one it came from, or leave it out`;
+}
+
+/**
+ * Every failure, grouped by finding in the draft's order: no problem is left out of the fix. With `numbers`, each
+ * refused figure says where it is in this run, or that it is nowhere; without, the fix names the problems only.
+ */
+function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[], store: ResultStore, numbers: NumbersByResult | null): string {
+  const byFinding = new Map<number, string[]>();
+  for (const failure of failures) {
+    const value = failure.problem.match(REFUSED);
+    const finding = findings[failure.finding - 1];
+    const hint = value === null || finding === undefined || numbers === null ? "" : ` (${whereIs(Number(value[1]), finding.cites, store, numbers)})`;
+    const problems = byFinding.get(failure.finding) ?? [];
+    // The same refused figure twice in one claim is one problem.
+    if (!problems.includes(`${failure.problem}${hint}`)) problems.push(`${failure.problem}${hint}`);
+    byFinding.set(failure.finding, problems);
+  }
+  return [...byFinding.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([number, problems]) => {
+      const finding = findings[number - 1];
+      const who = finding === undefined ? `finding ${number}` : `finding ${number} (${finding.kind} ${finding.subject})`;
+      return `Fix ${who}: ${problems.join("; ")}; use only figures from the rows it cites.`;
+    })
+    .join(" ");
 }
 
 function guardFix(reason: string): string {
@@ -316,13 +421,14 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
     });
   };
-  const rejectByCode = (check: CodeCheck): EvaluateOutcome => {
-    const fix = check.fix ?? "";
+  const rejectByCode = (failed: readonly CodeCheck[], flagged: number[]): EvaluateOutcome => {
+    // Every failed check's fix, in check order, so the Analyst sees every open problem in one round.
+    const fix = failed.map((check) => check.fix ?? "").filter((text) => text !== "").join(" ");
     tracer.log({
       agent_name: AGENT,
       action: "reject",
       input_summary: inputSummary,
-      output_summary: capped(`rejected by code (${check.check}): ${check.reason}; no model call`),
+      output_summary: capped(`rejected by code (${failed.map((check) => check.check).join(", ")}): ${failed.map((check) => check.reason).join("; ")}; no model call`),
       target_agent: target,
       status: "rejected",
       why: fix,
@@ -330,30 +436,44 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
       duration_ms: Date.now() - started,
     });
-    return { accepted: false, scores: null, total: 0, confidence: 0, fix, code_checks: checks, target_agent: target, model: null };
+    return { accepted: false, scores: null, total: 0, confidence: 0, fix, flagged, code_checks: checks, target_agent: target, model: null };
   };
 
+  // The three code checks always all run, in this order, before any model call: a draft that fails more than one is
+  // rejected once with every problem named.
   // 1. Every number is in a cited row of this run (or in a listed memory).
   const citations = checkCitations(findings, input.results, memories, tracer, input.as_of);
   const citationCheck: CodeCheck = citations.ok
     ? { check: "citations", ok: true, reason: "every finding cites a result of this run and every number is in the cited rows", fix: null }
-    : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures) };
-  traceCheck(citationCheck);
-  if (!citationCheck.ok) return rejectByCode(citationCheck);
+    : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures, input.results, numbersByResult(input.results)) };
 
   // 2. No advice, every finding matches the schema, a verdict where the task needs one. The draft is the Analyst's reply.
   const guard = afterModel("Analyst", { findings, gaps }, { task: input.task }, tracer);
   const guardCheck: CodeCheck = guard.ok
     ? { check: "guard", ok: true, reason: `the draft passes the reply guard${guard.injection_seen ? " (injection wording seen)" : ""}`, fix: null }
     : { check: "guard", ok: false, reason: guard.reason, fix: guardFix(guard.reason) };
-  traceCheck(guardCheck);
-  if (!guardCheck.ok) return rejectByCode(guardCheck);
 
   // 3. The task's required findings are there.
   const covered = coverage(input.task, findings, input.results, input.as_of);
   const coverageCheck: CodeCheck = covered.ok ? { check: "coverage", ok: true, reason: covered.reason, fix: null } : { check: "coverage", ok: false, reason: covered.reason, fix: covered.fix };
+
+  // The fix goes into the Planner's and the Analyst's prompts: past MAX_FIX_CHARS the refused-figure hints go, and
+  // every problem stays named.
+  const others = [guardCheck, coverageCheck].filter((check) => !check.ok).reduce((n, check) => n + (check.fix?.length ?? 0) + 1, 0);
+  if (!citationCheck.ok && (citationCheck.fix?.length ?? 0) + others > cfg.MAX_FIX_CHARS) citationCheck.fix = citationFix(findings, citations.failures, input.results, null);
+  traceCheck(citationCheck);
+  traceCheck(guardCheck);
   traceCheck(coverageCheck);
-  if (!coverageCheck.ok) return rejectByCode(coverageCheck);
+
+  const failed = [citationCheck, guardCheck, coverageCheck].filter((check) => !check.ok);
+  if (failed.length > 0) {
+    // The findings a check failed: the citation failures by number, and each finding the guard refuses on its own.
+    const flagged = new Set(citations.failures.map((failure) => failure.finding));
+    if (!guard.ok) {
+      for (const [index, finding] of findings.entries()) if (!afterModel("Analyst", { findings: [finding] }, { task: input.task }).ok) flagged.add(index + 1);
+    }
+    return rejectByCode(failed, [...flagged].sort((a, b) => a - b));
+  }
 
   // 4. The fast model scores the draft, seeing only the rows the findings cite.
   const user: EvaluatorInput = {
@@ -405,7 +525,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
       duration_ms: Date.now() - started,
     });
-    return { accepted: true, scores: null, total: null, confidence: null, fix: "", code_checks: checks, target_agent: "Writer", model: null };
+    return { accepted: true, scores: null, total: null, confidence: null, fix: "", flagged: [], code_checks: checks, target_agent: "Writer", model: null };
   }
   run?.afterModelCall(result);
   const model: NonNullable<EvaluateOutcome["model"]> = {
@@ -428,7 +548,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
       duration_ms: Date.now() - started,
     });
-    return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", code_checks: checks, target_agent: target, model, error };
+    return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", flagged: [], code_checks: checks, target_agent: target, model, error };
   };
 
   const parsed = scoreSchema.safeParse(result.json ?? {});
@@ -458,5 +578,25 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     retry_count: round,
     duration_ms: Date.now() - started,
   });
-  return { accepted, scores, total, confidence, fix, code_checks: checks, target_agent: accepted ? "Writer" : target, model };
+  return { accepted, scores, total, confidence, fix, flagged: accepted ? [] : namedIn(fix, findings), code_checks: checks, target_agent: accepted ? "Writer" : target, model };
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The findings a model's fix names, by number counting from 1: "finding 3", or the finding's subject as a whole word
+ * (BXPHARMA, j-013, Pharmaceuticals & Chemicals). A finding the fix does not name is kept into the next draft by code.
+ */
+export function namedIn(fix: string, findings: readonly Finding[]): number[] {
+  // "finding 3", "findings 2 and 3", "findings 2, 4 or 5": every number in the list.
+  const numbers = new Set([...fix.matchAll(/\bfindings? (\d+(?:(?:\s*,\s*|\s+(?:and|or)\s+|\s*&\s*)\d+)*)/gi)].flatMap((match) => match[1].match(/\d+/g)!.map(Number)));
+  const out: number[] = [];
+  for (const [index, finding] of findings.entries()) {
+    // A subject counts only as the target of a finding ("the GP finding", "BXPHARMA's claim", "the finding on GP"),
+    // not in passing ("compare with BXPHARMA").
+    const s = `(?<![A-Za-z0-9_-])${escaped(finding.subject)}(?![A-Za-z0-9_-])`;
+    const asTarget = new RegExp(`${s}(?:'s)?\\s+(?:\\w+\\s+)?(?:finding|claim)s?\\b|\\b(?:finding|claim)s?\\s+(?:on|about|for|of)\\s+${s}`, "i");
+    if (numbers.has(index + 1) || asTarget.test(fix)) out.push(index + 1);
+  }
+  return out;
 }

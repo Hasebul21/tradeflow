@@ -76,7 +76,7 @@ export function rowFor(item: EvalCase, outcome: Outcome, real: boolean, checks: 
   const { result, seconds } = outcome;
   if (result.status === "error" && result.error?.type === "RateLimited") return { id: item.id, verdict: "rate-limited", result, failed: [], seconds };
   const trace = traceOf(item.id);
-  const all = [...(item.exp === undefined ? [] : checks.checkExpectation(result, item.exp, real, trace)), ...checks.universalChecks(result), ...checks.tracePathChecks(item.id, result, trace)];
+  const all = [...(item.exp === undefined ? [] : checks.checkExpectation(result, item.exp, real, trace)), ...checks.universalChecks(result, trace), ...checks.tracePathChecks(item.id, result, trace)];
   const failed = all.filter((c) => !c.pass);
   return { id: item.id, verdict: failed.length === 0 ? "pass" : "fail", result, failed, seconds };
 }

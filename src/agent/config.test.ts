@@ -38,6 +38,8 @@ describe("limits and defaults", () => {
       MAX_ROWS_PER_QUERY: 50,
       MAX_MEMORIES: 5,
       MAX_PROMPT_CHARS: 40000,
+      MAX_TOOL_CALLS_PER_ROUND: 3,
+      MAX_FIX_CHARS: 6000,
       TEMPERATURE: 0.2,
       MAX_COMPLETION_TOKENS: 16000,
       PORT: 8000,

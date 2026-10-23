@@ -187,6 +187,363 @@ describe("the loop: revise, don't restart", () => {
     expect(result.usage.query_calls).toBe(by(lines, "Query", "query").filter((line) => line.status !== "error").length);
   });
 
+  it("example_2, 23 Oct: round 3 drops BXPHARMA while fixing a refused number; code restores it and the run succeeds in round 3", async () => {
+    // The live run: round 1 had no BXPHARMA finding (coverage); round 2 added it plus a sector finding 8 with 2.2 and
+    // 7259, which no cited row holds (citations); round 3 fixed finding 8 by leaving it out and lost BXPHARMA again.
+    const analystCalls: CompleteOptions[] = [];
+    const isBxpharma = (finding: Finding) => finding.subject === "BXPHARMA";
+    const sectorEight = (cites: string[]): Finding => ({
+      kind: "sector",
+      subject: "Pharmaceuticals & Chemicals",
+      claim: "The Pharmaceuticals & Chemicals index fell 3% over the week, 2.2 points behind DSEX, and cost the portfolio Tk 7259.",
+      numbers: [],
+      cites,
+      verdict: null,
+      proposed_fix: null,
+      memory_ids: [],
+    });
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply);
+        if (analystCalls.length === 1) return { ...reply, findings: findings.filter((finding) => !isBxpharma(finding)) };
+        if (analystCalls.length === 2) {
+          const cites = (findings.find((finding) => finding.kind === "sector") ?? findings[0]).cites;
+          return { ...reply, findings: [...findings.filter((finding) => finding.kind !== "sector"), sectorEight(cites)] };
+        }
+        return { ...reply, findings: findings.filter((finding) => !isBxpharma(finding) && finding.kind !== "sector") };
+      },
+      analystCalls,
+    );
+    const result = await run({ runId: "orch-example-2", task: "explain_week", input: { question: "Which of my rules are broken this week?", as_of: AS_OF }, sampleMode: true, config });
+
+    expect(result.status).toBe("success");
+    expect(result.output).toMatchObject({ rounds: 3, stop_reason: null, needs_human: false });
+    expect(result.output?.findings.some(isBxpharma)).toBe(true);
+    expect(result.output?.findings.some((finding) => finding.claim.includes("7259"))).toBe(false);
+    expect(result.output?.review_markdown).toContain("BXPHARMA");
+
+    const lines = trace(result);
+    const rejects = by(lines, "Evaluator", "reject");
+    expect(rejects.map((line) => [line.retry_count, line.why])).toEqual([
+      [0, BXPHARMA_FIX],
+      [1, expect.stringMatching(/^Fix finding \d+ \(sector Pharmaceuticals & Chemicals\): the claim has 2\.2, .*; the claim has 7259, .*; use only figures from the rows it cites\.$/)],
+    ]);
+    expect(rejects[1].why).not.toMatch(/more problem/);
+    expect(by(lines, "Evaluator", "accept")).toEqual([expect.objectContaining({ retry_count: 2, target_agent: "Writer" })]);
+
+    // Round 3's Analyst saw the round-2 draft, the full fix and which finding it flags.
+    expect(analystCalls).toHaveLength(3);
+    const third = JSON.parse(analystCalls[2].user) as { previous_findings: Finding[]; feedback: string; flagged_findings: { finding: number; kind: string; subject: string }[] };
+    expect(third.feedback).toBe(rejects[1].why);
+    expect(third.flagged_findings).toEqual([{ finding: third.previous_findings.findIndex((finding) => finding.kind === "sector") + 1, kind: "sector", subject: "Pharmaceuticals & Chemicals" }]);
+    expect(third.previous_findings.some(isBxpharma)).toBe(true);
+    for (const call of analystCalls) expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+
+    // Code put the BXPHARMA findings back, each with its own line; the refused sector finding stays out.
+    const kept = lines.filter((line) => line.agent_name === "Orchestrator" && (line.action === "restore_finding" || line.action === "carry_forward"));
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.every((line) => line.retry_count === 2 && line.input_summary?.includes("BXPHARMA") && line.target_agent === "Evaluator")).toBe(true);
+    expect(by(lines, "Orchestrator", "restore_finding")).toEqual([expect.objectContaining({ why: expect.stringContaining("BXPHARMA is the largest move of the week") })]);
+    const restoredAt = lines.findIndex((line) => line.action === "restore_finding");
+    const acceptedAt = lines.findIndex((line) => line.agent_name === "Evaluator" && line.action === "accept");
+    expect(restoredAt).toBeLessThan(acceptedAt);
+    expect(by(lines, "Orchestrator", "revise").map((line) => line.output_summary)).toEqual([
+      expect.stringContaining("code keeps the"),
+      expect.stringContaining("code keeps the"),
+    ]);
+  });
+
+  it("example_5, 23 Oct: thesis_check names every refused figure, reruns both batches and succeeds once the findings cite the right rows", async () => {
+    // The live run: j-026 quoted "Trim if it goes above 25%" and a weight of 24.71 (a World Model fact from an earlier
+    // week, in no row of this run) citing only fundamentals; j-005 (in the second batch) named its Tk 18 dividend
+    // citing only fundamentals. The fix named j-026 alone "(and 10 more problems)", so the second batch never reran.
+    type Thesis = { journal_id: string; journal_run_query_id: string | null; fundamentals_run_query_id: string | null };
+    const analystCalls: CompleteOptions[] = [];
+    const thesesOf = (call: CompleteOptions) => (JSON.parse(call.user) as { theses: Thesis[] }).theses;
+    alter(
+      "Analyst",
+      (call) => call <= 2,
+      (reply) => {
+        const theses = thesesOf(analystCalls.at(-1)!);
+        const fundamentals = (id: string) => [theses.find((thesis) => thesis.journal_id === id)!.fundamentals_run_query_id!];
+        const findings = findingsOf(reply).map((finding) => {
+          if (finding.subject === "j-026") {
+            return { ...finding, numbers: [], cites: fundamentals("j-026"), claim: "Open: the holding is 24.71% of the portfolio, approaching the 25% trim threshold; the exit condition 'Trim if it goes above 25%' is not yet met." };
+          }
+          if (finding.subject === "j-005") {
+            return { ...finding, numbers: [], cites: fundamentals("j-005"), claim: "Confirmed: the dividend of Tk 18.00 per share was paid on 2026-07-12, so the thesis of buying for the dividend is still supported." };
+          }
+          return finding;
+        });
+        return { ...reply, findings };
+      },
+      analystCalls,
+    );
+    const result = await run({ runId: "orch-example-5", task: "thesis_check", input: { question: "Do my reasons for each trade still hold?", as_of: AS_OF }, sampleMode: true, config });
+
+    expect(result.status).toBe("success");
+    expect(result.output?.rounds).toBe(2);
+    // Every thesis now carries the journal result to cite when the claim quotes the owner's words.
+    expect(thesesOf(analystCalls[0]).every((thesis) => typeof thesis.journal_run_query_id === "string")).toBe(true);
+
+    const lines = trace(result);
+    const rejects = by(lines, "Evaluator", "reject");
+    expect(rejects).toHaveLength(1);
+    const fix = rejects[0].why ?? "";
+    expect(fix).not.toMatch(/more problem/);
+    expect(fix).toMatch(/Fix finding \d+ \(thesis j-026\): .*the claim has 24\.71, .*\(no result of this run holds 24\.71, so leave it out\)/);
+    expect(fix).toMatch(/the claim has 25, .*\(25 is in journal_for_symbol /);
+    expect(fix).toMatch(/Fix finding \d+ \(thesis j-005\): the claim has 18, .*\(18 is in .*dividends_between /);
+    // Both batches go back to the Analyst in round 2, because the fix names a journal id in each.
+    expect(analystCalls).toHaveLength(4);
+    expect(by(lines, "Analyst", "analyse").filter((line) => line.retry_count === 1)).toHaveLength(2);
+    expect(by(lines, "Evaluator", "accept")).toEqual([expect.objectContaining({ retry_count: 1 })]);
+    // The batch-2 finding keeps the fix's number in flagged_findings, not its place in the batch.
+    const number = Number(fix.match(/Fix finding (\d+) \(thesis j-005\)/)?.[1]);
+    expect(number).toBeGreaterThan(15);
+    const batchTwo = analystCalls.slice(2).map((call) => JSON.parse(call.user) as { previous_findings: Finding[]; flagged_findings: { finding: number; kind: string; subject: string }[] });
+    const withJ005 = batchTwo.find((user) => user.previous_findings.some((finding) => finding.subject === "j-005"))!;
+    expect(withJ005.flagged_findings).toEqual([{ finding: number, kind: "thesis", subject: "j-005" }]);
+    expect(withJ005.previous_findings.findIndex((finding) => finding.subject === "j-005") + 1).not.toBe(number);
+    for (const call of analystCalls) expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+  });
+
+  it("keeps a dropped finding's gap through a later rejection, so the review accepted in round 3 still says code left it out", async () => {
+    // Rounds 1 and 2 hold example_2's refused sector finding; round 2 drops it and the model scores that draft 6;
+    // round 3 is accepted without it.
+    const bad = (cites: string[]): Finding => ({ kind: "sector", subject: "Pharmaceuticals & Chemicals", claim: "The Pharmaceuticals & Chemicals index fell 3% over the week, 2.2 points behind DSEX.", numbers: [], cites, verdict: null, proposed_fix: null, memory_ids: [] });
+    let analyst = 0;
+    let scored = 0;
+    stubs.override = async (options, actual) => {
+      if (options.agent !== "Analyst" && options.agent !== "Evaluator") return null;
+      const result = await actual(options);
+      const reply = { ...(result.json ?? {}) };
+      let json = reply;
+      if (options.agent === "Analyst") {
+        analyst += 1;
+        const findings = findingsOf(reply);
+        const cites = (findings.find((finding) => finding.kind === "sector") ?? findings[0]).cites;
+        const rest = findings.filter((finding) => finding.kind !== "sector");
+        json = { ...reply, findings: analyst <= 2 ? [...rest, bad(cites)] : rest };
+      } else {
+        scored += 1;
+        if (scored === 1) json = { accuracy: 2, appropriateness: 2, actionability: 2, fix: "Add a second finding that names a holding, sector, thesis or rule for the owner to look at next." };
+      }
+      return { ...result, json, text: JSON.stringify(json) };
+    };
+    const result = await explainWeek("orch-drop-persists");
+
+    expect(result.status).toBe("success");
+    expect(result.output?.rounds).toBe(3);
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "drop_finding").map((line) => line.retry_count)).toEqual([1]);
+    expect(by(lines, "Evaluator", "reject").map((line) => line.retry_count)).toEqual([0, 1]);
+    const gap = "The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.";
+    expect(result.output?.gaps.filter((text) => text === gap)).toHaveLength(1);
+  });
+
+  describe("a drop note stays while it is true", () => {
+    const SECTOR_GAP = "The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.";
+    const badSector = (cites: string[]): Finding => ({ kind: "sector", subject: "Pharmaceuticals & Chemicals", claim: "The Pharmaceuticals & Chemicals index fell 3% over the week, 2.2 points behind DSEX.", numbers: [], cites, verdict: null, proposed_fix: null, memory_ids: [] });
+    const sectorCites = (findings: Finding[]) => (findings.find((finding) => finding.kind === "sector") ?? findings[0]).cites;
+
+    it("keeps the note when another finding with the same kind and subject passes (A dropped, B kept)", async () => {
+      // Rounds 1 and 2: the sample's good sector finding (B) and a refused one with the same kind and subject (A).
+      alter("Analyst", () => true, (reply) => ({ ...reply, findings: [...findingsOf(reply), badSector(sectorCites(findingsOf(reply)))] }));
+      const result = await explainWeek("orch-drop-same-key");
+
+      expect(result.status).toBe("success");
+      expect(result.output?.rounds).toBe(2);
+      const lines = trace(result);
+      expect(by(lines, "Orchestrator", "drop_finding")).toHaveLength(1);
+      expect(result.output?.findings.filter((finding) => finding.kind === "sector" && finding.subject === "Pharmaceuticals & Chemicals")).toHaveLength(1);
+      expect(result.output?.gaps).toContain(SECTOR_GAP);
+    });
+
+    it("keeps the note when the dropped finding comes back still failing and is then left out (four rounds)", async () => {
+      // Round 1: A is refused. Round 2: A again, so code drops it, and the model scores the draft 6. Round 3: A comes
+      // back unflagged and still failing, so the citation check rejects it. Round 4: A is left out and the draft passes.
+      let analyst = 0;
+      let scored = 0;
+      stubs.override = async (options, actual) => {
+        if (options.agent !== "Analyst" && options.agent !== "Evaluator") return null;
+        const result = await actual(options);
+        const reply = { ...(result.json ?? {}) };
+        let json = reply;
+        if (options.agent === "Analyst") {
+          analyst += 1;
+          const findings = findingsOf(reply);
+          const rest = findings.filter((finding) => finding.kind !== "sector");
+          json = { ...reply, findings: analyst <= 3 ? [...rest, badSector(sectorCites(findings))] : rest };
+        } else {
+          scored += 1;
+          if (scored === 1) json = { accuracy: 2, appropriateness: 2, actionability: 2, fix: "Add a second finding that names a holding, sector, thesis or rule for the owner to look at next." };
+        }
+        return { ...result, json, text: JSON.stringify(json) };
+      };
+      const result = await explainWeek("orch-drop-readd-omit", { config: loadConfig({ SAMPLE_MODE: "true", MAX_ROUNDS: "4" }, () => {}) });
+
+      expect(result.status).toBe("success");
+      expect(result.output?.rounds).toBe(4);
+      const lines = trace(result);
+      expect(by(lines, "Orchestrator", "drop_finding").map((line) => line.retry_count)).toEqual([1]);
+      expect(by(lines, "Evaluator", "reject").map((line) => line.retry_count)).toEqual([0, 1, 2]);
+      expect(result.output?.findings.some((finding) => finding.kind === "sector")).toBe(false);
+      expect(result.output?.gaps).toContain(SECTOR_GAP);
+    });
+  });
+
+  it("asks again for a required finding the fix flagged, never restores it, and ends needs_human when it stays missing", async () => {
+    // Round 1: the only BXPHARMA finding has a made-up figure. Rounds 2 and 3 leave BXPHARMA out.
+    let calls = 0;
+    alter("Analyst", () => true, (reply) => {
+      calls += 1;
+      const rest = findingsOf(reply).filter((finding) => finding.subject !== "BXPHARMA");
+      if (calls > 1) return { ...reply, findings: rest };
+      const move = findingsOf(reply).find((finding) => finding.subject === "BXPHARMA" && finding.kind === "move")!;
+      return { ...reply, findings: [...rest, { ...move, numbers: [...move.numbers, { value: MADE_UP, label: "made-up" }] }] };
+    });
+    const result = await explainWeek("orch-flagged-required");
+
+    expect(result.status).toBe("needs_human");
+    expect(result.output?.stop_reason).toBe("rounds");
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "restore_finding")).toHaveLength(0);
+    expect(by(lines, "Orchestrator", "carry_forward").some((line) => String(line.input_summary).includes("BXPHARMA"))).toBe(false);
+    expect(by(lines, "Evaluator", "reject").map((line) => line.why)).toEqual([expect.stringContaining(String(MADE_UP)), BXPHARMA_FIX, BXPHARMA_FIX]);
+  });
+
+  it("keeps a required finding the Analyst withdrew, with a gap free of the Analyst's reason, for the rest of the run", async () => {
+    let calls = 0;
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply);
+        // Round 1: a made-up figure on PORTFOLIO. Round 2: every BXPHARMA finding withdrawn, with a reason holding a number.
+        calls += 1;
+        if (calls === 1) {
+          return { ...reply, findings: findings.map((finding) => (finding.subject === "PORTFOLIO" ? { ...finding, numbers: [...finding.numbers, { value: MADE_UP, label: "made-up" }] } : finding)) };
+        }
+        const gone = findings.filter((finding) => finding.subject === "BXPHARMA");
+        return { ...reply, findings: findings.filter((finding) => finding.subject !== "BXPHARMA"), retracted: gone.map((finding) => ({ kind: finding.kind, subject: finding.subject, why: "it moved 99.9% so it is noise" })) };
+      },
+    );
+    const result = await explainWeek("orch-kept-despite-retraction");
+
+    expect(result.status).toBe("success");
+    expect(result.output?.rounds).toBe(2);
+    expect(result.output?.findings.some((finding) => finding.kind === "move" && finding.subject === "BXPHARMA")).toBe(true);
+    const gap = "The Analyst withdrew its move finding on BXPHARMA; it is kept unchanged because the coverage check requires it.";
+    expect(result.output?.gaps).toContain(gap);
+    expect(result.output?.gaps.some((text) => text.includes("99.9") || text.includes("noise"))).toBe(false);
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "retracted").map((line) => line.why)).toContain("it moved 99.9% so it is noise");
+    expect(by(lines, "Orchestrator", "restore_finding")).toEqual([expect.objectContaining({ why: expect.stringContaining("the Analyst retracted it") })]);
+  });
+
+  it("drops a finding that fails the number check again after its fix, with a gap, when coverage does not need it", async () => {
+    // example_2's finding 8, written the same wrong way in rounds 1 and 2: the run keeps everything else and succeeds.
+    const sectorEight = (cites: string[]): Finding => ({
+      kind: "sector",
+      subject: "Pharmaceuticals & Chemicals",
+      claim: "The Pharmaceuticals & Chemicals index fell 3% over the week, 2.2 points behind DSEX.",
+      numbers: [],
+      cites,
+      verdict: null,
+      proposed_fix: null,
+      memory_ids: [],
+    });
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply);
+        const cites = (findings.find((finding) => finding.kind === "sector") ?? findings[0]).cites;
+        return { ...reply, findings: [...findings.filter((finding) => finding.kind !== "sector"), sectorEight(cites)] };
+      },
+    );
+    const result = await explainWeek("orch-drop-repeat");
+
+    expect(result.status).toBe("success");
+    expect(result.output?.rounds).toBe(2);
+    expect(result.output?.findings.some((finding) => finding.kind === "sector")).toBe(false);
+    expect(result.output?.gaps).toContain("The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.");
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "drop_finding")).toEqual([expect.objectContaining({ retry_count: 1, status: "rejected", input_summary: expect.stringContaining("sector Pharmaceuticals & Chemicals") })]);
+    expect(by(lines, "Evaluator", "reject")).toHaveLength(1);
+  });
+
+  it("a dropped finding whose subject carries a number adds no figure the Writer may repeat: a review using 99.9 is still refused", async () => {
+    // The Analyst writes the same refused sector claim under the subject "BXPHARMA 99.9" in rounds 1 and 2, so code
+    // drops it in round 2; the Writer then puts 99.9 in the review.
+    const laundered = (cites: string[]): Finding => ({
+      kind: "sector",
+      subject: "BXPHARMA 99.9",
+      claim: "The data shows the sector fell 2.2 points behind DSEX.",
+      numbers: [],
+      cites,
+      verdict: null,
+      proposed_fix: null,
+      memory_ids: [],
+    });
+    stubs.override = async (options, actual) => {
+      if (options.agent !== "Analyst" && options.agent !== "Writer") return null;
+      const result = await actual(options);
+      const reply = { ...(result.json ?? {}) };
+      const json =
+        options.agent === "Analyst"
+          ? { ...reply, findings: [...findingsOf(reply), laundered(findingsOf(reply)[0].cites)] }
+          : { ...reply, review_markdown: String(reply.review_markdown).replace(DISCLAIMER, `- BXPHARMA moved 99.9 points.\n\n${DISCLAIMER}`) };
+      return { ...result, json, text: JSON.stringify(json) };
+    };
+    const result = await explainWeek("orch-laundered-subject");
+
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "drop_finding")).toEqual([expect.objectContaining({ retry_count: 1, input_summary: expect.stringContaining("BXPHARMA 99.9") })]);
+    const gap = "A flagged finding (the first one code left out) was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.";
+    expect(result.output?.gaps).toContain(gap);
+    expect(result.output?.gaps.some((text) => text.includes("99.9"))).toBe(false);
+    // The Writer's number check refuses 99.9 on both tries, so the run ends writer_rejected, never success.
+    expect(result.output?.stop_reason).toBe("writer_rejected");
+    expect(by(lines, "Writer", "code_check").filter((line) => line.status === "rejected")).toHaveLength(2);
+    expect(by(lines, "Writer", "write")).toEqual([expect.objectContaining({ status: "needs_human", why: expect.stringContaining("99.9") })]);
+  });
+
+  it("reconcile: a round-2 draft that drops an issue round 1 covered gets it back from code, and the review covers every issue", async () => {
+    const analystCalls: CompleteOptions[] = [];
+    const subjects = (reply: Reply) => findingsOf(reply).map((finding) => finding.subject);
+    let firstIssue = "";
+    let lastIssue = "";
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply).filter((finding) => finding.kind === "reconciliation");
+        if (analystCalls.length === 1) {
+          [firstIssue, lastIssue] = [findings[0].subject, findings.at(-1)!.subject];
+          return { ...reply, findings: findingsOf(reply).filter((finding) => finding.subject !== firstIssue) };
+        }
+        return { ...reply, findings: findingsOf(reply).filter((finding) => finding.subject !== lastIssue) };
+      },
+      analystCalls,
+    );
+    const result = await run({ runId: "orch-reconcile-keep", task: "reconcile", input: { as_of: AS_OF }, sampleMode: true, config });
+
+    expect(result.status).not.toBe("error");
+    expect(result.output?.rounds).toBe(2);
+    const lines = trace(result);
+    expect(by(lines, "Evaluator", "reject")).toEqual([expect.objectContaining({ retry_count: 0, why: expect.stringContaining(firstIssue) })]);
+    const reviewed = new Set(result.output?.findings.map((finding) => finding.subject));
+    expect(reviewed.has(firstIssue) && reviewed.has(lastIssue)).toBe(true);
+    expect(subjects({ findings: JSON.parse(analystCalls[1].user).previous_findings })).toContain(lastIssue);
+    expect(by(lines, "Orchestrator", "restore_finding")).toEqual([
+      expect.objectContaining({ retry_count: 1, input_summary: expect.stringContaining(lastIssue), why: expect.stringContaining(`reconciliation finding for issue ${lastIssue}`) }),
+    ]);
+  });
+
   it("stops with needs_human, stop_reason tokens and partial when MAX_TOKENS_PER_RUN is 1000", async () => {
     const result = await explainWeek("orch-tokens", { config: loadConfig({ MAX_TOKENS_PER_RUN: "1000" }) });
 
