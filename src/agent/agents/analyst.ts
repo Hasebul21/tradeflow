@@ -267,6 +267,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
         ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
         ...(deps.signal === undefined ? {} : { signal: deps.signal }),
         modelCallsLeft: run.modelCallsLeft(),
+        tokensLeft: run.tokensLeft(),
       });
     } catch (error) {
       // A failed call still counts: every request it made is a model call.

@@ -7,7 +7,7 @@ import { DISCLAIMER } from "./agents/writer";
 import { loadConfig } from "./config";
 import type { Finding } from "./guards";
 import { PLANNER_FALLBACK_LABEL } from "./labels";
-import { BadJson, ModelHttpError, ModelTimeout, NightshiftNotRunning, PromptTooLarge, RateLimited, Unauthorized, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
+import { BadJson, ModelHttpError, ModelNetworkError, ModelTimeout, NightshiftNotRunning, PromptTooLarge, RateLimited, Unauthorized, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
 import { BudgetExhaustedError } from "./run-state";
 import { asksForAdvice, plannerFallbackCause, run, type RunResult } from "./orchestrator";
 import type { TraceLine } from "./trace";
@@ -555,7 +555,9 @@ describe("a model that fails after the queries ran", () => {
     expect(plannerFallbackCause(new ModelHttpError("not found", 404), true)).toBeNull();
     expect(plannerFallbackCause(new ModelHttpError("400", 400), true)).toBeNull();
     // A ModelHttpError with no HTTP status is a reset connection, a DNS failure or a socket refused mid-run.
-    expect(plannerFallbackCause(new ModelHttpError("The main model call failed twice: read ECONNRESET", undefined), true)).toMatchObject({ kind: "network", code: "network" });
+    expect(plannerFallbackCause(new ModelNetworkError("The main model call failed twice (network): read ECONNRESET"), true)).toMatchObject({ kind: "network", code: "network" });
+    // A failure with no status that is not a network failure (a TypeError from the SDK, a bug) is never hidden as one.
+    expect(plannerFallbackCause(new ModelHttpError("The model call failed: x is not a function", undefined), true)).toBeNull();
     expect(plannerFallbackCause(new RateLimited("The strong model call was rate limited (HTTP 429) twice."), true)).toMatchObject({ kind: "rate_limited", code: "rate_limited" });
     expect(plannerFallbackCause(new Unauthorized("401"), true)).toBeNull();
     expect(plannerFallbackCause(new NightshiftNotRunning("Nightshift not running"), true)).toBeNull();
@@ -566,7 +568,7 @@ describe("a model that fails after the queries ran", () => {
   it("a Planner 429 and then an Analyst network error: the code plan with cause rate_limited, then needs_human with model_unavailable", async () => {
     stubs.override = async (options) => {
       if (options.agent === "Planner") throw new RateLimited("The strong model call was rate limited (HTTP 429) twice.");
-      if (options.agent === "Analyst") throw new ModelHttpError("The main model call failed twice: read ECONNRESET", undefined);
+      if (options.agent === "Analyst") throw new ModelNetworkError("The main model call failed twice (network): read ECONNRESET");
       return null;
     };
     const result = await explainWeek("orch-planner-429-analyst-network");
@@ -577,6 +579,17 @@ describe("a model that fails after the queries ran", () => {
     const lines = trace(result);
     expect(by(lines, "Orchestrator", "planner_fallback")[0].why).toMatch(/^rate_limited after llm\.ts gave up/);
     expect(by(lines, "Orchestrator", "model_unavailable_fallback")[0].why).toMatch(/^ModelHttpError from the Analyst's model call/);
+  });
+
+  it("an Analyst failure with no status that is not a network failure stays a status error, never hidden as model_unavailable", async () => {
+    stubs.override = async (options) => {
+      if (options.agent !== "Analyst") return null;
+      throw new ModelHttpError("The model call failed: x is not a function", undefined);
+    };
+    const result = await explainWeek("orch-analyst-sdk-bug");
+    expect(result.status).toBe("error");
+    expect(result.error).toMatchObject({ type: "ModelHttpError", recoverable: false });
+    expect(by(trace(result), "Orchestrator", "model_unavailable_fallback")).toHaveLength(0);
   });
 
   it("a Planner 429 alone gets the code plan and the run ends success", async () => {

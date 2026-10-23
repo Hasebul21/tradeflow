@@ -59,6 +59,8 @@ export type PlanDeps = {
   signal?: AbortSignal;
   /** The model calls left in the run's budget; passed on to llm.ts, which sends no request past it. */
   modelCallsLeft?: number;
+  /** The run's tokens left; passed on to llm.ts, which raises a retry's max_tokens no further. */
+  tokensLeft?: number;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** For tests: a stand-in for llm.ts's complete. */
@@ -246,6 +248,7 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
     ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
     ...(deps.signal === undefined ? {} : { signal: deps.signal }),
     ...(deps.modelCallsLeft === undefined ? {} : { modelCallsLeft: deps.modelCallsLeft }),
+    ...(deps.tokensLeft === undefined ? {} : { tokensLeft: deps.tokensLeft }),
   });
 
   const raw = result.json ?? {};

@@ -73,7 +73,7 @@ export type EvaluatorInput = {
 export type EvaluateDeps = {
   tracer: Tracer;
   /** The run's budget: when given, each model call goes through beforeModelCall and afterModelCall, and its config and sample mode are the defaults. */
-  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "afterFailedModelCall" | "modelCallsLeft" | "config" | "sampleMode">;
+  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "afterFailedModelCall" | "modelCallsLeft" | "config" | "sampleMode"> & Partial<Pick<RunState, "tokensLeft">>;
   config?: Config;
   sampleMode?: boolean;
   /** The time left in the run for the model call. */
@@ -383,7 +383,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
       ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
       ...(deps.signal === undefined ? {} : { signal: deps.signal }),
-      ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft() }),
+      ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft(), ...(run.tokensLeft === undefined ? {} : { tokensLeft: run.tokensLeft() }) }),
     });
   } catch (error) {
     // A failed scoring call still counts: every request it made is a model call.

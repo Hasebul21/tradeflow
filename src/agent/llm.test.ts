@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, MODEL_TIMEOUT_CAP_MS, STRUCTURED_REPLY_MAX_TRIES } from "./config";
 import {
   BadJson,
@@ -7,6 +7,7 @@ import {
   safeName,
   schemaReason,
   ModelHttpError,
+  ModelNetworkError,
   ModelTimeout,
   NightshiftNotRunning,
   parseJsonReply,
@@ -433,6 +434,11 @@ describe("parseJsonReply: sturdier reading before BadJson", () => {
     expect(() => parseJsonReply('<think>I will answer {"steps": [1]}')).toThrow(/the reply is empty/);
   });
 
+  it("keeps a <think> that sits inside a JSON string value: only one before the first { is a reasoning block", () => {
+    expect(parseJsonReply('{"why": "use <think> tags for reasoning", "steps": [1]}')).toEqual({ why: "use <think> tags for reasoning", steps: [1] });
+    expect(() => parseJsonReply("  <think>reasoning that never closes")).toThrow(/the reply is empty/);
+  });
+
   it("skips an empty {} in prose and reads the object after it; a reply of only {} is BadJson", () => {
     expect(parseJsonReply('Shape: {} then {"a": 1}')).toEqual({ a: 1 });
     expect(() => parseJsonReply("Shape: {}")).toThrow(BadJson);
@@ -493,6 +499,33 @@ describe("complete: structured retries within the round", () => {
     expect(userMessages(1).at(-1)?.content).toContain("It stopped at the token limit");
   });
 
+  it("for the Planner (reserveAfterMs), a reply cut at the token limit with 600 s of a 900 s round left gets no retry: BadJson at once", async () => {
+    mocks.create.mockResolvedValue({ ...reply('{"steps": [1, 2'), choices: [{ finish_reason: "length", message: { role: "assistant", content: '{"steps": [1, 2' } }] });
+    const error = await complete({ ...inRound(600000), reserveAfterMs: MODEL_TIMEOUT_CAP_MS }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BadJson);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(traced("model_retry")).toHaveLength(0);
+  });
+
+  it("a raised retry max_tokens is clamped to the run's tokens left, less this call's tokens, and never below MAX_COMPLETION_TOKENS", async () => {
+    const cut = () => ({ ...reply('{"steps": [1'), choices: [{ finish_reason: "length", message: { role: "assistant", content: '{"steps": [1' } }] });
+    mocks.create.mockResolvedValueOnce(cut()).mockResolvedValueOnce(reply('{"steps": [1]}'));
+    await complete({ ...inRound(900000), tokensLeft: 20000 });
+    // The cut reply used 15 tokens (10 in, 5 out): 20000 - 15.
+    expect((mocks.create.mock.calls[1][0] as { max_tokens: number }).max_tokens).toBe(19985);
+
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValueOnce(cut()).mockResolvedValueOnce(reply('{"steps": [1]}'));
+    await complete({ ...inRound(900000), tokensLeft: 5000 });
+    expect((mocks.create.mock.calls[1][0] as { max_tokens: number }).max_tokens).toBe(16000);
+
+    // The 502 empty_response retry is clamped the same way.
+    mocks.create.mockReset();
+    mocks.create.mockRejectedValueOnce(Object.assign(new Error("502 empty_response"), { status: 502, code: "empty_response" })).mockResolvedValueOnce(reply("ok"));
+    await complete({ ...base, tokensLeft: 20000 });
+    expect((mocks.create.mock.calls[1][0] as { max_tokens: number }).max_tokens).toBe(20000);
+  });
+
   it("three bad replies: BadJson of kind schema after 3 requests, all 3 counted on the error", async () => {
     mocks.create.mockResolvedValue(reply('{"steps": "none"}'));
     const error = await complete(inRound(900000)).catch((e: unknown) => e);
@@ -544,7 +577,7 @@ describe("complete: structured retries within the round", () => {
     lines = [];
     const error = await complete({ ...inRound(800000), timeoutMs: 900, reserveAfterMs: MODEL_TIMEOUT_CAP_MS }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ModelTimeout);
-    expect((error as Error).message).toContain("no retry, because its worst case would leave under");
+    expect((error as Error).message).toContain("no retry, because the round has under 840300 ms left");
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(traced("model_retry")).toHaveLength(0);
   });
@@ -556,5 +589,46 @@ describe("complete: structured retries within the round", () => {
     expect(error).toBeInstanceOf(ModelTimeout);
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(traced("model_retry")).toHaveLength(0);
+  });
+});
+
+describe("the Planner's timeout retry at the 840.3 s boundary (fake clock)", () => {
+  const timeout = () => Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+  beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] }));
+  afterEach(() => vi.useRealTimers());
+  const planner = (leftMs: number): CompleteOptions => ({ ...base, timeoutMs: 900, roundDeadlineMs: Date.now() + leftMs, reserveAfterMs: MODEL_TIMEOUT_CAP_MS });
+  // The backoff (300 ms), the retry's worst case (420 s) and the Analyst's reserve (420 s): 840300 ms.
+  const needed = 300 + 2 * MODEL_TIMEOUT_CAP_MS;
+
+  it("retries with exactly the backoff, the retry and the reserve left", async () => {
+    mocks.create.mockRejectedValueOnce(timeout()).mockResolvedValueOnce(reply("ok"));
+    const pending = complete(planner(needed));
+    await vi.advanceTimersByTimeAsync(300);
+    expect((await pending).text).toBe("ok");
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up at once with one millisecond less: ModelTimeout after one request", async () => {
+    mocks.create.mockRejectedValue(timeout());
+    const error = await complete(planner(needed - 1)).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelTimeout);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("network failures and bugs", () => {
+  it("a socket error (ECONNRESET) is retried once, then a ModelNetworkError", async () => {
+    mocks.create.mockRejectedValue(Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }));
+    const error = await complete(base).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelNetworkError);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a TypeError from the SDK with no network code is a plain ModelHttpError after one request, never a ModelNetworkError", async () => {
+    mocks.create.mockRejectedValue(new TypeError("Cannot read properties of undefined (reading 'choices')"));
+    const error = await complete(base).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelHttpError);
+    expect(error).not.toBeInstanceOf(ModelNetworkError);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 });

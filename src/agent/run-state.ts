@@ -190,6 +190,11 @@ export class RunState {
     }
   }
 
+  /** The tokens left before MAX_TOKENS_PER_RUN; llm.ts raises a retry's max_tokens no further (tokensLeft). */
+  tokensLeft(): number {
+    return Math.max(0, this.config.MAX_TOKENS_PER_RUN - this.tokens());
+  }
+
   /** The model calls left before MAX_MODEL_CALLS; llm.ts sends no request past it (modelCallsLeft). */
   modelCallsLeft(): number {
     return Math.max(0, this.config.MAX_MODEL_CALLS - this.usage.model_calls);

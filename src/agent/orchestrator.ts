@@ -18,7 +18,7 @@ import { runWithLimit } from "./concurrency";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { MODEL_UNAVAILABLE_LABEL, PLANNER_FALLBACK_LABEL, STOP_REASONS } from "./labels";
-import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
+import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
@@ -278,16 +278,18 @@ const PLANNER_FALLBACK_WORDS = {
 
 /**
  * A model failure that llm.ts gave up on and a fallback may stand in for: BadJson after its structured tries, a 5xx
- * after its empty_response or transport retry, a timeout or a 429 after its one retry, or a ModelHttpError with no
- * HTTP status (a reset connection, a DNS failure, a socket refused mid-run) after its one retry. Never Unauthorized,
- * NightshiftNotRunning (Nightshift not started), PromptTooLarge, a 4xx other than 429, a cancel or a spent budget.
+ * after its empty_response or transport retry, a timeout or a 429 after its one retry, or a ModelNetworkError (a real
+ * network failure: a reset connection, a DNS failure, a socket timeout) after its one retry. Never Unauthorized,
+ * NightshiftNotRunning (Nightshift not started), PromptTooLarge, a 4xx other than 429, a ModelHttpError with no status
+ * that is not a network failure (a TypeError or other bug from the SDK), a cancel or a spent budget.
  */
 function isModelFailure(error: unknown): boolean {
   return (
     error instanceof BadJson ||
     error instanceof ModelTimeout ||
     error instanceof RateLimited ||
-    (error instanceof ModelHttpError && (error.status === undefined || error.status >= 500))
+    error instanceof ModelNetworkError ||
+    (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500)
   );
 }
 
@@ -302,8 +304,9 @@ export function plannerFallbackCause(error: unknown, timeLeft: boolean): { kind:
   if (error instanceof BadJson) return { kind: "bad_json", code: "bad_json", detail: `${error.kind}: ${error.reason}` };
   if (error instanceof ModelTimeout) return timeLeft ? { kind: "timeout", code: "timeout", detail: error.message } : null;
   if (error instanceof RateLimited) return { kind: "rate_limited", code: "rate_limited", detail: error.message };
+  if (error instanceof ModelNetworkError) return { kind: "network", code: "network", detail: error.message };
   const http = error as ModelHttpError;
-  return http.status === undefined ? { kind: "network", code: "network", detail: http.message } : { kind: "upstream", code: `upstream_${http.status}`, detail: http.message };
+  return { kind: "upstream", code: `upstream_${http.status}`, detail: http.message };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -643,7 +646,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       state.beforeModelCall();
       const routed = await route(
         { question, plan_id: input.plan_id || null, instruments: [...data.portfolio.instruments.values()] },
-        { tracer, config, sampleMode, signal, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft() },
+        { tracer, config, sampleMode, signal, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), tokensLeft: state.tokensLeft() },
       ).catch((error: unknown): never => {
         state.afterFailedModelCall(failedCallUsage(error));
         throw error;
@@ -775,7 +778,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       calling = "Planner";
       let planned: PlanOutcome;
       try {
-        planned = await plan(request, { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round });
+        planned = await plan(request, { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), tokensLeft: state.tokensLeft(), round });
       } catch (error) {
         state.afterFailedModelCall(failedCallUsage(error));
         const cause = signal.aborted ? null : plannerFallbackCause(error, runLeft() > 0 && roundLeft() > 0);

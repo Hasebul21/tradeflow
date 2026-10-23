@@ -93,7 +93,7 @@ export type WriterInput = {
 export type WriteDeps = {
   tracer: Tracer;
   /** The run's budget: when given, each model call goes through beforeModelCall and afterModelCall, and its config and sample mode are the defaults. */
-  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "afterFailedModelCall" | "modelCallsLeft" | "config" | "sampleMode">;
+  run?: Pick<RunState, "beforeModelCall" | "afterModelCall" | "afterFailedModelCall" | "modelCallsLeft" | "config" | "sampleMode"> & Partial<Pick<RunState, "tokensLeft">>;
   config?: Config;
   sampleMode?: boolean;
   /** The time left in the run for each model call. */
@@ -406,7 +406,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
         ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
         ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
         ...(deps.signal === undefined ? {} : { signal: deps.signal }),
-        ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft() }),
+        ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft(), ...(run.tokensLeft === undefined ? {} : { tokensLeft: run.tokensLeft() }) }),
       });
     } catch (error) {
       // A failed call still counts: every request it made is a model call.

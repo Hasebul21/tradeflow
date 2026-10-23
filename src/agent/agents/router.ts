@@ -55,6 +55,8 @@ export type RouteDeps = {
   signal?: AbortSignal;
   /** The model calls left in the run's budget; passed on to llm.ts. */
   modelCallsLeft?: number;
+  /** The run's tokens left; passed on to llm.ts, which raises a retry's max_tokens no further. */
+  tokensLeft?: number;
   /** For tests: a stand-in for llm.ts's complete. */
   complete?: (options: CompleteOptions) => Promise<CompleteResult>;
 };
@@ -146,6 +148,7 @@ export async function route(request: RouteRequest, deps: RouteDeps): Promise<Rou
       ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
       ...(deps.signal === undefined ? {} : { signal: deps.signal }),
       ...(deps.modelCallsLeft === undefined ? {} : { modelCallsLeft: deps.modelCallsLeft }),
+    ...(deps.tokensLeft === undefined ? {} : { tokensLeft: deps.tokensLeft }),
     });
   } catch (error) {
     if (!(error instanceof BadJson)) throw error;

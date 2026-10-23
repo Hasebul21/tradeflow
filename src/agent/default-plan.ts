@@ -77,7 +77,7 @@ export function defaultPlan(input: DefaultPlanInput): DefaultPlan {
 
   // Rounds 2 and 3: a symbol the Evaluator named gets its fundamentals, so the plan answers the feedback. The feedback
   // may be model text, so only a real instrument symbol counts.
-  const named = feedback.match(/\b[A-Z][A-Z0-9]{2,}\b/g) ?? [];
+  const named = feedback.match(/\b[A-Z][A-Z0-9]{1,}\b/g) ?? [];
   const symbol = named.find((token) => input.symbols?.has(token) === true);
   if (symbol !== undefined && !steps.some((step) => step.query_id === "fundamentals_latest")) {
     const extra: DefaultStep = { query_id: "fundamentals_latest", params: { symbol, as_of: asOf }, why: `${symbol}'s latest quarters, which the Evaluator asked for.` };

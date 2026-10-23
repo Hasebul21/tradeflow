@@ -68,11 +68,18 @@ export type CompleteOptions = {
   /** json calls only: the reply's shape in one line, restated in the message that asks again after a bad reply. */
   replyShape?: string;
   /**
-   * Time the round must keep for the agents after this one. With it, a timeout gets its retry only when, after the
-   * retry's worst case (MODEL_TIMEOUT_CAP_MS), this much of the round is still left; otherwise ModelTimeout at once.
-   * The Planner passes MODEL_TIMEOUT_CAP_MS, so a slow Planner never takes the Analyst's time.
+   * Time the round must keep for the agents after this one. With it, every retry (a timeout's, a 502 empty_response's,
+   * a structured one, the token-limit one included) starts only when, after the retry's worst case
+   * (MODEL_TIMEOUT_CAP_MS), this much of the round is still left; otherwise the error stands at once. The Planner passes
+   * MODEL_TIMEOUT_CAP_MS, so a slow Planner never takes the Analyst's time: the orchestrator falls back to the code plan.
    */
   reserveAfterMs?: number;
+  /**
+   * The run's tokens left (MAX_TOKENS_PER_RUN minus those used). A retry that raises max_tokens (a 502 empty_response,
+   * a reply cut at the token limit) raises it no further than this, less what this call has used, and never below
+   * MAX_COMPLETION_TOKENS.
+   */
+  tokensLeft?: number;
 };
 
 export type ToolCallResult = {
@@ -145,11 +152,21 @@ export class NightshiftNotRunning extends ModelError {}
 export class ModelTimeout extends ModelError {}
 export class RateLimited extends ModelError {}
 export class ModelHttpError extends ModelError {
-  /** Undefined for a network error with no HTTP status. */
+  /** Undefined for a network error with no HTTP status, or a failure the SDK raised with none. */
   readonly status: number | undefined;
   constructor(message: string, status: number | undefined) {
     super(message);
     this.status = status;
+  }
+}
+/**
+ * A real network failure after llm.ts's one retry: the SDK's APIConnectionError, or ECONNRESET, ENOTFOUND, ETIMEDOUT,
+ * EAI_AGAIN, EPIPE or ECONNABORTED at the socket. A TypeError or any other failure with no status stays a plain
+ * ModelHttpError, so a bug is never passed off as "the model service could not be reached".
+ */
+export class ModelNetworkError extends ModelHttpError {
+  constructor(message: string) {
+    super(message, undefined);
   }
 }
 
@@ -186,12 +203,15 @@ function closingBrace(text: string, start: number): number {
  * for the reply. Throws BadJson, with what was wrong as its reason.
  */
 export function parseJsonReply(text: string): Record<string, unknown> {
-  const cleaned = text
+  let cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    // A reasoning block that never closes runs to the end of the reply: none of it is the answer.
-    .replace(/<think>[\s\S]*$/i, "")
     .replace(/```[A-Za-z0-9_-]*/g, "")
     .trim();
+  // A reasoning block that never closes runs to the end of the reply: none of it is the answer. Only one that comes
+  // before the first "{" is such a block; a "<think>" after it may sit inside a JSON string value.
+  const open = cleaned.search(/<think>/i);
+  const brace = cleaned.indexOf("{");
+  if (open !== -1 && (brace === -1 || open < brace)) cleaned = cleaned.slice(0, open).trim();
   if (cleaned === "") throw new BadJson(text, "the reply is empty");
   let start = cleaned.indexOf("{");
   if (start === -1) throw new BadJson(text, "the reply holds no {...} object");
@@ -252,6 +272,18 @@ function isRefused(error: unknown, depth = 0): boolean {
   return isRefused(e.cause, depth + 1);
 }
 
+/** Socket error codes that mean the network failed, not the model and not our code. */
+const NETWORK_CODES = new Set(["ECONNRESET", "ENOTFOUND", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "ECONNABORTED"]);
+
+/** True when the error, or one it wraps (cause, errors), carries a NETWORK_CODES code. */
+function hasNetworkCode(error: unknown, depth = 0): boolean {
+  if (error === null || typeof error !== "object" || depth > 5) return false;
+  const e = error as ErrorLike;
+  if (typeof e.code === "string" && NETWORK_CODES.has(e.code)) return true;
+  if (Array.isArray(e.errors) && e.errors.some((inner) => hasNetworkCode(inner, depth + 1))) return true;
+  return hasNetworkCode(e.cause, depth + 1);
+}
+
 function classify(error: unknown): Failure {
   const e = (error !== null && typeof error === "object" ? error : {}) as ErrorLike;
   const message = typeof e.message === "string" ? e.message : String(error);
@@ -265,7 +297,7 @@ function classify(error: unknown): Failure {
   if (status === 404) return { kind: "not_found", message };
   if (status === 429) return { kind: "rate_limit", message };
   if (status !== undefined && status >= 500) return { kind: "server", status, message };
-  if (status === undefined && e.name === "APIConnectionError") return { kind: "network", message };
+  if (status === undefined && (e.name === "APIConnectionError" || hasNetworkCode(error))) return { kind: "network", message };
   return { kind: "other", status, message };
 }
 
@@ -406,7 +438,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       const problem = bad.error;
       // A reply that stopped at the token limit is asked for again with the larger budget; any other keeps the normal cap.
       const cutAtLimit = answered.message.finishReason === "length";
-      const retryTokens = cutAtLimit ? Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS) : undefined;
+      const retryTokens = cutAtLimit ? raisedMaxTokens(state) : undefined;
       const correction = retryMessage(problem, options.replyShape, cutAtLimit);
       if (tries >= maxTries || !structuredRetryFits(state, promptChars + correction.length)) throw problem;
       state.retries += 1;
@@ -736,13 +768,33 @@ export function schemaReason(issue: { path: readonly PropertyKey[]; code: string
 }
 
 /**
- * Whether a structured retry may start: its prompt stays within MAX_PROMPT_CHARS, and with the round's end given, at
- * least MODEL_TIMEOUT_CAP_MS of the round is left (a whole call fits); without it, at least a second of this call's time.
+ * The round's time a retry needs before it starts: its worst case (MODEL_TIMEOUT_CAP_MS) plus what the caller keeps for
+ * the agents after it (reserveAfterMs, the Planner's), plus any wait before it.
+ */
+function roomNeeded(state: CallState, waitMs = 0): number {
+  return waitMs + MODEL_TIMEOUT_CAP_MS + (state.options.reserveAfterMs ?? 0);
+}
+
+/**
+ * Whether a structured retry may start: its prompt stays within MAX_PROMPT_CHARS, and with the round's end given, the
+ * round still has roomNeeded; without it, at least a second of this call's time.
  */
 function structuredRetryFits(state: CallState, promptChars: number): boolean {
   if (promptChars > state.cfg.MAX_PROMPT_CHARS) return false;
   const roundEnd = state.options.roundDeadlineMs;
-  return roundEnd === undefined ? timeLeftMs(state) >= RETRY_FLOOR_MS : roundEnd - Date.now() >= MODEL_TIMEOUT_CAP_MS;
+  return roundEnd === undefined ? timeLeftMs(state) >= RETRY_FLOOR_MS : roundEnd - Date.now() >= roomNeeded(state);
+}
+
+/**
+ * max_tokens for a retry that raises it: EMPTY_RESPONSE_RETRY_MAX_TOKENS, but no more than the run's tokens left less
+ * what this call has used (tokensLeft), and never below MAX_COMPLETION_TOKENS.
+ */
+function raisedMaxTokens(state: CallState): number {
+  const { cfg, options } = state;
+  const raised = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
+  if (options.tokensLeft === undefined) return raised;
+  const used = (state.usage?.tokens_in ?? 0) + (state.usage?.tokens_out ?? 0);
+  return Math.max(cfg.MAX_COMPLETION_TOKENS, Math.min(raised, options.tokensLeft - used));
 }
 
 /** With the round's end given, a retry gets a whole attempt again, inside the round; without it, the call's deadline stands. */
@@ -831,11 +883,11 @@ async function sendWithRetry(
             emptyTries += 1;
             const wait = EMPTY_RESPONSE_RETRY_WAITS_MS[emptyTries - 1];
             const roomAfterWait = wait === undefined ? 0 : options.roundDeadlineMs - Date.now() - wait;
-            if (emptyTries < EMPTY_RESPONSE_MAX_TRIES && wait !== undefined && roomAfterWait >= MODEL_TIMEOUT_CAP_MS) {
+            if (emptyTries < EMPTY_RESPONSE_MAX_TRIES && wait !== undefined && roomAfterWait >= roomNeeded(state)) {
               // No wait for a retry the run's model-call budget would refuse.
               ensureModelCallLeft(state);
               state.retries += 1;
-              maxTokens = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
+              maxTokens = raisedMaxTokens(state);
               options.tracer?.log({
                 agent_name: options.agent,
                 ...promptHashOf(options),
@@ -856,16 +908,19 @@ async function sendWithRetry(
             const reason =
               emptyTries >= EMPTY_RESPONSE_MAX_TRIES
                 ? ""
-                : `; under MODEL_TIMEOUT_CAP_MS (${MODEL_TIMEOUT_CAP_MS} ms) of the round was left for try ${emptyTries + 1} of ${EMPTY_RESPONSE_MAX_TRIES}`;
+                : `; under ${roomNeeded(state)} ms of the round (MODEL_TIMEOUT_CAP_MS${options.reserveAfterMs === undefined ? "" : " and the time kept for the agents after it"}) was left after the wait for try ${emptyTries + 1} of ${EMPTY_RESPONSE_MAX_TRIES}`;
             throw new ModelHttpError(`The ${tier} model call failed: ${tries}${reason}: ${scrub(failure.message, cfg)}`, failure.status);
           }
           const why =
             failure.kind === "timeout" ? "timeout" : failure.kind === "network" ? "network error" : `HTTP ${failure.kind === "rate_limit" ? 429 : failure.status}`;
           // A timeout used the whole attempt, so the call's own deadline has passed. With the round's end given, it
-          // gets its one retry as a whole new attempt when a whole model call (MODEL_TIMEOUT_CAP_MS) still fits in the round.
-          // With reserveAfterMs (the Planner), the retry's worst case must also leave that much of the round for the agents
-          // after it; otherwise the timeout stands at once and the caller falls back (the code plan).
-          if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= MODEL_TIMEOUT_CAP_MS + (options.reserveAfterMs ?? 0)) {
+          // gets its one retry as a whole new attempt when the backoff and a whole model call (MODEL_TIMEOUT_CAP_MS)
+          // still fit in the round. With reserveAfterMs (the Planner), the retry's worst case must also leave that much
+          // of the round for the agents after it; otherwise the timeout stands at once and the caller falls back.
+          // With the defaults (a 900 s round, 420 s calls) a Planner timeout therefore goes straight to the code plan,
+          // on purpose: after one 420 s attempt, 480 s is left, under the 840.3 s a retry and the Analyst's call need,
+          // and the Analyst's time matters more than a second Planner try.
+          if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= roomNeeded(state, BACKOFF_MS)) {
             transportRetried = true;
             state.retries += 1;
             retryTrace(why);
@@ -875,7 +930,7 @@ async function sendWithRetry(
           }
           if (failure.kind === "timeout" && !transportRetried && options.reserveAfterMs !== undefined && options.roundDeadlineMs !== undefined) {
             throw new ModelTimeout(
-              `The ${tier} model call timed out once (${timeout} ms at most for the attempt); no retry, because its worst case would leave under ${MODEL_TIMEOUT_CAP_MS + options.reserveAfterMs} ms of the round for it and the agents after it.`,
+              `The ${tier} model call timed out once (${timeout} ms at most for the attempt); no retry, because the round has under ${roomNeeded(state, BACKOFF_MS)} ms left for its backoff, its worst case and the agents after it.`,
             );
           }
           // One retry, unless the caller's deadline leaves under a second: that retry would only time out.
@@ -885,7 +940,7 @@ async function sendWithRetry(
             // A 502 "empty_response": the model returned no content. The one retry is the same request (reasoning
             // left as it was) with max_tokens raised to EMPTY_RESPONSE_RETRY_MAX_TOKENS.
             if (isEmptyResponse(error)) {
-              maxTokens = Math.max(cfg.MAX_COMPLETION_TOKENS, EMPTY_RESPONSE_RETRY_MAX_TOKENS);
+              maxTokens = raisedMaxTokens(state);
               options.tracer?.log({
                 agent_name: options.agent,
                 ...promptHashOf(options),
@@ -907,10 +962,8 @@ async function sendWithRetry(
           const times = transportRetried ? "twice" : "once, with no time left for a retry";
           if (failure.kind === "timeout") throw new ModelTimeout(`The ${tier} model call timed out ${times} (${timeout} ms at most for the attempt).`);
           if (failure.kind === "rate_limit") throw new RateLimited(`The ${tier} model call was rate limited (HTTP 429) ${times}.`);
-          throw new ModelHttpError(
-            `The ${tier} model call failed ${times}: ${scrub(failure.message, cfg)}`,
-            failure.kind === "server" ? failure.status : undefined,
-          );
+          if (failure.kind === "network") throw new ModelNetworkError(`The ${tier} model call failed ${times} (network): ${scrub(failure.message, cfg)}`);
+          throw new ModelHttpError(`The ${tier} model call failed ${times}: ${scrub(failure.message, cfg)}`, failure.status);
         }
         default:
           throw new ModelHttpError(`The model call failed: ${scrub(failure.message, cfg)}`, failure.status);

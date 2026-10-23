@@ -234,9 +234,11 @@ describe("the Planner's reply check and its default plan", () => {
     expect(fallback.focus).toBe(sample.focus);
   });
 
-  it("takes as a feedback symbol only a real instrument symbol: PORTFOLIO and EPS give no fundamentals_latest step", () => {
+  it("takes as a feedback symbol only a real instrument symbol, GP included: PORTFOLIO and EPS give no fundamentals_latest step", () => {
     const config = loadConfig({ SAMPLE_MODE: "true" }, () => {});
     const symbols = new Set(["GP", "BXPHARMA"]);
+    // GP, a two-letter symbol in data/instruments.json, is a symbol too.
+    expect(defaultPlanFor({ task: "explain_week", question: "Why?", as_of: AS_OF, feedback: "Explain GP: it is the largest move." }, config, symbols).steps.find((s) => s.query_id === "fundamentals_latest")?.params).toMatchObject({ symbol: "GP" });
     const ids = (feedback: string) => defaultPlanFor({ task: "explain_week", question: "Why?", as_of: AS_OF, feedback }, config, symbols).steps.map((s) => s.query_id);
     expect(ids("Explain the PORTFOLIO move and its EPS.")).not.toContain("fundamentals_latest");
     expect(ids("Lead with PORTFOLIO against DSEX; EPS and NAV are missing.")).not.toContain("fundamentals_latest");

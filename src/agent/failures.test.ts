@@ -421,6 +421,23 @@ describe("replies that cannot be read: each agent recovers or falls back, and th
     expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
   }, 30000);
 
+  it("a Planner reply cut at the token limit with 600 s of the round left: no retry (the Analyst's time is kept), the code plan with cause bad_json", async () => {
+    const config = realConfig({ ROUND_TIMEOUT_MS: "600000" });
+    let plannerCalls = 0;
+    mocks.create.mockImplementation(async (params: CreateParams) => {
+      if (agentOf(params) !== "Planner") return sampleReply(params, config);
+      plannerCalls += 1;
+      return { model: params.model, choices: [{ finish_reason: "length", message: { role: "assistant", content: '{"focus": "the week", "steps": [{"query_id": "week_' } }], usage: { prompt_tokens: 10, completion_tokens: 16000 } };
+    });
+    const result = await explainWeek(nextId("planner-cut-600"), config);
+    expect(result.status).toBe("success");
+    expect(plannerCalls).toBe(1);
+    const lines = trace(result);
+    expect(by(lines, "Planner", "model_retry")).toHaveLength(0);
+    expect(by(lines, "Orchestrator", "planner_fallback")[0].why).toMatch(/^bad_json after llm\.ts gave up \(parse: the JSON object is cut off/);
+    expect(result.output!.gaps.some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))).toBe(true);
+  }, 30000);
+
   it("an Analyst that never returns valid output: needs_human with the model_unavailable fallback, and the trace says why", async () => {
     const config = realConfig();
     const analyst = mockAgent(config, "Analyst", async () => '{"findings": "none"}');
