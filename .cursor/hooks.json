@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "hooks": {
-    "beforeShellExecution": [{ "command": "node .cursor/hooks/guard-shell.mjs", "timeout": 5 }],
-    "beforeReadFile": [{ "command": "node .cursor/hooks/guard-read.mjs", "timeout": 5 }],
-    "beforeSubmitPrompt": [{ "command": "node .cursor/hooks/guard-prompt.mjs", "timeout": 5 }]
-  }
-}

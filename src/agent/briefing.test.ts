@@ -220,6 +220,15 @@ describe("AGENTS.md rule 3", () => {
     } catch {
       return; // no git here (a clean clone without .git): the phrase check above still holds
     }
+    // This guards the briefing step's own uncommitted edit. Once HEAD has this rule 3 line, it has done its job,
+    // and later steps may change other lines of AGENTS.md (Step 20g rewrites the kit lines at the top).
+    let committed = "";
+    try {
+      committed = execFileSync("git", ["show", "HEAD:AGENTS.md"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      committed = "";
+    }
+    if (committed.split("\n").includes(rule)) return;
     // Step 20b also adds the MAX_CONCURRENT_CHILDREN words to rule 4: that one pair of lines is allowed, with nothing else changed in it.
     // Step 20c adds the MAX_CONCURRENT_RUNS and cancelled words to the same rule, so its old line may differ from the one without the words.
     const rule4 = agents.split("\n").find((line) => line.startsWith("4. **Bounded loop.**")) ?? "";

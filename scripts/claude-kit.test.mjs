@@ -1,13 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The Claude Code kit in .claude/ mirrors the Cursor kit in .cursor/, so the
- * coding agent gets the same skills, rules, agents and guards in either editor.
- * If one of these fails, a kit file changed on one side only.
+ * The Claude Code kit in .claude/: its skills, rules and agents, and the guards every tool call goes through.
  */
 const root = process.cwd();
 const read = (file) => readFileSync(path.join(root, file), "utf8");
@@ -30,36 +28,25 @@ const decision = (result) => result.out?.hookSpecificOutput?.permissionDecision 
 // Each adapter() call starts a node process, so a test that makes two dozen of them needs well over vitest's 5 s default.
 const SPAWN_TIMEOUT_MS = 30_000;
 
-describe("Claude Code kit mirrors the Cursor kit", () => {
-  it("has every skill, word for word", () => {
-    const skills = readdirSync(path.join(root, ".cursor/skills"));
+describe("the Claude Code kit", () => {
+  it("has a SKILL.md in every skill folder", () => {
+    const skills = readdirSync(path.join(root, ".claude/skills"));
     expect(skills.length).toBeGreaterThan(0);
-    for (const skill of skills) {
-      expect(read(`.claude/skills/${skill}/SKILL.md`)).toBe(read(`.cursor/skills/${skill}/SKILL.md`));
-    }
+    for (const skill of skills) expect(read(`.claude/skills/${skill}/SKILL.md`)).toMatch(new RegExp(`^---\\nname: ${skill}\\n`));
   });
 
-  it("has every rule with the same text and file scope", () => {
-    for (const file of readdirSync(path.join(root, ".cursor/rules"))) {
-      const cursor = split(read(`.cursor/rules/${file}`));
-      const claude = split(read(`.claude/rules/${file.replace(/\.mdc$/, ".md")}`));
-      expect(claude.body).toBe(cursor.body);
-      const globs = cursor.front.match(/^globs:\s*"?([^"\n]+)"?$/m);
-      if (/^alwaysApply:\s*true/m.test(cursor.front)) expect(claude.front).toBe("");
-      else if (globs) {
-        const paths = [...claude.front.matchAll(/^ {2}- "(.+)"$/gm)].map((m) => m[1]);
-        expect(paths).toEqual(globs[1].split(",").map((glob) => glob.trim()));
-      }
+  it("has rules whose paths are listed one per line", () => {
+    for (const file of readdirSync(path.join(root, ".claude/rules"))) {
+      const { front, body } = split(read(`.claude/rules/${file}`));
+      expect(body.trim().length).toBeGreaterThan(0);
+      if (front) expect([...front.matchAll(/^ {2}- "(.+)"$/gm)].length).toBeGreaterThan(0);
     }
   });
 
   it("has the reviewer and judge agents, read-only", () => {
-    for (const file of readdirSync(path.join(root, ".cursor/agents"))) {
-      const cursor = split(read(`.cursor/agents/${file}`));
-      const claude = split(read(`.claude/agents/${file}`));
-      expect(claude.body).toBe(cursor.body);
-      expect(claude.front).toMatch(/^tools: Read, Grep, Glob, Bash$/m);
-    }
+    const agents = readdirSync(path.join(root, ".claude/agents"));
+    expect(agents).toEqual(expect.arrayContaining(["judge.md", "reviewer.md"]));
+    for (const file of agents) expect(split(read(`.claude/agents/${file}`)).front).toMatch(/^tools: Read, Grep, Glob, Bash$/m);
   });
 
   it("wires the three guards in settings.json", () => {
@@ -106,7 +93,7 @@ describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
     }
   });
 
-  it("denies reads and searches inside the folders .cursorignore hides", () => {
+  it("denies reads and searches inside the folders the kit hides", () => {
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: ".hackathon-prep" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Grep", tool_input: { pattern: "x", path: "data/memory" } }))).toBe("deny");
     expect(decision(adapter("read", { tool_name: "Read", tool_input: { file_path: `${root}/logs/trace-week-40.jsonl` } }))).toBe("deny");
@@ -161,10 +148,19 @@ describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
       expect(decision(adapter("read", { tool_name: "Write", tool_input: { file_path } }))).toBe("deny");
     }
     for (const file_path of [".git/config", ".git/hooks/pre-push", ".githooks/pre-commit", ".claude/hooks/cursor-adapter.mjs",
-      ".cursor/hooks/guard-shell.mjs", ".cursor/hooks.json", ".claude/settings.json", ".claude/settings.local.json"]) {
+      ".claude/hooks/guard-shell.mjs", ".CLAUDE/hooks/guard-read.mjs", ".claude/settings.json", ".claude/settings.local.json"]) {
       expect(decision(adapter("read", { tool_name: "Edit", tool_input: { file_path: `${root}/${file_path}` } }))).toBe("deny");
     }
     expect(adapter("read", { tool_name: "Edit", tool_input: { file_path: `${root}/src/agent/guards.ts` } }).out).toBeNull();
+    // upper case, and a symlinked folder that points into .git
+    expect(decision(adapter("read", { tool_name: "Write", tool_input: { file_path: `${root}/.GIT/config` } }))).toBe("deny");
+    const dir = mkdtempSync(path.join(tmpdir(), "claude-kit-"));
+    try {
+      symlinkSync(path.join(root, ".git"), path.join(dir, "g"));
+      expect(decision(adapter("read", { tool_name: "Write", tool_input: { file_path: path.join(dir, "g", "hooks", "pre-push") } }))).toBe("deny");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("denies a Grep over a folder named secrets", () => {
@@ -205,6 +201,21 @@ describe("cursor-adapter.mjs", { timeout: SPAWN_TIMEOUT_MS }, () => {
     const key = "nvapi-" + "A".repeat(24);
     expect(adapter("prompt", { prompt: `use ${key}` }).out?.decision).toBe("block");
     expect(adapter("prompt", { prompt: "add the planner" }).out).toBeNull();
+  });
+
+  it("denies shell writes to git's hooks and the kit's guards and settings, and allows reading them", () => {
+    for (const command of ["echo x > .claude/hooks/guard-shell.mjs", "sed -i '' s/a/b/ .claude/settings.json", "cp /tmp/x .githooks/pre-commit",
+      "rm .claude/hooks/guard-read.mjs", "tee .git/hooks/pre-push < /tmp/x", "chmod +x .git/hooks/pre-push", "git checkout -- .claude/hooks"]) {
+      expect(decision(adapter("shell", { tool_name: "Bash", tool_input: { command } }))).toBe("deny");
+    }
+    for (const command of ["cat .claude/hooks/guard-read.mjs", "node .claude/hooks/cursor-adapter.mjs read", "git log --oneline -- .claude/hooks"]) {
+      expect(adapter("shell", { tool_name: "Bash", tool_input: { command } }).out).toBeNull();
+    }
+  });
+
+  it("has no Cursor kit left", () => {
+    expect(existsSync(path.join(root, ".cursor"))).toBe(false);
+    expect(existsSync(path.join(root, ".cursorignore"))).toBe(false);
   });
 
   it("exits 2 for an unknown guard", () => {

@@ -69,7 +69,7 @@ export type TraceLine = {
 export type TraceInput = Pick<TraceLine, "agent_name" | "action" | "input_summary" | "output_summary" | "status"> &
   Partial<Omit<TraceLine, "timestamp" | "run_id" | "task">>;
 
-// Keep in step with the `key` pattern in .cursor/hooks/guard-prompt.mjs (trace.test.ts compares the two).
+// Keep in step with the `key` pattern in .claude/hooks/guard-prompt.mjs (trace.test.ts compares the two).
 export const SECRET_PATTERN =
   /nvapi-[A-Za-z0-9_-]{20,}|(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|postgres(ql)?:\/\/[^:\/ ]+:[^@ <>]+@|BEGIN (RSA|OPENSSH) PRIVATE KEY/g;
 

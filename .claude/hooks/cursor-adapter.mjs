@@ -1,4 +1,5 @@
-// Claude Code hook adapter: runs the Cursor guards in .cursor/hooks/ unchanged, so both editors share one set of rules.
+// Claude Code hook adapter: runs the kit's guards in .claude/hooks/ (guard-read, guard-shell, guard-prompt).
+// The file name is historical (the kit was first written for Cursor); .claude/settings.json calls it by this name.
 // Usage (from .claude/settings.json): node .claude/hooks/cursor-adapter.mjs read | shell | prompt
 // Reads Claude Code's hook JSON on stdin. Prints nothing to allow, so Claude Code's own permission prompts still apply.
 import { spawnSync } from "node:child_process";
@@ -10,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const kind = process.argv[2];
 const guards = { read: "guard-read.mjs", shell: "guard-shell.mjs", prompt: "guard-prompt.mjs" };
 const root = process.env.CLAUDE_PROJECT_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-// What guard-read treats as secret, plus what .cursorignore hides and the prep folder's env backup.
+// What guard-read treats as secret, plus what the kit hides from the agent and the prep folder's env backup.
 const PROTECTED = /(^|\/)\.env(\.|$)|\.(pem|key)$|(^|\/)secrets\/|(^|\/)\.hackathon-prep\/|(^|\/)data\/memory\/|(^|\/)logs\/[^/]*\.jsonl$|env-backup/i;
 const SKIP_DIRS = new Set(["node_modules", ".git", ".next"]);
 // Past these limits the hook could run out of time, which would let the call through, so it denies instead.
@@ -36,9 +37,25 @@ function pushAllowed(command, cwd) {
   const redirects = git("config", "--get-regexp", "^remote\\.origin\\.(push|pushurl|receivepack|mirror)$|^include(if)?\\.|^core\\.sshcommand$");
   const hooksPath = git("config", "--get", "core.hooksPath");
   const prePush = [join(root, ".githooks", "pre-push"), join(root, ".git", "hooks", "pre-push")].some((p) => existsSync(p));
-  return pinned !== "" && pinned === git("remote", "get-url", "--push", "origin") && redirects === "" &&
-    (hooksPath === "" || hooksPath === ".githooks") && !prePush;
+  // exactly one push URL and one fetch URL, both the pinned one, so an added second URL can't slip in
+  const pushUrls = git("remote", "get-url", "--push", "--all", "origin").split("\n").filter(Boolean);
+  const fetchUrls = git("config", "--get-all", "remote.origin.url").split("\n").filter(Boolean);
+  // the hooks folder may hold only the kit's own two hooks, so a push runs no new code
+  let hookFiles = [];
+  try {
+    hookFiles = readdirSync(join(root, ".githooks"));
+  } catch {
+    // no .githooks folder: nothing extra runs
+  }
+  const kitHooksOnly = hookFiles.every((f) => f === "pre-commit" || f === "scan-history.sh");
+  return pinned !== "" && pushUrls.length === 1 && pushUrls[0] === pinned && fetchUrls.length === 1 && fetchUrls[0] === pinned &&
+    redirects === "" && (hooksPath === "" || hooksPath === ".githooks") && !prePush && kitHooksOnly;
 }
+// The agent may not change git's config or hooks, or its own guards and settings, from the shell either: a command that
+// names one of those paths and writes to it is refused (a redirect, tee, cp, mv, rm, ln, touch, chmod, sed -i,
+// perl -i, or git rm, mv, checkout or restore). Reading them stays allowed.
+const GUARDED_IN_SHELL = /(^|[\s"'=/])(\.git\/|\.githooks\b|\.claude\/hooks\b|\.claude\/settings[^\s"']*\.json)/i;
+const SHELL_WRITE = /(>|\btee\b|\bcp\b|\bmv\b|\brm\b|\bln\b|\btouch\b|\bchmod\b|\bsed\s+(-[a-z]*i|--in-place)|\bperl\s+-[a-z]*i|\bgit\s+(rm|mv|checkout|restore)\b)/i;
 // Shell commands that could fake the owner's consent or move where a push goes.
 const CONSENT_TAMPER = /allow-push|tradeflow-kit|\bgit\s+remote\s+(add|set-url|rename|remove|rm)\b|\bgit\s+config\b[^\n]*\b(remote\.|url\.|core\.hookspath|pushurl)/i;
 
@@ -144,7 +161,7 @@ function globProblem(event) {
   return hit ? `The Grep glob also matches ${hit}, which holds secrets or is hidden from the agent. Narrow the glob, or set path to src.` : null;
 }
 
-// A read or search inside a folder that .cursorignore hides (or of a secret file) is refused, whatever guard-read says.
+// A read or search inside a folder the kit hides (or of a secret file) is refused, whatever guard-read says.
 function pathProblem(event) {
   const tool = event.tool_input ?? {};
   for (const p of [tool.file_path, tool.notebook_path, tool.path]) {
@@ -159,7 +176,7 @@ function pathProblem(event) {
     for (const candidate of [full, real]) {
       const asFolder = isFolder(candidate) || !existsSync(candidate);
       if (forms(candidate).some((rel) => isProtected(rel) || (asFolder && isProtected(`${rel}/`))))
-        return `${p} holds secrets or is hidden from the agent (.cursorignore). Use an endpoint or a command instead.`;
+        return `${p} holds secrets or is hidden from the agent. Use an endpoint or a command instead.`;
     }
   }
   return null;
@@ -188,14 +205,14 @@ function readTargets(event) {
   return targets.length > 0 ? targets : [""];
 }
 
-function cursorPayloads(event) {
+function guardPayloads(event) {
   if (kind === "read") return readTargets(event).map((file_path) => ({ file_path }));
   if (kind === "shell") return [{ command: event.tool_input?.command ?? "", cwd: event.cwd ?? root }];
   return [{ prompt: event.prompt ?? "" }];
 }
 
 function runGuard(payload) {
-  const run = spawnSync(process.execPath, [join(root, ".cursor", "hooks", guards[kind])], {
+  const run = spawnSync(process.execPath, [join(root, ".claude", "hooks", guards[kind])], {
     input: JSON.stringify(payload),
     cwd: root,
     encoding: "utf8",
@@ -228,7 +245,7 @@ process.stdin.on("end", () => {
   try {
     event = JSON.parse(input);
   } catch {
-    // Unreadable input: the guard gets empty fields, as in Cursor.
+    // Unreadable input: the guard gets empty fields.
   }
   if (kind === "read") {
     const tool = event.tool_input ?? {};
@@ -237,20 +254,39 @@ process.stdin.on("end", () => {
     if (touchesSwitch) return deny("The push switch is the owner's consent; only the owner may create or change it.");
     // The agent may not rewrite git's config or hooks, or its own guards and settings, with a file tool.
     const writes = /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(event.tool_name ?? "");
-    const guarded = [tool.file_path, tool.notebook_path].some((p) => typeof p === "string" &&
-      fromRoot(resolve(event.cwd ?? root, p)).some((rel) => /^(\.git\/|\.githooks\/|\.claude\/hooks\/|\.cursor\/hooks\/|\.claude\/settings[^/]*\.json$|\.cursor\/hooks\.json$)/.test(rel)));
+    const GUARDED = /^(\.git(\/|$)|\.githooks(\/|$)|\.claude\/hooks(\/|$)|\.claude\/settings[^/]*\.json$)/i;
+    // the path as given and its real path (or its nearest existing folder's real path, for a new file), so a symlink can't hide it
+    const realOf = (full) => {
+      let dir = full, rest = "";
+      while (!existsSync(dir) && dirname(dir) !== dir) {
+        rest = join(dir.slice(dirname(dir).length + 1), rest);
+        dir = dirname(dir);
+      }
+      try {
+        return join(realpathSync(dir), rest);
+      } catch {
+        return full;
+      }
+    };
+    const guarded = [tool.file_path, tool.notebook_path].some((p) => {
+      if (typeof p !== "string") return false;
+      const full = resolve(event.cwd ?? root, p);
+      return [full, realOf(full)].some((c) => fromRoot(c).some((rel) => GUARDED.test(rel)));
+    });
     if (writes && guarded) return deny("Git's config and hooks, and the kit's guards and settings, are the owner's to change.");
     const problem = pathProblem(event) ?? globProblem(event);
     if (problem) return deny(problem);
   }
   if (kind === "shell" && CONSENT_TAMPER.test(event.tool_input?.command ?? ""))
     return deny("That command touches the owner's push switch or git remotes, which only the owner may change.");
-  const payloads = cursorPayloads(event);
+  if (kind === "shell" && GUARDED_IN_SHELL.test(event.tool_input?.command ?? "") && SHELL_WRITE.test(event.tool_input?.command ?? ""))
+    return deny("Git's config and hooks, and the kit's guards and settings, are the owner's to change.");
+  const payloads = guardPayloads(event);
   if (payloads.length > MAX_CHECKS) return deny(`Too many paths to check (${payloads.length}); split the request.`);
   let ask = null;
   for (const payload of payloads) {
     const out = runGuard(payload);
-    if (!out) return deny(`The ${kind} guard gave no answer, so this was stopped. Run: node .cursor/hooks/${guards[kind]}`);
+    if (!out) return deny(`The ${kind} guard gave no answer, so this was stopped. Run: node .claude/hooks/${guards[kind]}`);
     if (kind === "prompt" && out.continue === false) return process.stdout.write(JSON.stringify(reply("block", out.user_message)));
     if (out.permission === "deny") return deny(out.agent_message ?? out.user_message);
     if (out.permission === "ask" && !(kind === "shell" && pushAllowed(payload.command, payload.cwd))) ask ??= out.agent_message ?? out.user_message;

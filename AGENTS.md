@@ -1,8 +1,8 @@
 # AGENTS.md
 
-Instructions for any coding agent working in this repository (Cursor, Claude Code, Codex). Read it before every task.
+Instructions for any coding agent working in this repository (Claude Code, or any other). Read it before every task.
 
-Claude Code reads the same kit from `.claude/`: the skills, rules and agents are copies of `.cursor/`, and `.claude/hooks/cursor-adapter.mjs` runs the Cursor guards in `.cursor/hooks/`. Change both copies together; `scripts/claude-kit.test.mjs` fails when they differ.
+Claude Code reads the kit from `.claude/`: the skills, rules and agents, and `.claude/hooks/cursor-adapter.mjs` (the name is historical), which runs the guards in `.claude/hooks/` before every read, shell command and prompt. `scripts/claude-kit.test.mjs` tests the guards.
 
 ## What this is
 

@@ -742,7 +742,7 @@ type RunOutput = {
 - **Functions:** none. The README gains the architecture diagram; the agent roles table (Planner strong, Analyst main, Evaluator fast, Writer strong; the Router row comes with step 18); the guard table; how to run (dev on port 8000, the CLI, the one Docker command, `POST /run` JSON in and out, and a note that `npm run agent` and `POST /run` do the job of the organizers' suggested `run.py`); the examples; the sponsor technology section (section 6); the 8 disclosures (models and providers, agent frameworks, partner technologies and where, libraries, data sources, all synthetic, adapted open-source code, known limitations, and fallback and sample-mode behavior); and licenses (Apache-2.0 for `vendor/` and the adapted Zetaris client). It also states the limits: H-MEM's hash embedder isn't semantic search, memory is single-process, and all data is synthetic.
 - **Tests:** the kit's `/pre-submit-check` skill: every README claim maps to code, the secret scan finds 0, required files exist, and nothing under `src/lib/` changed since the tag. Then the read-only `judge` agent for a mock score.
 - **Proves it:** `/pre-submit-check`
-- **Biggest risk:** a claim that runs ahead of the code, which is a disqualifier. Nightshift must appear as the primary provider with the served lane named, and the README must say that Claude Code wrote the code inside Cursor's terminal.
+- **Biggest risk:** a claim that runs ahead of the code, which is a disqualifier. Nightshift must appear as the primary provider with the served lane named, and the README must say that Claude Code wrote the code, run in Orca's terminal, and that Cursor was not used.
 - **Commit:** `docs: add the README sponsor and AI-usage sections and metadata.json`
 
 ## 4. Order and cuts
@@ -820,7 +820,7 @@ The planted cases map to the input examples as follows:
 | Meterless World Model (working Meterless Engine feature) | Holds holdings, announcements and facts, each with `run_query:<id>` as its source | `vendor/world-model/`; `src/agent/world.ts` `recordFromResults`, `about` | `npx vitest run src/agent/world.test.ts src/agent/corrections.test.ts` |
 | Meterless Nightshift (primary provider) | Every model call goes to the one OpenAI-compatible endpoint in `METERLESS_BASE_URL`, with `meterless-app` and `meterless-scope` headers | `src/agent/llm.ts` `createNightshiftClient` | `npm run try-model`; the `model` field in each trace line; `output.model_source` `"nightshift"` in `output_examples/`; the lane named in the README and shown in the video |
 | NVIDIA Nemotron | Strong for the Planner and the Writer, main for the Analyst, fast for the Evaluator and the Router | `src/agent/config.ts` `models` | The trace's `model` field per agent; `output.models` |
-| Cursor | The coding-agent kit: rules, skills, agents and guard hooks; one log row per step | `.cursor/`, `AGENTS.md`, `CURSOR.md`; the Claude Code mirror in `.claude/` | `CURSOR.md`; `git log pre-hackathon..HEAD`; the README says Claude Code ran in Cursor's terminal |
+| Cursor | Not used: the organisers allowed any IDE on 22 Oct, and the Cursor copy of the kit was removed | the kit in `.claude/`, `AGENTS.md`, `CURSOR.md` | `CURSOR.md`; `git log pre-hackathon..HEAD`; the README says Cursor was not used |
 
 ## 7. Open questions and conflicts
 
@@ -870,7 +870,7 @@ The planted cases map to the input examples as follows:
 5. **Thesis-check scope:** the journal ids or symbols the input names; when it names none, the entries for the symbols currently held.
 6. **Pre-trade check:** it runs on the Explain page and `POST /run`, before the owner saves on `/transactions`. The frozen save files stay unchanged.
 7. **metadata.json:** the organisers publish no format. Use the participants' community draft (github.com/saphan-ai/proven, `schema_version` 0.1-community); the README step writes it. `.hackathon-prep/` is hidden from the coding agent on purpose.
-8. **Cursor evidence:** the organisers said on 22 Oct (11:33 AM) that Cursor gives no tokens or credits for this event and that its free version may be used. The coding agent is Claude Code in Cursor's terminal for the whole build, and `CURSOR.md` records that truthfully for each step.
+8. **Cursor evidence:** the organisers said on 22 Oct (11:33 AM) that Cursor gives no tokens or credits for this event and that its free version may be used. Later on 22 Oct they allowed any IDE, so Cursor is not used: the coding agent is Claude Code, run in Orca's terminal, for the whole build, and `CURSOR.md` records that truthfully for each step.
 9. **Output examples:** yes, `output_examples/` holds only real runs through Nightshift. The video leads with the week explanation, the thesis check and the pre-trade check.
 10. **File roles:** follow the build steps' prompts. `proof.ts` = citation proof cards for the Explain page; `router.ts` = the Router agent; `registry.ts` = the run registry (cancel a run, cap the server); `concurrency.ts` = the cap on parallel briefing children; `metrics.ts` = metrics across runs; `prompts.ts` = prompt versions recorded in every trace; `policy.ts` = tool policy, which agent may call which tool.
 11. **Committed traces:** commit copies of chosen traces under `output_examples/traces/`; `logs/` stays ignored.

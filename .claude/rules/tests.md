@@ -4,7 +4,6 @@ paths:
   - "evals/**"
   - "scripts/eval.ts"
   - "scripts/parity.ts"
-  - ".cursor/hooks/**"
   - ".claude/hooks/**"
   - "scripts/claude-kit.test.mjs"
 ---
@@ -15,4 +14,4 @@ paths:
 - Red-team fixtures live in evals/redteam/fixtures/<case>/ and are made by a script from data/, never by hand-editing data/.
 - Never weaken an expectation to make a test pass. If an expectation is wrong, say so and ask.
 - A test that spawns a process (spawnSync, a hook, a dev server) sets an explicit timeout on its describe block, well above its run time in the full suite: a test that passes alone can still exceed vitest's 5 s default under npm run check's load.
-- A hook that decides by path or glob (.cursor/hooks, .claude/hooks) is an allow-list, not a deny-list. Before writing it, add a deny case to scripts/claude-kit.test.mjs for each form of the same protected path: absolute, relative, "./", symlink, "{a,b}", "[ab]", anchored "/x", trailing slash, several globs in one string, upper case. Run them against the draft, then fix the guard until all pass.
+- A hook that decides by path or glob (.claude/hooks) is an allow-list, not a deny-list. Before writing it, add a deny case to scripts/claude-kit.test.mjs for each form of the same protected path: absolute, relative, "./", symlink, "{a,b}", "[ab]", anchored "/x", trailing slash, several globs in one string, upper case. Run them against the draft, then fix the guard until all pass.

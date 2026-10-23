@@ -44,3 +44,4 @@ git log pre-hackathon..HEAD        # hackathon commits only
 ```
 
 The coding-agent kit (AGENTS.md, CLAUDE.md, .cursor/, .cursorignore, .githooks/, src/agent/prompts/, evals/) was drafted on 5 Oct 2026 in a planning repo and copied in after the build window opened; all code that uses it was written in the build window. The build window opened on 22 October 2026 (00:00 UTC), not 15 October as the first paragraph says: the start moved after that paragraph was written, and the tag pre-hackathon still marks the boundary.
+On 22 October 2026 the Cursor copy of the kit (.cursor/ and .cursorignore) was removed in the build window: Cursor was not used, and the Claude Code kit in .claude/ is the one the build used.

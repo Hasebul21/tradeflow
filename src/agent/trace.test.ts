@@ -115,8 +115,8 @@ describe("masking", () => {
 });
 
 describe("secret pattern", () => {
-  it("is the same pattern as the one in .cursor/hooks/guard-prompt.mjs", () => {
-    const hook = readFileSync(path.resolve(process.cwd(), ".cursor/hooks/guard-prompt.mjs"), "utf8");
+  it("is the same pattern as the one in .claude/hooks/guard-prompt.mjs", () => {
+    const hook = readFileSync(path.resolve(process.cwd(), ".claude/hooks/guard-prompt.mjs"), "utf8");
     const literal = hook.match(/const key = \/(.*)\/;/)?.[1];
     expect(literal).toBeDefined();
     expect(new RegExp(literal as string).source).toBe(SECRET_PATTERN.source);
