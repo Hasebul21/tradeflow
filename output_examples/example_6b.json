@@ -21,23 +21,409 @@
       "name": "Writer",
       "role": "writes the owner's review from the accepted findings; code checks every number",
       "model": "meterless/deep"
+    },
+    {
+      "name": "Router",
+      "role": "picks the task for a question that names none; it never answers",
+      "model": "meterless/fast"
     }
   ],
   "usage": {
-    "model_calls": 0,
+    "model_calls": 7,
     "query_calls": 5,
-    "tokens_in": 0,
-    "tokens_out": 0,
-    "duration_ms": 63326
+    "tokens_in": 95594,
+    "tokens_out": 7410,
+    "duration_ms": 81092
   },
   "trace_id": "example_6b",
   "log_file": "logs/trace-example_6b.jsonl",
-  "execution_time_seconds": 63.326,
-  "status": "error",
-  "output": null,
-  "error": {
-    "type": "ModelHttpError",
-    "message": "The main model call failed twice: 502 /nvidia/nemotron-3.5-lightning_empty_response",
-    "recoverable": true
-  }
+  "execution_time_seconds": 81.092,
+  "status": "success",
+  "output": {
+    "summary": "Buying 300 EBL at Tk 26.6 raises EBL weight to 6.35% and Bank sector weight to 24.86% (target 25%), while Pharmaceuticals & Chemicals falls to 37.3% (target 30%) and SQURPHARMA falls to 25.12% (limit 25%); no new rule violations are created, and the trade matches the thesis of adding to EBL at a low price against book value.",
+    "review_markdown": "Buying 300 EBL at Tk 26.6 (gross Tk 7,980, commission Tk 31.92, cash Tk 8,011.92) raises total market value from Tk 631,708.80 to Tk 639,838.80. EBL weight increases from 5.15% to 6.35%; Bank sector weight rises from 23.89% to 24.86% (target 25%). Pharmaceuticals & Chemicals weight falls from 37.78% to 37.3% (target 30%). SQURPHARMA weight falls from 25.44% to 25.12% (limit 25%). The trade matches three journal theses: adding to EBL at a low price against book value, and adding a cheap second bank to spread exposure beyond BRACBANK. No new rule violations are created; existing breaches (Pharmaceuticals & Chemicals above target, SQURPHARMA above limit) persist.\n\n- What the trade does to weights and rules: EBL weight rises to 6.35%, Bank sector weight to 24.86% (target 25%), Pharmaceuticals & Chemicals falls to 37.3% (target 30%), SQURPHARMA falls to 25.12% (limit 25%). [q:39182e5e-0403-4aa8-a4c9-554cee79f479]\n\n- Thesis check: the trade matches j-027 (adding to EBL at a low price against book value), j-018 (adding to EBL at a low price against book value) and j-006 (adding a cheap second bank beyond BRACBANK). All verdicts are matching. [q:57986307-f802-4e18-b182-e76e5cc32141]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move. [q:mem-54]\n\n**What to look at next**\n- SQURPHARMA's weight relative to its 25% limit\n- Pharmaceuticals & Chemicals weight relative to its 30% target\n\nNot covered: announcements between 2026-09-01 and 2026-10-01 for EBL\n\nYou asked what to trade. This review explains what happened; the decision stays with you.\n\nThis is a review of your own records, not financial advice.",
+    "findings": [
+      {
+        "kind": "pre_trade",
+        "subject": "EBL",
+        "claim": "The trade buys 300 EBL at Tk 26.6 (gross Tk 7,980, commission Tk 31.92, cash Tk 8,011.92), raising total market value from Tk 631,708.80 to Tk 639,838.80. EBL weight increases from 5.15% to 6.35%. Bank sector weight rises from 23.89% to 24.86% (target 25%). Pharmaceuticals & Chemicals weight falls from 37.78% to 37.3% (target 30%). SQURPHARMA weight falls from 25.44% to 25.12% (limit 25%). No new rule violations are created; existing max_position_weight (SQURPHARMA) and sector_target (Pharmaceuticals & Chemicals) violations persist.",
+        "numbers": [
+          {
+            "value": 7980,
+            "label": "gross purchase BDT"
+          },
+          {
+            "value": 31.92,
+            "label": "commission BDT"
+          },
+          {
+            "value": 8011.92,
+            "label": "cash BDT"
+          },
+          {
+            "value": 631708.8,
+            "label": "total market value before BDT"
+          },
+          {
+            "value": 639838.8,
+            "label": "total market value after BDT"
+          },
+          {
+            "value": 5.15,
+            "label": "EBL weight before %"
+          },
+          {
+            "value": 6.35,
+            "label": "EBL weight after %"
+          },
+          {
+            "value": 23.89,
+            "label": "Bank sector weight before %"
+          },
+          {
+            "value": 24.86,
+            "label": "Bank sector weight after %"
+          },
+          {
+            "value": 25,
+            "label": "Bank sector target %"
+          },
+          {
+            "value": 37.78,
+            "label": "Pharmaceuticals & Chemicals weight before %"
+          },
+          {
+            "value": 37.3,
+            "label": "Pharmaceuticals & Chemicals weight after %"
+          },
+          {
+            "value": 30,
+            "label": "Pharmaceuticals & Chemicals target %"
+          },
+          {
+            "value": 25.44,
+            "label": "SQURPHARMA weight before %"
+          },
+          {
+            "value": 25.12,
+            "label": "SQURPHARMA weight after %"
+          },
+          {
+            "value": 25,
+            "label": "SQURPHARMA limit %"
+          }
+        ],
+        "cites": [
+          "39182e5e-0403-4aa8-a4c9-554cee79f479"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "thesis",
+        "subject": "j-027",
+        "claim": "The trade is a buy, matching the thesis's direction of adding to EBL at a low price against book value.",
+        "numbers": [],
+        "cites": [
+          "57986307-f802-4e18-b182-e76e5cc32141"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "thesis",
+        "subject": "j-018",
+        "claim": "The trade is a buy, matching the thesis's direction of adding to EBL at a low price against book value.",
+        "numbers": [],
+        "cites": [
+          "57986307-f802-4e18-b182-e76e5cc32141"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "thesis",
+        "subject": "j-006",
+        "claim": "The trade is a buy, matching the thesis's direction of adding a cheap second bank to spread bank exposure beyond BRACBANK.",
+        "numbers": [],
+        "cites": [
+          "57986307-f802-4e18-b182-e76e5cc32141"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      }
+    ],
+    "gaps": [
+      "announcements_between {\"from\":\"2026-09-01\",\"to\":\"2026-10-01\",\"symbol\":\"EBL\"} returned no rows, so this review says nothing it would have shown."
+    ],
+    "citations": [
+      {
+        "run_query_id": "39182e5e-0403-4aa8-a4c9-554cee79f479",
+        "query_id": "what_if",
+        "params": {
+          "symbol": "EBL",
+          "side": "buy",
+          "quantity": 300,
+          "price": 26.6,
+          "as_of": "2026-10-01"
+        },
+        "source": "local",
+        "row_count": 20,
+        "rows": [
+          {
+            "row_type": "trade",
+            "as_of": "2026-10-01",
+            "symbol": "EBL",
+            "side": "buy",
+            "quantity": 300,
+            "price": 26.6,
+            "gross_bdt": 7980,
+            "commission_bdt": 31.92,
+            "cash_bdt": 8011.92,
+            "total_market_value_before_bdt": 631708.8,
+            "total_market_value_after_bdt": 639838.8
+          },
+          {
+            "row_type": "holding",
+            "symbol": "BATBC",
+            "shares_before": 80,
+            "shares_after": 80,
+            "weight_before_pct": 6.51,
+            "weight_after_pct": 6.42
+          },
+          {
+            "row_type": "holding",
+            "symbol": "BRACBANK",
+            "shares_before": 1520,
+            "shares_after": 1520,
+            "weight_before_pct": 12.32,
+            "weight_after_pct": 12.16
+          },
+          {
+            "row_type": "holding",
+            "symbol": "BXPHARMA",
+            "shares_before": 320,
+            "shares_after": 320,
+            "weight_before_pct": 7.21,
+            "weight_after_pct": 7.12
+          },
+          {
+            "row_type": "holding",
+            "symbol": "CITYBANK",
+            "shares_before": 1300,
+            "shares_after": 1300,
+            "weight_before_pct": 6.42,
+            "weight_after_pct": 6.34
+          },
+          {
+            "row_type": "holding",
+            "symbol": "EBL",
+            "shares_before": 1200,
+            "shares_after": 1500,
+            "weight_before_pct": 5.15,
+            "weight_after_pct": 6.35
+          },
+          {
+            "row_type": "holding",
+            "symbol": "GP",
+            "shares_before": 240,
+            "shares_after": 240,
+            "weight_before_pct": 13.49,
+            "weight_after_pct": 13.32
+          },
+          {
+            "row_type": "holding",
+            "symbol": "LHBL",
+            "shares_before": 400,
+            "shares_after": 400,
+            "weight_before_pct": 4.5,
+            "weight_after_pct": 4.44
+          },
+          {
+            "row_type": "holding",
+            "symbol": "OLYMPIC",
+            "shares_before": 100,
+            "shares_after": 100,
+            "weight_before_pct": 2.59,
+            "weight_after_pct": 2.56
+          },
+          {
+            "row_type": "holding",
+            "symbol": "RENATA",
+            "shares_before": 36,
+            "shares_after": 36,
+            "weight_before_pct": 5.12,
+            "weight_after_pct": 5.05
+          },
+          {
+            "row_type": "holding",
+            "symbol": "ROBI",
+            "shares_before": 400,
+            "shares_after": 400,
+            "weight_before_pct": 2.1,
+            "weight_after_pct": 2.07
+          },
+          {
+            "row_type": "holding",
+            "symbol": "SQURPHARMA",
+            "shares_before": 655,
+            "shares_after": 655,
+            "weight_before_pct": 25.44,
+            "weight_after_pct": 25.12
+          },
+          {
+            "row_type": "holding",
+            "symbol": "SUMITPOWER",
+            "shares_before": 500,
+            "shares_after": 500,
+            "weight_before_pct": 2.45,
+            "weight_after_pct": 2.41
+          },
+          {
+            "row_type": "holding",
+            "symbol": "UPGDCL",
+            "shares_before": 250,
+            "shares_after": 250,
+            "weight_before_pct": 6.72,
+            "weight_after_pct": 6.63
+          },
+          {
+            "row_type": "sector",
+            "sector": "Pharmaceuticals & Chemicals",
+            "weight_before_pct": 37.78,
+            "weight_after_pct": 37.3,
+            "target_pct": 30
+          },
+          {
+            "row_type": "sector",
+            "sector": "Telecommunication",
+            "weight_before_pct": 15.58,
+            "weight_after_pct": 15.39,
+            "target_pct": 15
+          },
+          {
+            "row_type": "sector",
+            "sector": "Bank",
+            "weight_before_pct": 23.89,
+            "weight_after_pct": 24.86,
+            "target_pct": 25
+          },
+          {
+            "row_type": "sector",
+            "sector": "Fuel & Power",
+            "weight_before_pct": 9.16,
+            "weight_after_pct": 9.05,
+            "target_pct": 10
+          },
+          {
+            "row_type": "sector",
+            "sector": "Food & Allied",
+            "weight_before_pct": 9.09,
+            "weight_after_pct": 8.98,
+            "target_pct": 10
+          },
+          {
+            "row_type": "sector",
+            "sector": "Cement",
+            "weight_before_pct": 4.5,
+            "weight_after_pct": 4.44,
+            "target_pct": 5
+          }
+        ]
+      },
+      {
+        "run_query_id": "57986307-f802-4e18-b182-e76e5cc32141",
+        "query_id": "journal_for_symbol",
+        "params": {
+          "symbol": "EBL",
+          "as_of": "2026-10-01"
+        },
+        "source": "zetaris",
+        "row_count": 3,
+        "rows": [
+          {
+            "id": "j-027",
+            "transaction_id": "t-039",
+            "symbol": "EBL",
+            "side": "buy",
+            "trade_date": "2026-08-20",
+            "quantity": 200,
+            "price_per_share": 25.2,
+            "thesis": "Adding to EBL at a low price against book value.",
+            "horizon": "months",
+            "exit_condition": null,
+            "tags": [
+              "bank",
+              "value"
+            ]
+          },
+          {
+            "id": "j-018",
+            "transaction_id": "t-021",
+            "symbol": "EBL",
+            "side": "buy",
+            "trade_date": "2026-05-12",
+            "quantity": 400,
+            "price_per_share": 27.8,
+            "thesis": "Adding to EBL at a low price against book value.",
+            "horizon": "months",
+            "exit_condition": null,
+            "tags": [
+              "bank",
+              "value"
+            ]
+          },
+          {
+            "id": "j-006",
+            "transaction_id": "t-006",
+            "symbol": "EBL",
+            "side": "buy",
+            "trade_date": "2026-02-11",
+            "quantity": 600,
+            "price_per_share": 30.2,
+            "thesis": "A cheap second bank, to spread the bank exposure beyond BRACBANK.",
+            "horizon": "months",
+            "exit_condition": null,
+            "tags": [
+              "bank",
+              "value"
+            ]
+          }
+        ],
+        "sql": "SELECT j.id, j.transaction_id, t.symbol, t.side, date_format(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd') AS trade_date, t.quantity, t.price_per_share,\n       j.horizon, j.thesis, j.exit_condition\nFROM tradeflow_ledger.journal j\nJOIN tradeflow_ledger.transactions t ON t.id = j.transaction_id\nWHERE j.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.symbol = 'EBL'\nORDER BY j.created_at DESC, j.id DESC"
+      }
+    ],
+    "needs_human": false,
+    "declined_advice": false,
+    "injection_seen": false,
+    "memories_recalled": [
+      {
+        "id": "mem-54",
+        "tags": [
+          "review",
+          "explain_week",
+          "2026-09-17",
+          "run:example_4"
+        ]
+      }
+    ],
+    "applied_corrections": [],
+    "rounds": 2,
+    "scores": {
+      "accuracy": 3,
+      "appropriateness": 3,
+      "actionability": 3,
+      "total": 9
+    },
+    "model_source": "openrouter/nvidia/nemotron-3.5-lightning",
+    "partial": false,
+    "stop_reason": null,
+    "new_findings": [],
+    "escalation": null
+  },
+  "error": null
 }

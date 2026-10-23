@@ -21,23 +21,456 @@
       "name": "Writer",
       "role": "writes the owner's review from the accepted findings; code checks every number",
       "model": "meterless/deep"
+    },
+    {
+      "name": "Router",
+      "role": "picks the task for a question that names none; it never answers",
+      "model": "meterless/fast"
     }
   ],
   "usage": {
-    "model_calls": 0,
+    "model_calls": 4,
     "query_calls": 5,
-    "tokens_in": 0,
-    "tokens_out": 0,
-    "duration_ms": 85213
+    "tokens_in": 29744,
+    "tokens_out": 3225,
+    "duration_ms": 56073
   },
   "trace_id": "example_6a",
   "log_file": "logs/trace-example_6a.jsonl",
-  "execution_time_seconds": 85.213,
-  "status": "error",
-  "output": null,
-  "error": {
-    "type": "ModelHttpError",
-    "message": "The main model call failed twice: 502 /nvidia/nemotron-3.5-lightning_empty_response",
-    "recoverable": true
-  }
+  "execution_time_seconds": 56.073,
+  "status": "needs_human",
+  "output": {
+    "summary": "This trade would break sector_target: Engineering is 11.9% of the portfolio, 6.9 points above your 5% target. Nothing has been saved; the decision is yours.",
+    "review_markdown": "This trade would break the sector_target rule: Engineering is 11.9% of the portfolio, 6.9 points above your 5% target. Nothing has been saved; the decision is yours.\n\n- The trade adds WALTONHIL with weight 11.88% after purchase, reducing GP from 13.49% to 11.89%, BRACBANK from 12.32% to 10.86%, BXPHARMA from 7.21% to 6.36%, CITYBANK from 6.42% to 5.66%, EBL from 5.15% to 4.54%, RENATA from 5.12% to 4.51%, LHBL from 4.5% to 3.96%, OLYMPIC from 2.59% to 2.28%, ROBI from 2.1% to 1.85%, SUMITPOWER from 2.45% to 2.16%, UPGDCL from 6.72% to 5.92%, SQURPHARMA from 25.44% to 22.42%, BATBC from 6.51% to 5.73%. [q:9b3b76f5-145d-44f1-9674-466966afec2d]\n- Commission cost is 330.29 BDT on a gross purchase of 82,572 BDT, raising total market value from 631,708.80 BDT to 716,835.80 BDT. [q:9b3b76f5-145d-44f1-9674-466966afec2d]\n- The Engineering sector rises to 11.9% actual, 6.9 points above the 5% target, breaking the sector_target rule. [q:9b3b76f5-145d-44f1-9674-466966afec2d]\n- The thesis j-029 describes this as a small trade on Walton ahead of the festival sales season, and the trade direction matches. [q:51fd572d-12fd-41a5-b701-4cf01bcf2b31]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.\n\n**What to look at next**\n- Engineering sector target; the portfolio's weight after this trade.\n\nNot covered: announcements between 2026-09-01 and 2026-10-01 for WALTONHIL; no rows were returned.\n\nThis is a review of your own records, not financial advice.",
+    "findings": [
+      {
+        "kind": "pre_trade",
+        "subject": "WALTONHIL",
+        "claim": "The trade adds WALTONHIL with weight 11.88% after the purchase, reduces GP from 13.49% to 11.89%, BRACBANK from 12.32% to 10.86%, BXPHARMA from 7.21% to 6.36%, CITYBANK from 6.42% to 5.66%, EBL from 5.15% to 4.54%, RENATA from 5.12% to 4.51%, LHBL from 4.5% to 3.96%, OLYMPIC from 2.59% to 2.28%, ROBI from 2.1% to 1.85%, SUMITPOWER from 2.45% to 2.16%, UPGDCL from 6.72% to 5.92%, SQURPHARMA from 25.44% to 22.42%, BATBC from 6.51% to 5.73%; the Engineering sector rises to 11.9% actual, 6.9 points above the 5% target; commission cost is 330.29 BDT on a gross purchase of 82,572 BDT; total market value rises from 631,708.80 BDT to 716,835.80 BDT.",
+        "numbers": [
+          {
+            "value": 11.88,
+            "label": "WALTONHIL weight after %"
+          },
+          {
+            "value": 13.49,
+            "label": "GP weight before %"
+          },
+          {
+            "value": 11.89,
+            "label": "GP weight after %"
+          },
+          {
+            "value": 12.32,
+            "label": "BRACBANK weight before %"
+          },
+          {
+            "value": 10.86,
+            "label": "BRACBANK weight after %"
+          },
+          {
+            "value": 7.21,
+            "label": "BXPHARMA weight before %"
+          },
+          {
+            "value": 6.36,
+            "label": "BXPHARMA weight after %"
+          },
+          {
+            "value": 6.42,
+            "label": "CITYBANK weight before %"
+          },
+          {
+            "value": 5.66,
+            "label": "CITYBANK weight after %"
+          },
+          {
+            "value": 5.15,
+            "label": "EBL weight before %"
+          },
+          {
+            "value": 4.54,
+            "label": "EBL weight after %"
+          },
+          {
+            "value": 5.12,
+            "label": "RENATA weight before %"
+          },
+          {
+            "value": 4.51,
+            "label": "RENATA weight after %"
+          },
+          {
+            "value": 4.5,
+            "label": "LHBL weight before %"
+          },
+          {
+            "value": 3.96,
+            "label": "LHBL weight after %"
+          },
+          {
+            "value": 2.59,
+            "label": "OLYMPIC weight before %"
+          },
+          {
+            "value": 2.28,
+            "label": "OLYMPIC weight after %"
+          },
+          {
+            "value": 2.1,
+            "label": "ROBI weight before %"
+          },
+          {
+            "value": 1.85,
+            "label": "ROBI weight after %"
+          },
+          {
+            "value": 2.45,
+            "label": "SUMITPOWER weight before %"
+          },
+          {
+            "value": 2.16,
+            "label": "SUMITPOWER weight after %"
+          },
+          {
+            "value": 6.72,
+            "label": "UPGDCL weight before %"
+          },
+          {
+            "value": 5.92,
+            "label": "UPGDCL weight after %"
+          },
+          {
+            "value": 330.29,
+            "label": "commission BDT"
+          },
+          {
+            "value": 82572,
+            "label": "gross purchase BDT"
+          },
+          {
+            "value": 631708.8,
+            "label": "total market value before BDT"
+          },
+          {
+            "value": 716835.8,
+            "label": "total market value after BDT"
+          },
+          {
+            "value": 25.44,
+            "label": "SQURPHARMA weight before %"
+          },
+          {
+            "value": 22.42,
+            "label": "SQURPHARMA weight after %"
+          },
+          {
+            "value": 6.51,
+            "label": "BATBC weight before %"
+          },
+          {
+            "value": 5.73,
+            "label": "BATBC weight after %"
+          },
+          {
+            "value": 11.9,
+            "label": "Engineering actual %"
+          },
+          {
+            "value": 5,
+            "label": "Engineering target %"
+          },
+          {
+            "value": 6.9,
+            "label": "Engineering delta points"
+          }
+        ],
+        "cites": [
+          "9b3b76f5-145d-44f1-9674-466966afec2d"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "thesis",
+        "subject": "j-029",
+        "claim": "The trade is a buy, matching the thesis's direction of a small trade on Walton ahead of the festival sales season.",
+        "numbers": [],
+        "cites": [
+          "51fd572d-12fd-41a5-b701-4cf01bcf2b31"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      }
+    ],
+    "gaps": [
+      "announcements_between {\"from\":\"2026-09-01\",\"to\":\"2026-10-01\",\"symbol\":\"WALTONHIL\"} returned no rows, so this review says nothing it would have shown."
+    ],
+    "citations": [
+      {
+        "run_query_id": "9b3b76f5-145d-44f1-9674-466966afec2d",
+        "query_id": "what_if",
+        "params": {
+          "symbol": "WALTONHIL",
+          "side": "buy",
+          "quantity": 70,
+          "price": 1179.6,
+          "as_of": "2026-10-01"
+        },
+        "source": "local",
+        "row_count": 23,
+        "rows": [
+          {
+            "row_type": "trade",
+            "as_of": "2026-10-01",
+            "symbol": "WALTONHIL",
+            "side": "buy",
+            "quantity": 70,
+            "price": 1179.6,
+            "gross_bdt": 82572,
+            "commission_bdt": 330.29,
+            "cash_bdt": 82902.29,
+            "total_market_value_before_bdt": 631708.8,
+            "total_market_value_after_bdt": 716835.8
+          },
+          {
+            "row_type": "holding",
+            "symbol": "BATBC",
+            "shares_before": 80,
+            "shares_after": 80,
+            "weight_before_pct": 6.51,
+            "weight_after_pct": 5.73
+          },
+          {
+            "row_type": "holding",
+            "symbol": "BRACBANK",
+            "shares_before": 1520,
+            "shares_after": 1520,
+            "weight_before_pct": 12.32,
+            "weight_after_pct": 10.86
+          },
+          {
+            "row_type": "holding",
+            "symbol": "BXPHARMA",
+            "shares_before": 320,
+            "shares_after": 320,
+            "weight_before_pct": 7.21,
+            "weight_after_pct": 6.36
+          },
+          {
+            "row_type": "holding",
+            "symbol": "CITYBANK",
+            "shares_before": 1300,
+            "shares_after": 1300,
+            "weight_before_pct": 6.42,
+            "weight_after_pct": 5.66
+          },
+          {
+            "row_type": "holding",
+            "symbol": "EBL",
+            "shares_before": 1200,
+            "shares_after": 1200,
+            "weight_before_pct": 5.15,
+            "weight_after_pct": 4.54
+          },
+          {
+            "row_type": "holding",
+            "symbol": "GP",
+            "shares_before": 240,
+            "shares_after": 240,
+            "weight_before_pct": 13.49,
+            "weight_after_pct": 11.89
+          },
+          {
+            "row_type": "holding",
+            "symbol": "LHBL",
+            "shares_before": 400,
+            "shares_after": 400,
+            "weight_before_pct": 4.5,
+            "weight_after_pct": 3.96
+          },
+          {
+            "row_type": "holding",
+            "symbol": "OLYMPIC",
+            "shares_before": 100,
+            "shares_after": 100,
+            "weight_before_pct": 2.59,
+            "weight_after_pct": 2.28
+          },
+          {
+            "row_type": "holding",
+            "symbol": "RENATA",
+            "shares_before": 36,
+            "shares_after": 36,
+            "weight_before_pct": 5.12,
+            "weight_after_pct": 4.51
+          },
+          {
+            "row_type": "holding",
+            "symbol": "ROBI",
+            "shares_before": 400,
+            "shares_after": 400,
+            "weight_before_pct": 2.1,
+            "weight_after_pct": 1.85
+          },
+          {
+            "row_type": "holding",
+            "symbol": "SQURPHARMA",
+            "shares_before": 655,
+            "shares_after": 655,
+            "weight_before_pct": 25.44,
+            "weight_after_pct": 22.42
+          },
+          {
+            "row_type": "holding",
+            "symbol": "SUMITPOWER",
+            "shares_before": 500,
+            "shares_after": 500,
+            "weight_before_pct": 2.45,
+            "weight_after_pct": 2.16
+          },
+          {
+            "row_type": "holding",
+            "symbol": "UPGDCL",
+            "shares_before": 250,
+            "shares_after": 250,
+            "weight_before_pct": 6.72,
+            "weight_after_pct": 5.92
+          },
+          {
+            "row_type": "holding",
+            "symbol": "WALTONHIL",
+            "shares_before": 0,
+            "shares_after": 70,
+            "weight_before_pct": 0,
+            "weight_after_pct": 11.88
+          },
+          {
+            "row_type": "sector",
+            "sector": "Pharmaceuticals & Chemicals",
+            "weight_before_pct": 37.78,
+            "weight_after_pct": 33.29,
+            "target_pct": 30
+          },
+          {
+            "row_type": "sector",
+            "sector": "Telecommunication",
+            "weight_before_pct": 15.58,
+            "weight_after_pct": 13.73,
+            "target_pct": 15
+          },
+          {
+            "row_type": "sector",
+            "sector": "Bank",
+            "weight_before_pct": 23.89,
+            "weight_after_pct": 21.05,
+            "target_pct": 25
+          },
+          {
+            "row_type": "sector",
+            "sector": "Fuel & Power",
+            "weight_before_pct": 9.16,
+            "weight_after_pct": 8.07,
+            "target_pct": 10
+          },
+          {
+            "row_type": "sector",
+            "sector": "Food & Allied",
+            "weight_before_pct": 9.09,
+            "weight_after_pct": 8.01,
+            "target_pct": 10
+          },
+          {
+            "row_type": "sector",
+            "sector": "Cement",
+            "weight_before_pct": 4.5,
+            "weight_after_pct": 3.96,
+            "target_pct": 5
+          },
+          {
+            "row_type": "sector",
+            "sector": "Engineering",
+            "weight_before_pct": 0,
+            "weight_after_pct": 11.88,
+            "target_pct": 5
+          },
+          {
+            "row_type": "new_finding",
+            "kind": "sector_target",
+            "subject": "Engineering",
+            "actual_pct": 11.9,
+            "target_pct": 5,
+            "delta_pct": 6.9,
+            "message": "Engineering is 11.9% of the portfolio, 6.9 points above your 5% target."
+          }
+        ]
+      },
+      {
+        "run_query_id": "51fd572d-12fd-41a5-b701-4cf01bcf2b31",
+        "query_id": "journal_for_symbol",
+        "params": {
+          "symbol": "WALTONHIL",
+          "as_of": "2026-10-01"
+        },
+        "source": "zetaris",
+        "row_count": 1,
+        "rows": [
+          {
+            "id": "j-029",
+            "transaction_id": "t-041",
+            "symbol": "WALTONHIL",
+            "side": "buy",
+            "trade_date": "2026-09-01",
+            "quantity": 10,
+            "price_per_share": 1252.2,
+            "thesis": "A small trade on Walton ahead of the festival sales season.",
+            "horizon": "weeks",
+            "exit_condition": null,
+            "tags": [
+              "trade"
+            ]
+          }
+        ],
+        "sql": "SELECT j.id, j.transaction_id, t.symbol, t.side, date_format(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd') AS trade_date, t.quantity, t.price_per_share,\n       j.horizon, j.thesis, j.exit_condition\nFROM tradeflow_ledger.journal j\nJOIN tradeflow_ledger.transactions t ON t.id = j.transaction_id\nWHERE j.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.symbol = 'WALTONHIL'\nORDER BY j.created_at DESC, j.id DESC"
+      }
+    ],
+    "needs_human": true,
+    "declined_advice": false,
+    "injection_seen": false,
+    "memories_recalled": [
+      {
+        "id": "mem-54",
+        "tags": [
+          "review",
+          "explain_week",
+          "2026-09-17",
+          "run:example_4"
+        ]
+      }
+    ],
+    "applied_corrections": [],
+    "rounds": 1,
+    "scores": {
+      "accuracy": 3,
+      "appropriateness": 3,
+      "actionability": 3,
+      "total": 9
+    },
+    "model_source": "openrouter/nvidia/nemotron-3.5-lightning",
+    "partial": false,
+    "stop_reason": null,
+    "new_findings": [
+      "sector_target"
+    ],
+    "escalation": {
+      "rule": "sector_target",
+      "sector": "Engineering",
+      "before": 0,
+      "after": 11.88,
+      "message": "Engineering is 11.9% of the portfolio, 6.9 points above your 5% target."
+    }
+  },
+  "error": null
 }
