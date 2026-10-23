@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { catalogueFor, citedResults, forModel, memoriesForModel, type ResultStore } from "./context";
+import { catalogueFor, citedResults, citedResultsForSubjects, forModel, MAX_CITED_ROWS, memoriesForModel, type ResultStore } from "./context";
 import { checkCitations, type Finding } from "./guards";
 import type { RecalledMemory } from "./memory";
 import { loadQueryData, runLocal, type QueryData, type QueryResult, type Row } from "./queries";
@@ -126,6 +126,37 @@ describe("catalogueFor", () => {
   });
 });
 
+describe("citedResultsForSubjects", () => {
+  it("keeps only rows matching a finding's subject (or its journal row's symbol), capped at MAX_CITED_ROWS per result, with row_count showing the full filtered count", () => {
+    // A journal result whose row's symbol is a finding's subject.
+    const journal: QueryResult = {
+      query_id: "journal_for_symbol", run_query_id: "j-1", params: {}, source: "local", sql_head: null,
+      rows: [{ id: "j-42", symbol: "ACME", note: "thesis entry" }],
+    };
+    // 20 announcements matching ACME — the blow-up case from the real run; row 12 carries a citable number.
+    const announcements: QueryResult = {
+      query_id: "announcements_between", run_query_id: "a-1", params: {}, source: "local", sql_head: null,
+      rows: Array.from({ length: 20 }, (_, i) => ({ symbol: "ACME", announcement: `a${i}`, value: 100 + i })),
+    };
+    const store: ResultStore = { "j-1": journal, "a-1": announcements };
+    const findings = [{ kind: "thesis" as const, subject: "j-42", claim: "x", numbers: [], cites: ["j-1", "a-1"], verdict: null, proposed_fix: null, memory_ids: [] }];
+    const cited = citedResultsForSubjects(findings, store);
+    expect(cited.map((result) => result.run_query_id)).toEqual(["j-1", "a-1"]);
+    // The journal row matched through the subject's symbol.
+    expect(cited[0].rows).toEqual(journal.rows);
+    // 20 matching rows, but at most MAX_CITED_ROWS to the model; row_count still reports all 20.
+    expect(cited[1]).toMatchObject({ row_count: 20, truncated: true });
+    expect(cited[1].rows).toHaveLength(MAX_CITED_ROWS);
+    // checkCitations reads the full store, so a number in a cut row (index 12 is past the cap) is still citable.
+    const cutValue = 112; // announcements.rows[12].value
+    const checkFindings = [{ ...findings[0], subject: "ACME", claim: `value ${cutValue}`, numbers: [{ value: cutValue, label: "value" }] }];
+    expect(checkCitations(checkFindings, store).ok).toBe(true);
+    // A result with no matching row comes back with no rows.
+    const noMatch = citedResultsForSubjects([{ ...findings[0], subject: "OTHER" }], store);
+    expect(noMatch.find((result) => result.run_query_id === "a-1")?.rows).toEqual([]);
+  });
+});
+
 describe("citedResults", () => {
   it("returns only the cited results, trimmed, each once, in the order first cited", () => {
     const big = synthetic("q-1", 200);
@@ -137,5 +168,62 @@ describe("citedResults", () => {
     expect(cited[1]).toMatchObject({ row_count: 200, truncated: true });
     expect(cited[1].rows).toHaveLength(50);
     expect(cited[0].rows).toEqual(small.rows);
+  });
+});
+
+/** A made-up thesis-check store: journal rows (id/symbol/note) and 50-row wide results, every row matching ACMEPHARMA. */
+function subjectStore(): ResultStore {
+  const store: ResultStore = {};
+  store["q-j"] = {
+    query_id: "journal_for_symbol", run_query_id: "q-j", params: {}, source: "local", sql_head: null,
+    rows: Array.from({ length: 20 }, (_, i) => ({ id: `j-${i}`, symbol: "ACMEPHARMA", note: "thesis entry" })),
+  };
+  for (let i = 0; i < 19; i++) {
+    store[`q-${i}`] = {
+      query_id: "announcements_between", run_query_id: `q-${i}`, params: {}, source: "local", sql_head: null,
+      rows: Array.from({ length: 50 }, (_, r) => ({ symbol: "ACMEPHARMA", announcement: `a${r}`, detail: "x".repeat(200) })),
+    };
+  }
+  return store;
+}
+
+/** The Evaluator prompt's variable part: the cited results and the findings JSON, the two pieces that grow with the run. */
+function evaluatorPromptChars(cited: ReturnType<typeof citedResultsForSubjects>, findingsJson: string): number {
+  return JSON.stringify(cited).length + findingsJson.length;
+}
+
+describe("citedResultsForSubjects", () => {
+  it("keeps only rows that match a finding's subject or its journal symbol", () => {
+    const store = subjectStore();
+    const findings = [{ cites: ["q-j"], subject: "j-1" }];
+    const cited = citedResultsForSubjects(findings, store);
+    expect(cited).toHaveLength(1);
+    expect(cited[0].rows).toHaveLength(MAX_CITED_ROWS);
+    expect(cited[0]).toMatchObject({ row_count: 20, truncated: true });
+    // The row matched through the journal id's symbol is kept.
+    expect(cited[0].rows.some((row) => row.id === "j-1")).toBe(true);
+  });
+
+  it("caps a cited result at MAX_CITED_ROWS matching rows and reports the full filtered count", () => {
+    const store = subjectStore();
+    const findings = [{ cites: ["q-3"], subject: "ACMEPHARMA" }];
+    const cited = citedResultsForSubjects(findings, store);
+    expect(cited[0].rows).toHaveLength(MAX_CITED_ROWS);
+    expect(cited[0]).toMatchObject({ row_count: 50, truncated: true });
+  });
+
+  it("stays well under MAX_PROMPT_CHARS when many theses over one symbol cite wide results (the real example_5 blow-up)", () => {
+    // The planted failure: 15 theses citing 19 wide results all matching one symbol hit 58,665 prompt chars
+    // against MAX_PROMPT_CHARS 40,000.
+    const store = subjectStore();
+    const findings = Array.from({ length: 15 }, (_, i) => ({
+      kind: "thesis", subject: `j-${i}`, claim: "thesis", numbers: [], cites: ["q-j", `q-${i % 19}`], verdict: null, proposed_fix: null, memory_ids: [],
+    }));
+    const cited = citedResultsForSubjects(findings, store);
+    expect(cited.every((result) => result.rows.length <= MAX_CITED_ROWS)).toBe(true);
+    // The prompt is MAX_PROMPT_CHARS (40,000): cited results plus the findings JSON plus the prompt text
+    // must stay under it. The real run's cited results alone reached ~42,400 chars; the cap holds them near 8,400.
+    const promptLike = evaluatorPromptChars(cited, JSON.stringify(findings));
+    expect(promptLike).toBeLessThan(40_000);
   });
 });

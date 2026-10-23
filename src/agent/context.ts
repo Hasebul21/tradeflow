@@ -119,7 +119,14 @@ function symbolOfSubject(subject: string, store: ResultStore): string {
  * that cites it: a row with a cell equal to the finding's subject (a symbol) or to the symbol of the journal id that
  * is its subject. A cited result with no matching row comes back with no rows. This is what the Evaluator and the
  * Writer see for this task, so a 30-thesis run does not send every symbol's rows with every finding.
+ *
+ * Each cited result keeps at most MAX_CITED_ROWS matching rows: many theses over one symbol can leave one result
+ * (announcements_between, journal_for_symbol) holding every matching row, which blew past MAX_PROMPT_CHARS in a real
+ * run. checkCitations reads the full rows from the run's result store, so trimming what the model sees never weakens
+ * the citation checks; row_count still reports the full filtered count.
  */
+export const MAX_CITED_ROWS = 8;
+
 export function citedResultsForSubjects(findings: readonly Pick<Finding, "cites" | "subject">[], store: ResultStore, maxRows?: number): ResultForModel[] {
   const keys = new Map<string, Set<string>>();
   for (const finding of findings) {
@@ -133,6 +140,8 @@ export function citedResultsForSubjects(findings: readonly Pick<Finding, "cites"
   }
   return [...keys].map(([cite, wanted]) => {
     const result = store[cite];
-    return forModel({ ...result, rows: result.rows.filter((row) => Object.values(row).some((cell) => typeof cell === "string" && wanted.has(cell))) }, maxRows);
+    const filtered = result.rows.filter((row) => Object.values(row).some((cell) => typeof cell === "string" && wanted.has(cell)));
+    const view = forModel({ ...result, rows: filtered.slice(0, MAX_CITED_ROWS) }, maxRows);
+    return { ...view, row_count: filtered.length, truncated: filtered.length > view.rows.length };
   });
 }
