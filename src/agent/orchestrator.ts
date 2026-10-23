@@ -26,7 +26,7 @@ import { dropRepeatFailures, keyOf, knownSubjects, mergeRevision, passesCodeChec
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
-import { batchesToRerun, findingsOfBatch, keepThesisSteps, prepareThesisEvidence, THESIS_BATCH_SIZE, type PreparedTheses } from "./thesis";
+import { batchesToRerun, findingsOfBatch, keepThesisSteps, withNamedRows, prepareThesisEvidence, THESIS_BATCH_SIZE, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
 import { about as worldAbout, recordRun, type WorldAbout } from "./world";
 import { appendContribution, loadContributions } from "@/lib/data";
@@ -382,6 +382,12 @@ function betterDraft(draft: Draft, best: Draft): boolean {
   return draft.total !== null && (best.total === null || draft.total > best.total);
 }
 
+/** How many thesis findings carry each verdict: code's count, for the Writer's number check. */
+function verdictCounts(findings: readonly Finding[]): { confirmed: number; contradicted: number; open: number } {
+  const count = (verdict: string) => findings.filter((finding) => finding.kind === "thesis" && finding.verdict === verdict).length;
+  return { confirmed: count("confirmed"), contradicted: count("contradicted"), open: count("open") };
+}
+
 /** total is null when the Evaluator accepted the draft unscored (score_unavailable). */
 type Draft = { findings: Finding[]; gaps: string[]; /** The gaps code wrote, in forms that hold only code text and validated names: the only gap text whose figures the Writer may repeat. */ code_gaps: string[]; scores: Scores | null; total: number | null; round: number; /** True when no draft existed and this one only carries the code plan's gap. */ planOnly?: true };
 
@@ -474,6 +480,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
   let lastConfidence: number | null = null;
   /** thesis_check: the journal ids and symbols of the theses checked, in journal order. */
   let thesisIds: { journal_id: string; symbol: string }[] = [];
+  // The kept plan steps of the thesis run: the week_moves step goes to each batch's Analyst, for the figures it holds.
+  let thesisSteps: PlannedStep[] = [];
   /** pre_trade: what the what_if rows decided in code. */
   let preTrade: { new_findings: string[]; escalation: PreTradeEscalation | null } | null = null;
   /** reconcile: the reconciliation result the proposals are built from. */
@@ -999,7 +1007,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             const planned = await planOrFallback({ task, question, as_of: asOf, trade: null, memories, world, feedback });
             stop = budgetStop(true);
             if (stop !== null) break;
-            const prepared = await prepareThesisEvidence({ state, tracer, asOf, steps: keepThesisSteps(planned.steps, tracer, round), round });
+            thesisSteps = keepThesisSteps(planned.steps, tracer, round);
+            const prepared = await prepareThesisEvidence({ state, tracer, asOf, steps: thesisSteps, round });
             thesisIds = prepared.theses.map(({ journal_id, symbol }) => ({ journal_id, symbol }));
             thesis = { prepared, focus: planned.focus, note: planned.note, found: prepared.batches.map(() => null), gapsBy: prepared.batches.map(() => []), codeGapsBy: prepared.batches.map(() => []) };
             tracer.log({
@@ -1032,7 +1041,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             if (stop !== null) break rounds;
             calling = "Analyst";
             const analysis = await analyse(
-              { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback, flagged_findings: round === 0 ? null : flaggedIn(thesis.found[index]) },
+              { task, question, as_of: asOf, focus: thesis.focus, steps: thesisSteps.filter((step) => step.query_id === "week_moves"), theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback, flagged_findings: round === 0 ? null : flaggedIn(thesis.found[index]) },
               { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
             );
             modelIds.add(analysis.model.model_id);
@@ -1042,7 +1051,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
               continue;
             }
             if (analysis.injection_seen) flags.injection = true;
-            const { kept, dropped } = findingsOfBatch(batch, analysis.findings);
+            const named = withNamedRows(analysis.findings, round === 0 ? null : feedback, new Set(Object.keys(state.store)));
+            const { kept, dropped } = findingsOfBatch(batch, named);
             if (dropped.length > 0) {
               tracer.log({
                 agent_name: AGENT,
@@ -1180,6 +1190,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             proposals: task === "reconcile" && reconciliation !== null ? proposalsFrom(reconciliation.rows, accepted.findings, reconciliation.run_query_id).length : null,
             citations: citationsOf(accepted.findings, state.store).length,
             rounds: accepted.round + 1,
+            verdicts: verdictCounts(accepted.findings),
           },
         },
         { tracer, run: state, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), round: accepted.round },

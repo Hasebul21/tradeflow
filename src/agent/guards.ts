@@ -209,7 +209,7 @@ export function afterModel(agent: string, reply: unknown, input: unknown, tracer
         problems.push(`finding ${index + 1} does not match the finding schema (${issue.path.join(".") || "finding"}: ${issue.message})`);
         return;
       }
-      if (task === "thesis_check" && (parsed.data.verdict === null || !THESIS_VERDICTS.includes(parsed.data.verdict))) {
+      if (task === "thesis_check" && parsed.data.kind === "thesis" && (parsed.data.verdict === null || !THESIS_VERDICTS.includes(parsed.data.verdict))) {
         problems.push(`finding ${index + 1} (${parsed.data.subject}) has verdict ${JSON.stringify(parsed.data.verdict)}; a thesis verdict is confirmed, contradicted or open (use open when no row settles it)`);
       }
     });

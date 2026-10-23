@@ -198,6 +198,33 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
   return { theses, batches: chunk(theses, THESIS_BATCH_SIZE), gaps, code_gaps: codeGaps, budget_cut: budgetCut };
 }
 
+const UUID_IN_FIX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const FIX_HEADER = /Fix finding \d+ \(([a-z_]+) ([^)]+)\):/g;
+
+/**
+ * The row ids the Evaluator's fix names for each finding. Its fix says "Fix finding 26 (thesis j-001): ... 12.5 is in
+ * dividends_between <id>: cite the one it came from". A finding of that kind and subject that cites none of the named
+ * rows gets them added, when they are rows of this run. The guard still checks every figure against the cited rows,
+ * so a row that does not hold the figure keeps the finding refused.
+ */
+export function withNamedRows<T extends { kind: string; subject: string; cites: string[] }>(findings: readonly T[], fix: string | null, runRowIds: ReadonlySet<string>): T[] {
+  if (fix === null || fix === "") return [...findings];
+  const named = new Map<string, Set<string>>();
+  const headers = [...fix.matchAll(FIX_HEADER)];
+  headers.forEach((header, index) => {
+    const end = index + 1 < headers.length ? headers[index + 1].index : fix.length;
+    const ids = [...fix.slice(header.index + header[0].length, end).matchAll(UUID_IN_FIX)].map((match) => match[0]).filter((id) => runRowIds.has(id));
+    const key = `${header[1]} ${header[2]}`;
+    named.set(key, new Set([...(named.get(key) ?? []), ...ids]));
+  });
+  return findings.map((finding) => {
+    const ids = named.get(`${finding.kind} ${finding.subject}`);
+    if (ids === undefined || ids.size === 0) return finding;
+    const cites = [...new Set([...finding.cites, ...ids])];
+    return cites.length === finding.cites.length ? finding : { ...finding, cites };
+  });
+}
+
 /**
  * The findings an Analyst batch reply may keep. A thesis finding is dropped when its subject is not one of the batch's
  * own journal ids, or when an earlier finding of the reply already covers that thesis (the prompt asks for one per

@@ -435,6 +435,18 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   const rejectByCode = (failed: readonly CodeCheck[], flagged: number[]): EvaluateOutcome => {
     // Every failed check's fix, in check order, so the Analyst sees every open problem in one round.
     const fix = failed.map((check) => check.fix ?? "").filter((text) => text !== "").join(" ");
+    // Every result the run holds, so a trace shows which ids a fix can name and which query and params each one is.
+    for (const result of Object.values(input.results)) {
+      tracer.log({
+        agent_name: AGENT,
+        action: "store_entry",
+        input_summary: capped(`${result.query_id} ${JSON.stringify(result.params)}`),
+        output_summary: capped(`run_query_id ${result.run_query_id} rows ${result.rows.length}`),
+        target_agent: target,
+        status: "rejected",
+        retry_count: round,
+      });
+    }
     // What each flagged finding cites, so a trace shows whether a rejected figure's row was cited at all.
     for (const number of flagged) {
       const finding = findings[number - 1];

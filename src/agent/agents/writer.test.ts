@@ -241,7 +241,7 @@ describe("the Writer with the sample model", () => {
     expect(calls[0].system).toBe(readFileSync(path.join(__dirname, "../prompts/writer.md"), "utf8"));
     expect(calls[0]).toMatchObject({ model: "strong", json: true, agent: "Writer" });
     const user = JSON.parse(calls[0].user) as Record<string, unknown>;
-    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "findings", "gaps", "declined_advice", "escalation", "memories", "applied_corrections", "retry_reason"]);
+    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "findings", "gaps", "declined_advice", "counts", "escalation", "memories", "applied_corrections", "retry_reason"]);
     expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, gaps, declined_advice: true, escalation: null, retry_reason: null });
     expect(user.memories).toEqual([REVIEW_MEMORY, CORRECTION].map(({ id, tags, content }) => ({ id, tags, content })));
     expect(user.applied_corrections).toEqual([{ id: CORRECTION.id, tags: CORRECTION.tags, content: CORRECTION.content }]);
@@ -380,6 +380,27 @@ describe("checkReview and the run's own counts", () => {
 
   it("allows '4 proposals' when the run has 4 proposals", () => {
     expect(checkReview(review("4 proposals await your approval. Nothing has been saved; the decision is yours."), allowed(COUNTS))).toEqual({ ok: true });
+  });
+
+  it("allows '12 confirmed' when code counts 12 confirmed findings, and rejects a count it did not make", () => {
+    // 24 Oct, example_5: the Writer stated "12 confirmed" from the findings, and no row or finding held 12.
+    const verdicts = { findings: 30, proposals: null, citations: 18, rounds: 3, verdicts: { confirmed: 12, contradicted: 3, open: 15 } };
+    const thesisReview = (summary: string) => ({ summary, review_markdown: `${summary}\n\n${DISCLAIMER}`, memory_note: "Thesis check on 2026-10-01." });
+    const thesisAllowed = (counts?: RunCounts) => ({ findings: [], results: {}, memories: [], task: "thesis_check" as const, ...(counts === undefined ? {} : { counts }) });
+    expect(checkReview(thesisReview("12 confirmed, 3 contradicted and 15 open theses. Nothing has been saved."), thesisAllowed(verdicts))).toEqual({ ok: true });
+    expect(checkReview(thesisReview("13 confirmed theses. Nothing has been saved."), thesisAllowed(verdicts))).not.toEqual({ ok: true });
+  });
+
+  it("rejects a verdict count that is not the run's count, even when the number appears elsewhere", () => {
+    // 24 Oct, example_5: the run had 14 confirmed, 4 contradicted, 12 open; the review said 12, 3 and 10, and "15 open".
+    const verdicts = { findings: 30, proposals: null, citations: 18, rounds: 2, verdicts: { confirmed: 14, contradicted: 4, open: 12 } };
+    const thesisReview = (summary: string) => ({ summary, review_markdown: `${summary}\n\n${DISCLAIMER}`, memory_note: "Thesis check on 2026-10-01." });
+    const thesisAllowed = { findings: [], results: {}, memories: [], task: "thesis_check" as const, counts: verdicts };
+    const wrong = checkReview(thesisReview("Your portfolio has 12 confirmed, 3 contradicted and 10 still open theses."), thesisAllowed);
+    expect(wrong.ok).toBe(false);
+    expect(!wrong.ok && wrong.reason).toContain('says "12 confirmed", but the run has 14 confirmed thesis findings');
+    expect(checkReview(thesisReview("14 confirmed, 4 contradicted and 12 open theses."), thesisAllowed)).toEqual({ ok: true });
+    expect(checkReview(thesisReview("14 confirmed and 15 open theses."), thesisAllowed).ok).toBe(false);
   });
 
   it("rejects '5 proposals' when the run has 4", () => {

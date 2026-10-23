@@ -255,6 +255,15 @@ describe("prompts/analyst.md and ANALYST_REPLY_SHAPE name the symbol as a subjec
   });
 });
 
+describe("prompts/analyst.md tells a revision to cite the row a figure is in", () => {
+  it("says a figure the feedback places in a row is kept only with that row cited, and otherwise comes out", () => {
+    // 24 Oct, example_5: the revision kept figures from a row it did not cite (25.44 in week_moves, 12.5 in a dividend row).
+    const prompt = readFileSync(path.resolve("src/agent/prompts/analyst.md"), "utf8");
+    expect(prompt).toContain("add that row's run_query_id to the finding's cites and keep the figure");
+    expect(prompt).toContain("a figure that no row you cite holds must come out of the claim");
+  });
+});
+
 describe("prompts/analyst.md names the pre_trade finding's subject", () => {
   it("says the trade's symbol is the subject, as code and the sample model expect", () => {
     const prompt = readFileSync(path.resolve("src/agent/prompts/analyst.md"), "utf8");

@@ -43,6 +43,13 @@ describe("afterModel", () => {
     expect(!result.ok && result.reason).toMatch(/finding 1 does not match the finding schema/);
   });
 
+  it("asks a verdict only of thesis findings: a portfolio move in a thesis_check reply passes without one", () => {
+    // 24 Oct, example_5: the Analyst wrote PORTFOLIO and SQURPHARMA findings, which carry no verdict, and was blocked for it.
+    const { tracer } = collector();
+    const move = { kind: "move", subject: "PORTFOLIO", claim: "The data shows the portfolio fell 2.1% over the week.", numbers: [{ value: -2.1, label: "change %" }], cites: ["q-1"], verdict: null, proposed_fix: null, memory_ids: [] };
+    expect(afterModel("Analyst", { findings: [move], gaps: [] }, { task: "thesis_check" }, tracer).ok).toBe(true);
+  });
+
   it("names the thesis and the default when a thesis_check finding has verdict null", () => {
     const { tracer } = collector();
     const finding = { kind: "thesis", subject: "j-010", claim: "No row settles it.", numbers: [], cites: ["q-1"], verdict: null, proposed_fix: null, memory_ids: [] };

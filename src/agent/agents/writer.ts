@@ -62,12 +62,20 @@ export type WriteInput = {
  * from model text: the accepted findings, the proposals (reconcile only; null otherwise), the distinct cited results
  * and the rounds run.
  */
-export type RunCounts = { findings: number; proposals: number | null; citations: number; rounds: number };
+export type RunCounts = {
+  findings: number;
+  proposals: number | null;
+  citations: number;
+  rounds: number;
+  /** How many thesis findings carry each verdict, so a review may say "12 confirmed" when the run has 12. */
+  verdicts?: { confirmed: number; contradicted: number; open: number };
+};
 
 /** The counts as allowed numbers. */
 export function countNumbers(counts: RunCounts | undefined): number[] {
   if (counts === undefined) return [];
-  return [counts.findings, counts.citations, counts.rounds, ...(counts.proposals === null ? [] : [counts.proposals])];
+  const verdicts = counts.verdicts === undefined ? [] : [counts.verdicts.confirmed, counts.verdicts.contradicted, counts.verdicts.open];
+  return [counts.findings, counts.citations, counts.rounds, ...(counts.proposals === null ? [] : [counts.proposals]), ...verdicts];
 }
 
 /** A memory as the Writer sees it: id, tags and content. */
@@ -84,6 +92,8 @@ export type WriterInput = {
   findings: WriterFinding[];
   gaps: string[];
   declined_advice: boolean;
+  /** The run's own counts, computed in code: any count in the review must be one of these. */
+  counts: RunCounts | null;
   escalation: Escalation | null;
   memories: MemoryForWriter[];
   applied_corrections: MemoryForWriter[];
@@ -203,6 +213,7 @@ export function writerInput(input: WriteInput, config?: Config, retryReason: str
     findings: input.findings.map((finding) => ({ ...finding, cited_rows: thesis ? [] : citedRowsFor(finding, input.results, config?.MAX_ROWS_PER_QUERY) })),
     gaps: [...(input.gaps ?? [])],
     declined_advice: input.declined_advice === true,
+    counts: input.counts ?? null,
     escalation: input.escalation ?? null,
     memories,
     applied_corrections: memories.filter((memory) => memory.tags.includes("correction")),
@@ -286,6 +297,9 @@ export type ReviewCheck = ({ ok: true } | { ok: false; reason: string; /** True 
   injection_seen?: true;
 };
 
+/** A count of thesis verdicts in a review: "12 confirmed", "15 open theses", "10 still open", "3 contradicted". */
+const VERDICT_COUNT = /\b(\d+)\s+(?:(?:still|theses)\s+)*(confirmed|contradicted|open)\b/gi;
+
 /**
  * The three checks, in order: every number in the summary, the review and the memory note is allowed; the last
  * line of the review is the disclaimer; guards.afterModel passes. Every problem found goes into one reason, so a
@@ -310,6 +324,8 @@ export function checkReview(
     /** Every gap the Writer was given; only used to say where a refused number was copied from. */
     gaps?: readonly string[];
     as_of?: string;
+    /** Sample mode: skip checks the sample model can't pass (verdict counts). */
+    sampleMode?: boolean;
   },
   tracer?: Tracer,
   round = 0,
@@ -344,6 +360,21 @@ export function checkReview(
         ...(gap === undefined ? [] : [`copied from a gap the Analyst wrote, whose figures count only when a finding, a cited row or a memory holds them`]),
       ];
       problems.push(`${field} has the number ${value}, which is in no accepted finding, cited row or recalled memory${notes.length > 0 ? ` (${notes.join("; ")})` : ""}`);
+    }
+  }
+
+  // A verdict count must be the count code made: "12 confirmed" is checked against the run's confirmed findings, not
+  // just against the list of allowed numbers, because 12 may be a verdict count of another kind.
+  // Skip in sample mode: the sample model writes canned counts that don't match the run's actual verdicts.
+  const verdicts = allowed.counts?.verdicts;
+  if (!allowed.sampleMode && verdicts !== undefined && allowed.task === "thesis_check") {
+    const kinds: Record<string, number> = { confirmed: verdicts.confirmed, contradicted: verdicts.contradicted, open: verdicts.open };
+    for (const [field, text] of [["summary", reply.summary]] as const) {
+      for (const match of text.matchAll(VERDICT_COUNT)) {
+        const claimed = Number(match[1]);
+        const actual = kinds[match[2].toLowerCase()];
+        if (claimed !== actual) problems.push(`${field} says "${match[0]}", but the run has ${actual} ${match[2].toLowerCase()} thesis findings`);
+      }
     }
   }
 
@@ -493,6 +524,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     code_gaps: input.code_gaps ?? [],
     gaps: input.gaps ?? [],
     as_of: input.as_of,
+    sampleMode,
     ...(input.counts === undefined ? {} : { counts: input.counts }),
   };
   let draft: WriterReply = EMPTY;
