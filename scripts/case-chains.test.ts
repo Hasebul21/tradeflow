@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CASE_CHAINS, chainGroups, chainsFirst, parseConcurrency, runChains } from "./case-chains";
+import { CASE_CHAINS, chainGroups, chainsFirst, parseConcurrency, parseOnly, runChains, selectCases } from "./case-chains";
 import { listCases } from "./eval-cases";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,6 +23,40 @@ describe("chainGroups", () => {
 
   it("lists only cases that exist", () => {
     for (const chain of CASE_CHAINS) for (const id of chain) expect(ALL_IDS).toContain(id);
+  });
+});
+
+describe("--only: parseOnly and selectCases", () => {
+  it("splits, trims and dedupes the list, and refuses a missing list or an empty id", () => {
+    expect(parseOnly("example_2, example_7b,example_2")).toEqual({ ids: ["example_2", "example_7b"], error: null });
+    expect(parseOnly(undefined).error).toMatch(/--only needs a list/);
+    expect(parseOnly("--out").error).toMatch(/--only needs a list/);
+    expect(parseOnly("example_2,,example_4").error).toMatch(/empty case id/);
+  });
+
+  it("runs example_3a, example_3b and example_7a before example_7b, in chain order", () => {
+    const selected = selectCases(ALL_IDS, ["example_7b"]);
+    expect(selected).toEqual({ ids: ["example_3a", "example_3b", "example_7a", "example_7b"], error: null });
+    expect(chainGroups(selected.ids)).toEqual([["example_3a", "example_3b", "example_7a", "example_7b"]]);
+  });
+
+  it("runs only the named cases with --no-chain-deps, and a case in no chain alone", () => {
+    expect(selectCases(ALL_IDS, ["example_7b"], false)).toEqual({ ids: ["example_7b"], error: null });
+    expect(selectCases(ALL_IDS, ["example_2"])).toEqual({ ids: ["example_2"], error: null });
+  });
+
+  it("keeps the usual case order whatever order the list gives, and adds nothing for a chain's first case", () => {
+    expect(selectCases(ALL_IDS, ["example_4", "example_3a", "example_2"]).ids).toEqual(["example_2", "example_3a", "example_4"]);
+  });
+
+  it("refuses an unknown id and names it", () => {
+    const selected = selectCases(ALL_IDS, ["example_2", "example_99"]);
+    expect(selected.ids).toEqual([]);
+    expect(selected.error).toMatch(/^Unknown case id for --only: example_99\./);
+  });
+
+  it("brings only the chain members that exist", () => {
+    expect(selectCases(["a", "c", "x"], ["c"], true, [["a", "b", "c"]]).ids).toEqual(["a", "c"]);
   });
 });
 

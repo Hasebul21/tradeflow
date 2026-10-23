@@ -48,6 +48,42 @@ export function chainGroups(ids: readonly string[], chains: ReadonlyArray<readon
 }
 
 /**
+ * The case ids that `--only id1,id2` names: split on commas, trimmed, each once, in the order given. A missing list or
+ * an empty id is an error.
+ */
+export function parseOnly(value: string | undefined): { ids: string[]; error: string | null } {
+  if (value === undefined || value.startsWith("--")) return { ids: [], error: "--only needs a list of case ids, such as --only example_2,example_7b." };
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.some((part) => part === "")) return { ids: [], error: `--only has an empty case id: ${JSON.stringify(value)}.` };
+  return { ids: [...new Set(parts)], error: null };
+}
+
+/**
+ * The ids to run from `all` (the usual case order) for `--only`. With `chainDeps` (the default), a chain member also
+ * brings every member of its chain before it, so --only example_7b runs example_3a, example_3b, example_7a and
+ * example_7b. The result keeps the order of `all`. An id that is not in `all` is an error naming it.
+ */
+export function selectCases(
+  all: readonly string[],
+  only: readonly string[],
+  chainDeps = true,
+  chains: ReadonlyArray<readonly string[]> = CASE_CHAINS,
+): { ids: string[]; error: string | null } {
+  const known = new Set(all);
+  const unknown = only.filter((id) => !known.has(id));
+  if (unknown.length > 0) return { ids: [], error: `Unknown case id${unknown.length === 1 ? "" : "s"} for --only: ${unknown.join(", ")}. Known: ${all.join(", ")}.` };
+  const wanted = new Set(only);
+  if (chainDeps) {
+    for (const id of only) {
+      const chain = chains.find((members) => members.includes(id));
+      if (chain === undefined) continue;
+      for (const member of chain.slice(0, chain.indexOf(id))) if (known.has(member)) wanted.add(member);
+    }
+  }
+  return { ids: all.filter((id) => wanted.has(id)), error: null };
+}
+
+/**
  * The groups with every chain (more than one case) first, each kind in its own order, so a chain, the longest work,
  * starts at once and is never queued behind lone cases. The lone cases still start as soon as a slot is free.
  */

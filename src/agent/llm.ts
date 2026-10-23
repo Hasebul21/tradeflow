@@ -12,6 +12,7 @@ import {
   loadConfig,
   MODEL_RETRY_BACKOFF_MS,
   MODEL_TIMEOUT_CAP_MS,
+  TIMEOUT_MAX_TRIES,
   STRUCTURED_REPLY_MAX_TRIES,
   type Config,
   type Tier,
@@ -829,6 +830,8 @@ async function sendWithRetry(
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const { options, cfg } = state;
   let transportRetried = false;
+  // Attempts that timed out; with the round's end given, a timeout gets up to TIMEOUT_MAX_TRIES tries in all.
+  let timeouts = 0;
   // Tries that ended in a 502 "empty_response", counted when the caller passed the round's end.
   let emptyTries = 0;
   // Raised for a retry after a 502 "empty_response": the same request with a larger token budget.
@@ -844,13 +847,13 @@ async function sendWithRetry(
       // The run was stopped: the SDK throws APIUserAbortError. It is the owner's decision, not a failure to retry or fall back from.
       if (options.signal?.aborted) throw error;
       const failure = classify(error);
-      const retryTrace = (why: string) =>
+      const retryTrace = (why: string, next = "trying once more") =>
         options.tracer?.log({
           agent_name: options.agent,
           ...promptHashOf(options),
           action: "model_retry",
           input_summary: `${tier} model request`,
-          output_summary: `${why}; trying once more (the failed request counted as a model call)`,
+          output_summary: `${why}; ${next} (the failed request counted as a model call)`,
           status: "retry",
           usage: countAttemptOnLine(state),
           why,
@@ -915,16 +918,24 @@ async function sendWithRetry(
           const why =
             failure.kind === "timeout" ? "timeout" : failure.kind === "network" ? "network error" : `HTTP ${failure.kind === "rate_limit" ? 429 : failure.status}`;
           // A timeout used the whole attempt, so the call's own deadline has passed. With the round's end given, it
-          // gets its one retry as a whole new attempt when the backoff and a whole model call (MODEL_TIMEOUT_CAP_MS)
-          // still fit in the round. With reserveAfterMs (the Planner), the retry's worst case must also leave that much
+          // gets up to TIMEOUT_MAX_TRIES tries in all, each retry a whole new attempt (renewDeadlineInRound), when the
+          // backoff and a whole model call (MODEL_TIMEOUT_CAP_MS) still fit in the round. With reserveAfterMs (the Planner), the retry's worst case must also leave that much
           // of the round for the agents after it; otherwise the timeout stands at once and the caller falls back.
           // With the defaults (a 51 min round, ROUND_TIMEOUT_DEFAULT_MS, sized for this) a Planner timeout gets its retry:
           // after one 420 s attempt 2640 s is left, over the 840.3 s the retry and the Analyst's call need. With a short
           // round the timeout goes straight to the code plan instead, on purpose: the Analyst's time matters more.
-          if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= roomNeeded(state, BACKOFF_MS)) {
+          if (failure.kind === "timeout") timeouts += 1;
+          if (
+            failure.kind === "timeout" &&
+            timeouts < TIMEOUT_MAX_TRIES &&
+            options.roundDeadlineMs !== undefined &&
+            options.roundDeadlineMs - Date.now() >= roomNeeded(state, BACKOFF_MS)
+          ) {
             transportRetried = true;
+            // No backoff for a retry the run's model-call budget would refuse.
+            ensureModelCallLeft(state);
             state.retries += 1;
-            retryTrace(why);
+            retryTrace(why, `try ${timeouts + 1} of ${TIMEOUT_MAX_TRIES}`);
             await sleep(BACKOFF_MS, options.signal);
             renewDeadlineInRound(state, tier);
             continue;
@@ -961,7 +972,10 @@ async function sendWithRetry(
             continue;
           }
           const times = transportRetried ? "twice" : "once, with no time left for a retry";
-          if (failure.kind === "timeout") throw new ModelTimeout(`The ${tier} model call timed out ${times} (${timeout} ms at most for the attempt).`);
+          if (failure.kind === "timeout") {
+            const timedOut = timeouts >= 3 ? `${timeouts} times` : timeouts === 2 ? "twice" : times;
+            throw new ModelTimeout(`The ${tier} model call timed out ${timedOut} (${timeout} ms at most for the attempt).`);
+          }
           if (failure.kind === "rate_limit") throw new RateLimited(`The ${tier} model call was rate limited (HTTP 429) ${times}.`);
           if (failure.kind === "network") throw new ModelNetworkError(`The ${tier} model call failed ${times} (network): ${scrub(failure.message, cfg)}`);
           throw new ModelHttpError(`The ${tier} model call failed ${times}: ${scrub(failure.message, cfg)}`, failure.status);

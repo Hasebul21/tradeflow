@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadConfig, MODEL_TIMEOUT_CAP_MS, STRUCTURED_REPLY_MAX_TRIES } from "./config";
+import { loadConfig, MODEL_TIMEOUT_CAP_MS, STRUCTURED_REPLY_MAX_TRIES, TIMEOUT_MAX_TRIES } from "./config";
 import {
   BadJson,
   complete,
@@ -562,6 +562,51 @@ describe("complete: structured retries within the round", () => {
     // The retry got the tier's whole timeout again, not what was left of the first attempt.
     const [, options] = mocks.create.mock.calls[1] as [unknown, { timeout: number }];
     expect(options.timeout).toBeGreaterThan(MODEL_TIMEOUT_CAP_MS - 5000);
+  });
+
+  it("a slow model is waited out: up to TIMEOUT_MAX_TRIES (3) timed-out tries in a roomy round, each a whole attempt, every one counted", async () => {
+    const timeout = () => Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+    expect(TIMEOUT_MAX_TRIES).toBe(3);
+    // Two timeouts, then a reply: the third try answers.
+    mocks.create.mockRejectedValueOnce(timeout()).mockRejectedValueOnce(timeout()).mockResolvedValueOnce(reply('{"steps": [1]}'));
+    const result = await complete({ ...inRound(3000000), timeoutMs: 900 });
+    expect(result.json).toEqual({ steps: [1] });
+    expect(result.model_calls).toBe(3);
+    expect(mocks.create).toHaveBeenCalledTimes(3);
+    expect(traced("model_retry").map((line) => line.output_summary)).toEqual([
+      "timeout; try 2 of 3 (the failed request counted as a model call)",
+      "timeout; try 3 of 3 (the failed request counted as a model call)",
+    ]);
+    // Each retry got the tier's whole timeout again, not what was left of the attempt before it.
+    for (const call of [1, 2]) expect((mocks.create.mock.calls[call][1] as { timeout: number }).timeout).toBeGreaterThan(MODEL_TIMEOUT_CAP_MS - 5000);
+
+    // Three timeouts: ModelTimeout after 3 requests, never a fourth, all 3 counted.
+    mocks.create.mockReset();
+    mocks.create.mockRejectedValue(timeout());
+    lines = [];
+    const error = await complete({ ...inRound(3000000), timeoutMs: 900 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelTimeout);
+    expect((error as Error).message).toContain("timed out 3 times");
+    expect(mocks.create).toHaveBeenCalledTimes(TIMEOUT_MAX_TRIES);
+    expect(failedCallUsage(error).model_calls).toBe(TIMEOUT_MAX_TRIES);
+  });
+
+  it("a timeout retry starts only with room for a whole attempt, and never past modelCallsLeft", async () => {
+    const timeout = () => Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+    mocks.create.mockRejectedValue(timeout());
+    // The run has 2 model calls left: the third try is refused, with both requests counted.
+    const spent = await complete({ ...inRound(3000000), timeoutMs: 900, modelCallsLeft: 2 }).catch((e: unknown) => e);
+    expect(spent).toBeInstanceOf(BudgetExhaustedError);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(failedCallUsage(spent).model_calls).toBe(2);
+
+    // Without the round's end: one retry, as before.
+    mocks.create.mockReset();
+    mocks.create.mockRejectedValue(timeout());
+    const noRound = await complete({ ...base, timeoutMs: 5000 }).catch((e: unknown) => e);
+    expect(noRound).toBeInstanceOf(ModelTimeout);
+    expect((noRound as Error).message).toContain("timed out twice");
+    expect(mocks.create).toHaveBeenCalledTimes(2);
   });
 
   it("with reserveAfterMs (the Planner), a timeout is retried only when its worst case still leaves that much of the round", async () => {

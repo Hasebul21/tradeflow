@@ -109,6 +109,14 @@ export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 32000;
  */
 export const EMPTY_RESPONSE_MAX_TRIES = 3;
 
+/**
+ * Tries in total for one model call that times out, when the caller passes the round's end (roundDeadlineMs). Each
+ * retry is a whole new attempt (MODEL_TIMEOUT_CAP_MS) and starts only while the backoff and a whole attempt (and the
+ * Planner's reserveAfterMs) still fit in the round, which never runs past the run's end. Without the round's end, one
+ * retry, as before. Raised from 2 on 23 Oct: a slow model day should be waited out, not given up on.
+ */
+export const TIMEOUT_MAX_TRIES = 3;
+
 /** The wait before try 2 and before try 3 of an empty_response retry; it comes out of the round's time left. */
 export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000];
 
@@ -118,6 +126,38 @@ export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000];
  * least MODEL_TIMEOUT_CAP_MS of the round is left. Without the round's end, one retry, as before.
  */
 export const STRUCTURED_REPLY_MAX_TRIES = 3;
+
+/** The Writer's attempts: one retry with retry_reason after a review fails its code check, then needs_human. */
+export const WRITER_MAX_ATTEMPTS = 2;
+
+/**
+ * MAX_MODEL_CALLS by default. Every request counts as a model call, each retry included (llm.ts, modelCallsLeft), so
+ * the budget holds MAX_ROUNDS (3) rounds in which every agent call uses all 3 of its tries (STRUCTURED_REPLY_MAX_TRIES,
+ * EMPTY_RESPONSE_MAX_TRIES and TIMEOUT_MAX_TRIES are all 3):
+ *   the Router, once before round 1                                   1
+ *   one round: the Planner                       1 call  × 3 tries     3
+ *              the Analyst (MAX_TOOL_ROUNDS 2 + 1) 3 calls × 3 tries    9
+ *              the Evaluator                     1 call  × 3 tries     3
+ *   three rounds                                 3 × 15               45
+ *   the Writer (WRITER_MAX_ATTEMPTS)             2 calls × 3 tries     6
+ *   in all 1 + 45 + 6 = 52.
+ * Raised from 12 on 23 Oct: with retries counted, a 3-round run stopped on model_calls, giving up on the budget, not
+ * on the model. A call whose structured retries each also meet a transport retry can still pass 52; the run then ends
+ * needs_human with stop_reason model_calls, so the loop stays bounded.
+ */
+export const MAX_MODEL_CALLS_DEFAULT =
+  1 + 3 * (STRUCTURED_REPLY_MAX_TRIES + 3 * STRUCTURED_REPLY_MAX_TRIES + STRUCTURED_REPLY_MAX_TRIES) + WRITER_MAX_ATTEMPTS * STRUCTURED_REPLY_MAX_TRIES;
+
+/** The mean tokens (in plus out) of one real-model call: the 25 ok model_call lines in logs/trace-example_*.jsonl, 23 Oct. */
+export const TOKENS_PER_CALL_TYPICAL = 11652;
+
+/**
+ * MAX_TOKENS_PER_RUN by default: MAX_MODEL_CALLS_DEFAULT (52) calls at TOKENS_PER_CALL_TYPICAL (11,652) tokens each,
+ * 605,904, up to whole 10,000s: 610,000. Raised from 250000 on 23 Oct with MAX_MODEL_CALLS. A failed request (a
+ * timeout or a 502 empty_response) uses no tokens, so a run of flaky calls stays well under it; the Analyst's calls
+ * are the largest (a mean of 18,986), so a run whose every Analyst call is retried may stop on tokens first.
+ */
+export const MAX_TOKENS_PER_RUN_DEFAULT = Math.ceil((MAX_MODEL_CALLS_DEFAULT * TOKENS_PER_CALL_TYPICAL) / 10_000) * 10_000;
 
 /** A briefing child starts only while at least this much of BRIEFING_TIMEOUT_MS is left; below it the child's section is skipped. */
 export const BRIEFING_MIN_CHILD_MS = 5000;
@@ -130,10 +170,10 @@ const positiveInt = (fallback: number) => z.coerce.number().int().positive().def
 const limitsSchema = z.object({
   MAX_ROUNDS: positiveInt(3),
   MAX_QUERY_CALLS: positiveInt(20),
-  MAX_MODEL_CALLS: positiveInt(12),
+  MAX_MODEL_CALLS: positiveInt(MAX_MODEL_CALLS_DEFAULT),
   MAX_PLAN_STEPS: positiveInt(5),
   MAX_TOOL_ROUNDS: positiveInt(2),
-  MAX_TOKENS_PER_RUN: positiveInt(250000),
+  MAX_TOKENS_PER_RUN: positiveInt(MAX_TOKENS_PER_RUN_DEFAULT),
   QUERY_TIMEOUT_MS: positiveInt(20000),
   MODEL_TIMEOUT_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
   MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
