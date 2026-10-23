@@ -541,6 +541,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       if (needsQueries && state.usage.query_calls >= config.MAX_QUERY_CALLS) return "query_calls";
       return null;
     };
+    // A planned step that the spent query budget kept from running leaves a draft on part of the evidence.
+    const cutByBudget = (steps: readonly PlannedStep[]): boolean => steps.some((step) => state.queryBudgetSpentFor(step.query_id, step.params));
     const stopDetail = (reason: StopReason): string => {
       switch (reason) {
         case "model_calls":
@@ -855,6 +857,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             revise(round, feedback, findings.length);
             continue;
           }
+          cutByQueryBudget = thesis.prepared.budget_cut;
         } else if ((task === "pre_trade" && trade !== null) || task === "reconcile") {
           // No Planner: the plan is fixed, so a rejection goes to the Analyst with its previous findings and the fix.
           // The steps come from the cache after round 0, and the Analyst is offered no tools.
@@ -874,6 +877,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (analysis.injection_seen) flags.injection = true;
           findings = analysis.findings;
           gaps = analysis.gaps;
+          cutByQueryBudget = cutByBudget(fixed);
         } else {
           // Planner. plan() has no run of its own, so its call is counted here.
           stop = budgetStop(false);
@@ -911,9 +915,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (analysis.injection_seen) flags.injection = true;
           findings = analysis.findings;
           gaps = analysis.gaps;
-          // A planned step that the spent query budget kept from running leaves a draft on part of the evidence:
-          // stop with that draft instead of scoring it as complete.
-          cutByQueryBudget = state.usage.query_calls >= config.MAX_QUERY_CALLS && planned.steps.some((step) => !state.isCached(step.query_id, step.params));
+          // Stop with that draft instead of scoring it as complete.
+          cutByQueryBudget = cutByBudget(planned.steps);
         }
         latest = { findings, gaps, scores: null, total: 0, round };
         if (cutByQueryBudget) {

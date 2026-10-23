@@ -62,7 +62,7 @@ Reply:
 {"findings": [
   {"kind": "move", "subject": "PORTFOLIO", "claim": "The data shows the portfolio fell 2.1% over the week, 1.7 points behind DSEX.", "numbers": [{"value": -2.1, "label": "portfolio change %"}, {"value": -1.7, "label": "points against DSEX"}], "cites": ["q-1"], "verdict": null, "proposed_fix": null, "memory_ids": []},
   {"kind": "announcement", "subject": "ACMEPHARMA", "claim": "ACMEPHARMA fell 9.8% over the week, 8.7 points against its sector index (stock-specific), after it reported lower quarterly profit on 8 Jun.", "numbers": [{"value": -9.8, "label": "change %"}, {"value": -8.7, "label": "points against sector"}], "cites": ["q-1", "q-2"], "verdict": null, "proposed_fix": null, "memory_ids": []},
-  {"kind": "rule", "subject": null, "claim": "The data shows no rule was broken this week.", "numbers": [], "cites": ["q-3"], "verdict": null, "proposed_fix": null, "memory_ids": []}],
+  {"kind": "rule", "subject": "ACMEPHARMA", "claim": "The data shows no rule was broken for ACMEPHARMA this week.", "numbers": [], "cites": ["q-3"], "verdict": null, "proposed_fix": null, "memory_ids": []}],
  "gaps": ["What the portfolio will do next week: the data can't predict prices."]}
 
 Wrong, and why:
@@ -77,5 +77,5 @@ Reconcile example. Input: results run_query_id "q-5", reconciliation: [{"issue_i
 Finding: {"kind": "reconciliation", "subject": "BRK-20260611-090", "claim": "BRK-20260611-090: the broker statement has buy 40 ACMEPHARMA at Tk 88.5 on 2026-06-11 (Tk 3540, commission Tk 14.16), and the ledger has no matching trade. Reason: not known.", "numbers": [{"value": 88.5, "label": "price"}, {"value": 3540, "label": "amount bdt"}, {"value": 14.16, "label": "commission bdt"}], "cites": ["q-5"], "verdict": null, "proposed_fix": "add a transaction of buy 40 ACMEPHARMA at Tk 88.5 on 2026-06-11 (BRK-20260611-090)", "memory_ids": []}
 
 Reply with JSON only, no prose:
-{"findings": [{"kind": "move", "subject": "<symbol, PORTFOLIO, journal id, plan id or issue id, or null>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}],
+{"findings": [{"kind": "move", "subject": "<symbol, sector, PORTFOLIO, journal id, plan id or issue id>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}],
  "gaps": ["..."]}

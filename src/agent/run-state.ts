@@ -118,6 +118,11 @@ export class RunState {
     return this.cache.has(cacheKey(query_id, params));
   }
 
+  /** True when MAX_QUERY_CALLS is spent and this query is not cached, so the run cannot answer it. */
+  queryBudgetSpentFor(query_id: string, params: unknown): boolean {
+    return this.usage.query_calls >= this.config.MAX_QUERY_CALLS && !this.isCached(query_id, params);
+  }
+
   /**
    * Runs one named query once per run. A call already made comes back from the cache with the same run_query_id,
    * traced as agent "Query", action "cached", status "ok", and counts no query call. Otherwise runQuery runs it

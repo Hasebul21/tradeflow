@@ -56,6 +56,8 @@ export type PreparedTheses = {
   batches: ThesisEvidence[][];
   /** Queries that did not run, as gaps. */
   gaps: string[];
+  /** True when a query did not run because MAX_QUERY_CALLS was spent: the evidence is partial. */
+  budget_cut: boolean;
 };
 
 /** Keeps journal_for_symbol with no symbol and week_moves; every other planned step is dropped and traced. */
@@ -98,7 +100,9 @@ const byDate = (a: Row, b: Row) => str(a.period_end).localeCompare(str(b.period_
 export async function prepareThesisEvidence(args: { state: RunState; tracer: Tracer; asOf: string; steps: readonly PlannedStep[]; round: number }): Promise<PreparedTheses> {
   const { state, tracer, asOf, round } = args;
   const gaps: string[] = [];
+  let budgetCut = false;
   const attempt = async (query_id: string, params: Record<string, unknown>): Promise<QueryResult | null> => {
+    if (state.queryBudgetSpentFor(query_id, params)) budgetCut = true;
     try {
       return await state.query(query_id, params, { caller: AGENT, task: "thesis_check" });
     } catch (error) {
@@ -181,7 +185,7 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
               })),
     };
   });
-  return { theses, batches: chunk(theses, THESIS_BATCH_SIZE), gaps };
+  return { theses, batches: chunk(theses, THESIS_BATCH_SIZE), gaps, budget_cut: budgetCut };
 }
 
 /**

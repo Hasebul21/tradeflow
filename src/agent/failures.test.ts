@@ -307,6 +307,29 @@ describe("every run-ending limit ends in needs_human with its stop_reason", () =
     console.log(`[failures] query_calls: status=${result.status} stop_reason=${result.output?.stop_reason} ${ms} ms`);
   }, 30000);
 
+  // The same budget stop in the other two paths: the plan or the evidence needs more queries than the budget allows.
+  // After the stop no query runs (the Query lines never pass MAX_QUERY_CALLS) and no Evaluator or Writer call is made.
+  const stoppedOnQueries = (result: RunResult, max: number) => {
+    expect(result.status).toBe("needs_human");
+    expect(result.output).toMatchObject({ needs_human: true, partial: true, stop_reason: "query_calls" });
+    expect(result.output?.summary).toMatch(/query budget/);
+    expect(result.usage.query_calls).toBe(max);
+    const lines = trace(result);
+    expect(lines.filter((line) => line.agent_name === "Query" && line.action === "query" && line.status !== "error")).toHaveLength(max);
+    expect(lines.filter((line) => ["Evaluator", "Writer"].includes(line.agent_name))).toEqual([]);
+    expect(lines.at(-1)).toMatchObject({ action: "run_end", status: "needs_human", stop_reason: "query_calls" });
+  };
+
+  it("thesis_check returns query_calls when the evidence needs more queries than MAX_QUERY_CALLS 2", async () => {
+    const result = await run({ runId: nextId("thesis-query-calls"), task: "thesis_check", input: { question: QUESTION, as_of: AS_OF }, config: sampleConfig({ MAX_QUERY_CALLS: "2" }) });
+    stoppedOnQueries(result, 2);
+  }, 30000);
+
+  it("pre_trade returns query_calls when the fixed plan needs more queries than MAX_QUERY_CALLS 2", async () => {
+    const result = await run({ runId: nextId("pretrade-query-calls"), task: "pre_trade", input: { plan_id: "p-03", as_of: AS_OF }, config: sampleConfig({ MAX_QUERY_CALLS: "2" }) });
+    stoppedOnQueries(result, 2);
+  }, 30000);
+
   it("returns model_calls when MAX_MODEL_CALLS is 2", async () => {
     const { result, ms } = await timed(() => explainWeek(nextId("model-calls"), sampleConfig({ MAX_MODEL_CALLS: "2" })));
 

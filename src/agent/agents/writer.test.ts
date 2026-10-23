@@ -281,6 +281,21 @@ describe("checkReview and the run's own counts", () => {
     expect(checkReview(review("4 proposals await your approval."), allowed())).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 4/) });
   });
 
+  it("allows a number the question repeats", () => {
+    const check = checkReview(review("You asked about the 30 days to 2026-10-01. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), question: "What changed in the last 30 days?" });
+    expect(check).toEqual({ ok: true });
+  });
+
+  it("allows a number a gap repeats", () => {
+    const check = checkReview(review("Not covered: the 7 broker lines. Nothing has been saved; the decision is yours."), { ...allowed(COUNTS), gaps: ["reconciliation returned no rows for 7 broker lines"] });
+    expect(check).toEqual({ ok: true });
+  });
+
+  it("still rejects a number that is in no finding, row, memory, count, question or gap", () => {
+    const check = checkReview(review("A gap of Tk 98765.4 is open."), { ...allowed(COUNTS), question: "What changed in the last 30 days?", gaps: ["no rows for 7 broker lines"] });
+    expect(check).toMatchObject({ ok: false, reason: expect.stringMatching(/the number 98765\.4/) });
+  });
+
   it("allows only the four counts, with proposals left out when it is null", () => {
     expect(countNumbers({ findings: 11, proposals: null, citations: 4, rounds: 2 })).toEqual([11, 4, 2]);
     expect(countNumbers(COUNTS)).toEqual([4, 1, 1, 4]);
