@@ -51,7 +51,7 @@ export const ANALYST_REPLY_SHAPE =
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
   const parsed = analystReplySchema.safeParse(json);
   if (parsed.success) return null;
-  return schemaReason(parsed.error.issues[0]);
+  return schemaReason(parsed.error.issues[0], json);
 }
 
 /** What the orchestrator hands the Analyst: the task, the plan (its focus and steps) and the round's context. */

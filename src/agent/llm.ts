@@ -199,9 +199,24 @@ function closingBrace(text: string, start: number): number {
 }
 
 /**
+ * A stray opener: a "{", or a "{" and a quote, with only whitespace around them. Nemotron's Analyst reply in example_7b
+ * on 23 Oct 2026 began `{"{` and then the whole object: the stray quote flips every string after it, so the first
+ * "{" never closes. Nothing can follow "{" or `{"` directly in valid JSON except a key, so the "{" after a stray
+ * opener is never a nested value: it starts the reply.
+ */
+const STRAY_OPENER = /^\{\s*"?\s*$/;
+
+/** The index of the "{" that follows a stray opener at `start`, or -1. */
+function afterStrayOpener(text: string, start: number): number {
+  const next = text.indexOf("{", start + 1);
+  return next !== -1 && STRAY_OPENER.test(text.slice(start, next)) ? next : -1;
+}
+
+/**
  * Removes <think> blocks and Markdown fences, then takes the outermost balanced {...} spans in order (prose or a fence
- * around the object is fine) and returns the first that parses as a JSON object. A nested object is never taken
- * for the reply. Throws BadJson, with what was wrong as its reason.
+ * around the object is fine) and returns the first that parses as a JSON object. A stray "{" or `{"` just before the
+ * object (STRAY_OPENER) is skipped. A nested object is never taken for the reply. Throws BadJson, with what was wrong
+ * as its reason.
  */
 export function parseJsonReply(text: string): Record<string, unknown> {
   let cleaned = text
@@ -218,7 +233,14 @@ export function parseJsonReply(text: string): Record<string, unknown> {
   if (start === -1) throw new BadJson(text, "the reply holds no {...} object");
   while (start !== -1) {
     const end = closingBrace(cleaned, start);
-    if (end === -1) throw new BadJson(text, "the JSON object is cut off: a { is never closed");
+    const inner = afterStrayOpener(cleaned, start);
+    if (end === -1) {
+      if (inner !== -1) {
+        start = inner;
+        continue;
+      }
+      throw new BadJson(text, "the JSON object is cut off: a { is never closed");
+    }
     try {
       const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
       // An empty {} is skipped: prose such as "Shape: {}" is never taken for the reply.
@@ -226,7 +248,8 @@ export function parseJsonReply(text: string): Record<string, unknown> {
     } catch {
       // Not JSON (prose in braces, or a malformed object): try the next outermost span.
     }
-    start = cleaned.indexOf("{", end + 1);
+    // A span that starts with a stray opener, such as `{{...}}`, is read again from the "{" after it.
+    start = inner !== -1 && inner < end ? inner : cleaned.indexOf("{", end + 1);
   }
   throw new BadJson(text, "no {...} span in the reply parses as a non-empty JSON object");
 }
@@ -760,12 +783,50 @@ export function safeName(value: unknown): string {
 }
 
 /**
- * A zod issue as a retry reason, from its path and code only: "findings.0.kind: invalid_value". Path keys a model
- * chose (a record key, say) are shown only when they match SAFE_NAME; numbers (array indexes) always are.
+ * A zod issue as a retry reason, from its path and code: "findings.0.kind: invalid_value". Path keys a model chose
+ * (a record key, say) are shown only when they match SAFE_NAME; numbers (array indexes) always are. Given the parsed
+ * reply, it also says what the field should be (issueDetail): "findings.0.subject: invalid_type (expected string, got
+ * null)", so the model is told exactly what to change.
  */
-export function schemaReason(issue: { path: readonly PropertyKey[]; code: string }): string {
+export function schemaReason(issue: SchemaIssue, reply?: unknown): string {
   const path = issue.path.map((key) => (typeof key === "number" ? String(key) : safeName(key))).join(".");
-  return `${path || "reply"}: ${issue.code}`;
+  return `${path || "reply"}: ${issue.code}${reply === undefined ? "" : issueDetail(issue, reply)}`;
+}
+
+/** The parts of a zod issue a retry reason may use: the path, the code, and the schema's own expected type or values. */
+type SchemaIssue = { path: readonly PropertyKey[]; code: string; expected?: unknown; values?: readonly unknown[] };
+
+/** The JSON type of a value, by name only: never the value itself. */
+function jsonTypeOf(value: unknown): string {
+  if (value === undefined) return "missing";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+/** The value at a zod path in the parsed reply; undefined when the path is not there. */
+function valueAt(reply: unknown, path: readonly PropertyKey[]): unknown {
+  let value: unknown = reply;
+  for (const key of path) {
+    if (value === null || typeof value !== "object") return undefined;
+    value = (value as Record<PropertyKey, unknown>)[key];
+  }
+  return value;
+}
+
+/**
+ * What the field should be, for a retry reason: " (expected string, got null)" for a wrong type, or " (one of move,
+ * sector, ...)" for a value outside an enum. Built from the schema (zod's expected type and enum values) and the
+ * reply's JSON type name only, so no text the model wrote goes back; "" for other issue codes.
+ */
+function issueDetail(issue: SchemaIssue, reply: unknown): string {
+  if (issue.code === "invalid_type" && typeof issue.expected === "string") {
+    return ` (expected ${issue.expected}, got ${jsonTypeOf(valueAt(reply, issue.path))})`;
+  }
+  if (issue.code === "invalid_value" && Array.isArray(issue.values) && issue.values.every((value) => typeof value === "string")) {
+    return ` (one of ${issue.values.join(", ")})`;
+  }
+  return "";
 }
 
 /**
