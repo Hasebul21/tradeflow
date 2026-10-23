@@ -31,6 +31,8 @@ export type Config = {
   readonly BRIEFING_TIMEOUT_MS: number;
   /** How many briefing children run at once; 1 runs them one after another. Set it to 1 if the model provider rate-limits parallel calls. */
   readonly MAX_CONCURRENT_CHILDREN: number;
+  /** How many top-level runs POST /run takes at once; the next one gets 429 Busy with Retry-After. Briefing children never count. */
+  readonly MAX_CONCURRENT_RUNS: number;
   readonly MAX_ROWS_PER_QUERY: number;
   readonly MAX_MEMORIES: number;
   readonly MAX_PROMPT_CHARS: number;
@@ -98,6 +100,7 @@ const limitsSchema = z.object({
   RUN_TIMEOUT_MS: positiveInt(900000),
   BRIEFING_TIMEOUT_MS: positiveInt(1200000),
   MAX_CONCURRENT_CHILDREN: positiveInt(2),
+  MAX_CONCURRENT_RUNS: positiveInt(2),
   MAX_ROWS_PER_QUERY: positiveInt(50),
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),

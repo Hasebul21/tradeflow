@@ -175,3 +175,38 @@ describe("502 empty_response retries within the round (fake timers)", () => {
     expect(retries()).toHaveLength(0);
   });
 });
+
+describe("complete with a cancel signal", () => {
+  /** A fetch that never answers; it rejects with the signal's reason when the request is aborted, as the platform fetch does. */
+  const hang = () =>
+    fetchMock.mockImplementation((_url: unknown, init?: RequestInit) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new DOMException("aborted", "AbortError")), { once: true })));
+
+  it.each(["main", "strong"] as const)("a %s call aborted mid-request ends at once: one request, no retry, no fallback, counted as a model call", async (tier) => {
+    hang();
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = complete({ ...base, model: tier, signal: controller.signal }).catch((e: unknown) => e);
+    setTimeout(() => controller.abort(), 30);
+    const error = await pending;
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ModelHttpError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(failedCallUsage(error).model_calls).toBe(1);
+  });
+
+  it("a call whose signal is already aborted sends no request in sample mode", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const error = await complete({ ...base, sampleMode: true, signal: controller.signal }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(failedCallUsage(error).model_calls).toBe(0);
+  });
+
+  it("a signal that never aborts changes nothing: the request carries it and the reply comes back", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, ok));
+    const result = await complete({ ...base, signal: new AbortController().signal });
+    expect(result.text).toBe("hi");
+  });
+});

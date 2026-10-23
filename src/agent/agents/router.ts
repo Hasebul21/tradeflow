@@ -53,6 +53,8 @@ export type RouteDeps = {
   /** The time left in the run for this call. */
   timeoutMs?: number;
   roundDeadlineMs?: number;
+  /** The run's cancel signal; it goes to every model call this agent makes. */
+  signal?: AbortSignal;
   /** The model calls left in the run's budget; passed on to llm.ts. */
   modelCallsLeft?: number;
   /** For tests: a stand-in for llm.ts's complete. */
@@ -141,6 +143,7 @@ export async function route(request: RouteRequest, deps: RouteDeps): Promise<Rou
       ...(deps.sampleMode === undefined ? {} : { sampleMode: deps.sampleMode }),
       ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
       ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+      ...(deps.signal === undefined ? {} : { signal: deps.signal }),
       ...(deps.modelCallsLeft === undefined ? {} : { modelCallsLeft: deps.modelCallsLeft }),
     });
   } catch (error) {

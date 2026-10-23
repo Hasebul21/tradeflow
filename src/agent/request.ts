@@ -5,6 +5,7 @@
 // error reply with zero usage. Server only (run() writes the trace).
 import { randomUUID } from "node:crypto";
 import { loadConfig, type Config } from "./config";
+import { topLevelCount } from "./registry";
 import { RUN_ID_PATTERN, run, type RunError, type RunInput, type RunOptions, type RunResult } from "./orchestrator";
 
 export type RunRequest = { run_id?: string | null; input?: RunInput | null; options?: { sample_mode?: boolean | null } | null };
@@ -13,6 +14,29 @@ export type RunRequest = { run_id?: string | null; input?: RunInput | null; opti
 export function httpStatusOf(result: Pick<RunResult, "status" | "error">): number {
   if (result.status !== "error") return 200;
   return result.error?.type === "InvalidInput" ? 400 : 500;
+}
+
+/** Seconds a Busy client waits before it asks again. */
+export const BUSY_RETRY_AFTER_S = 5;
+
+/**
+ * The 429 body for a server that already runs MAX_CONCURRENT_RUNS top-level runs, or null when there is room. It reads
+ * only the registry and the config, so nothing is traced and no file is written. A setting that fails to load is not
+ * this check's to report: the run's own InvalidInput/Config reply says so.
+ */
+export function busyReply(running: number = topLevelCount(), env: Record<string, string | undefined> = process.env): { status: "error"; error: RunError; usage: RunResult["usage"] } | null {
+  let cap: number;
+  try {
+    cap = loadConfig(env, () => {}).MAX_CONCURRENT_RUNS;
+  } catch {
+    return null;
+  }
+  if (running < cap) return null;
+  return {
+    status: "error",
+    error: { type: "Busy", message: `The server is running ${running} runs; try again in a few seconds.`, recoverable: true },
+    usage: { model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 },
+  };
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);

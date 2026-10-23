@@ -959,6 +959,8 @@ export type FetchDeps = {
   timeoutMs: number;
   /** Why there is no client, for the trace: "sample mode" or "Zetaris not configured". */
   offReason?: string;
+  /** The run's cancel signal; it ends the Zetaris request, and a cancelled call never falls back to local(). */
+  signal?: AbortSignal;
 };
 
 export type FetchedRows = { rows: Row[]; source: QuerySource; sqlHead: string | null; why: string | null; sql?: string };
@@ -988,6 +990,7 @@ export async function fetchRows(id: QueryId, params: Record<string, unknown>, de
   try {
     const reply = await deps.zetaris.run(sql, {
       timeoutMs: deps.timeoutMs,
+      ...(deps.signal === undefined ? {} : { signal: deps.signal }),
       onRetry: () =>
         deps.tracer.log({
           agent_name: "Query",
@@ -1002,6 +1005,8 @@ export async function fetchRows(id: QueryId, params: Record<string, unknown>, de
     const sqlRows = rowsFromArrays(q.sqlColumns, reply.data, new Set(q.sqlNumeric), new Set(q.sqlBooleans));
     return { rows: mergeRows(q, local, sqlRows), source: "zetaris", sqlHead, why: null, sql: reply.sql };
   } catch (error) {
+    // A cancelled run stops here; carrying on with local rows would only spend its time.
+    if (deps.signal?.aborted) throw error;
     const why = error instanceof Error ? `${(error as { type?: string }).type ?? error.name}: ${error.message}` : "unknown error";
     return { rows: local, source: "local-fallback", sqlHead, why };
   }
@@ -1028,6 +1033,8 @@ export type RunQueryArgs = {
   maxQueries?: number;
   /** Calls the run has already made; defaults to 0. A later step passes the run's count. */
   queriesUsed?: number;
+  /** The run's cancel signal: checked before the call and passed to the Zetaris request. A cancelled call throws the signal's reason and writes no Query line. */
+  signal?: AbortSignal;
 };
 
 /**
@@ -1039,6 +1046,7 @@ export type RunQueryArgs = {
 export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
   const started = Date.now();
   const { tracer, config } = args;
+  args.signal?.throwIfAborted();
   const data = args.data ?? (await loadQueryData());
   const guard = await beforeQuery(
     { query_id: args.query_id, params: args.params },
@@ -1067,8 +1075,9 @@ export async function runQuery(args: RunQueryArgs): Promise<QueryResult> {
   const offReason = localOnly ? (args.localReason as string) : args.sampleMode ? "sample mode: every call runs locally" : "Zetaris not configured";
   let fetched: FetchedRows;
   try {
-    fetched = await fetchRows(id, params, { data, zetaris, tracer, timeoutMs: config.QUERY_TIMEOUT_MS, offReason });
+    fetched = await fetchRows(id, params, { data, zetaris, tracer, timeoutMs: config.QUERY_TIMEOUT_MS, offReason, ...(args.signal === undefined ? {} : { signal: args.signal }) });
   } catch (error) {
+    if (args.signal?.aborted) throw error;
     // local() refused the call (an unknown symbol, a date outside the data): trace it, then let the caller decide.
     tracer.log({
       agent_name: "Query",

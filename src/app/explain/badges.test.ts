@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STOP_REASONS, STOP_REASON_LABELS } from "@/agent/labels";
-import { acceptedText, modelUnavailableLabel, scoresText, scoreUnavailable, selfCorrectionBanner, stopReasonLabel } from "./badges";
+import { acceptedText, modelUnavailableLabel, scoresText, scoreUnavailable, selfCorrectionBanner, stoppedBadge, stopReasonLabel, usageText } from "./badges";
 
 const unavailable = [{ agent_name: "Evaluator", action: "score_unavailable", why: "the model returned no answer; the code checks passed" }];
 
@@ -59,5 +59,20 @@ describe("the Explain page's accepted text", () => {
 
   it("does not say 'accepted in round' for an escalation with no stop code", () => {
     expect(acceptedText("needs_human", { rounds: 1, stop_reason: null })).not.toMatch(/accepted in round/);
+  });
+});
+
+describe("a run the owner stopped", () => {
+  it("shows Stopped by you for stop_reason cancelled and for no other reason", () => {
+    expect(stoppedBadge({ stop_reason: "cancelled" })).toBe("Stopped by you");
+    expect(stoppedBadge({ stop_reason: "rounds" })).toBeNull();
+    expect(stoppedBadge({ stop_reason: null })).toBeNull();
+    expect(stoppedBadge(null)).toBeNull();
+  });
+
+  it("gives the cancelled sentence, not 'accepted', and the usage so far", () => {
+    expect(stopReasonLabel({ stop_reason: "cancelled" })).toBe(STOP_REASON_LABELS.cancelled);
+    expect(acceptedText("needs_human", { rounds: 1, stop_reason: "cancelled" })).toBe(STOP_REASON_LABELS.cancelled);
+    expect(usageText({ model_calls: 1, query_calls: 2, tokens_in: 30, tokens_out: 12, duration_ms: 1500 })).toBe("1 model calls, 2 query calls, 42 tokens, 1.5 s");
   });
 });

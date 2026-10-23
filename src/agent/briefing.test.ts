@@ -220,12 +220,13 @@ describe("AGENTS.md rule 3", () => {
       return; // no git here (a clean clone without .git): the phrase check above still holds
     }
     // Step 20b also adds the MAX_CONCURRENT_CHILDREN words to rule 4: that one pair of lines is allowed, with nothing else changed in it.
+    // Step 20c adds the MAX_CONCURRENT_RUNS and cancelled words to the same rule, so its old line may differ from the one without the words.
     const rule4 = agents.split("\n").find((line) => line.startsWith("4. **Bounded loop.**")) ?? "";
     expect(rule4).toContain(RULE4_WORDS);
     const changed = diff
       .split("\n")
       .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line))
-      .filter((line) => line !== `+${rule4}` && line !== `-${rule4.replace(RULE4_WORDS, "")}`);
+      .filter((line) => line !== `+${rule4}` && line !== `-${rule4.replace(RULE4_WORDS, "")}` && !line.startsWith("-4. **Bounded loop.**"));
     if (changed.length === 0) return; // already committed
     expect(changed).toHaveLength(2);
     const [removed, added] = changed;

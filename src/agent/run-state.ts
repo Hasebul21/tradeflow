@@ -44,6 +44,8 @@ export type RunStateOptions = {
    * same. The orchestrator uses it to remove injection wording from rows.
    */
   onResult?: (result: QueryResult) => QueryResult;
+  /** The run's cancel signal. A query or a model call asked for after it aborts throws its reason; a cached result still comes back. */
+  signal?: AbortSignal;
 };
 
 const SUMMARY_CHARS = 200;
@@ -89,6 +91,7 @@ export class RunState {
   private readonly zetaris: ZetarisClient | null | undefined;
   private readonly localReason: string | undefined;
   private readonly onResult: ((result: QueryResult) => QueryResult) | undefined;
+  readonly signal: AbortSignal | undefined;
 
   constructor(options: RunStateOptions) {
     this.runId = options.runId;
@@ -99,6 +102,7 @@ export class RunState {
     this.zetaris = options.zetaris;
     this.localReason = options.localReason;
     this.onResult = options.onResult;
+    this.signal = options.signal;
     this.started = Date.now();
   }
 
@@ -134,6 +138,7 @@ export class RunState {
       });
       return hit;
     }
+    this.signal?.throwIfAborted();
     const data = await this.queryData();
     const fresh = await runQuery({
       query_id,
@@ -143,6 +148,7 @@ export class RunState {
       config: this.config,
       sampleMode: this.sampleMode,
       data,
+      ...(this.signal === undefined ? {} : { signal: this.signal }),
       ...(this.zetaris === undefined ? {} : { zetaris: this.zetaris }),
       ...(this.localReason === undefined ? {} : { localReason: this.localReason }),
       maxQueries: this.config.MAX_QUERY_CALLS,
@@ -159,8 +165,9 @@ export class RunState {
     return this.usage.tokens_in + this.usage.tokens_out;
   }
 
-  /** Throws BudgetExhaustedError when MAX_MODEL_CALLS calls or MAX_TOKENS_PER_RUN tokens are already spent. */
+  /** Throws the cancel signal's reason when the run was stopped, or BudgetExhaustedError when MAX_MODEL_CALLS calls or MAX_TOKENS_PER_RUN tokens are already spent. */
   beforeModelCall(): void {
+    this.signal?.throwIfAborted();
     const { MAX_MODEL_CALLS, MAX_TOKENS_PER_RUN } = this.config;
     if (this.usage.model_calls >= MAX_MODEL_CALLS) {
       throw new BudgetExhaustedError("max_model_calls", `The run's model budget is spent: ${this.usage.model_calls} of ${MAX_MODEL_CALLS} calls used.`);

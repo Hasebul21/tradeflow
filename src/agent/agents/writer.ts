@@ -99,6 +99,8 @@ export type WriteDeps = {
   timeoutMs?: number;
   /** When the round ends; passed on to llm.ts for its empty_response retries. */
   roundDeadlineMs?: number;
+  /** The run's cancel signal; it goes to every model call this agent makes. */
+  signal?: AbortSignal;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** Default true. False keeps the memory_note out of memory, for a run that ends as needs_human. */
@@ -339,6 +341,8 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
     } else if (deps.remember === false) {
       memoryReason = "not stored: the caller asked for no memory write";
     } else {
+      // A review the owner stopped is not remembered: the run ends cancelled and writes no memory.
+      deps.signal?.throwIfAborted();
       try {
         memoryId = await remember({ content: review.memory_note, task: input.task, asOf: input.as_of, runId: input.runId, tracer });
       } catch (error) {
@@ -382,6 +386,7 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
         sampleMode,
         ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
         ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+        ...(deps.signal === undefined ? {} : { signal: deps.signal }),
         ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft() }),
       });
     } catch (error) {

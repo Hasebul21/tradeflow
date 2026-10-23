@@ -71,6 +71,8 @@ export type EvaluateDeps = {
   timeoutMs?: number;
   /** When the round ends; passed on to llm.ts for its empty_response retries. */
   roundDeadlineMs?: number;
+  /** The run's cancel signal; it goes to every model call this agent makes. */
+  signal?: AbortSignal;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
   round?: number;
   /** For tests: a stand-in for llm.ts's complete. */
@@ -365,6 +367,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       sampleMode,
       ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
       ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+      ...(deps.signal === undefined ? {} : { signal: deps.signal }),
       ...(run === undefined ? {} : { modelCallsLeft: run.modelCallsLeft() }),
     });
   } catch (error) {

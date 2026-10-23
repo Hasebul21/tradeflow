@@ -21,6 +21,7 @@ import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
 import { failedCallUsage, ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
+import { register, release } from "./registry";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
@@ -80,6 +81,13 @@ export type RunOptions = {
   config?: Config;
   /** Set when every query must run locally (an eval fixture data dir that is not in Postgres): the trace's reason. */
   localReason?: string;
+  /**
+   * A caller's cancel signal, combined with the run's own (the registry's) through AbortSignal.any. A briefing passes
+   * its signal to each child, so cancelling the briefing stops the children that are running.
+   */
+  signal?: AbortSignal;
+  /** The briefing that started this run; the registry does not count a run with a parent against MAX_CONCURRENT_RUNS. */
+  parentRunId?: string;
 };
 
 export type StopReason = (typeof STOP_REASONS)[number];
@@ -241,6 +249,8 @@ function stopText(reason: StopReason, config: Config, detail: string): string {
       return `The Writer's review failed its code check twice: ${detail}`;
     case "model_unavailable":
       return `The model did not answer, so no model wrote or checked this review: ${detail}`;
+    case "cancelled":
+      return "The run was stopped by you. The findings below are the best draft so far, unreviewed; nothing was remembered or saved.";
   }
 }
 
@@ -352,6 +362,20 @@ type Outcome =
  * call; the Orchestrator's run_end line, the last line of the run, repeats the total.
  */
 export async function run(options: RunOptions): Promise<RunResult> {
+  const { runId } = options;
+  // A run id the checks refuse never registers: runLoop answers it with the InvalidInput error and no trace file.
+  if (typeof runId !== "string" || !RUN_ID_PATTERN.test(runId) || !isRunId(runId)) return runLoop(options, new AbortController().signal);
+  // The registry's signal is the run's own; a caller's signal (a briefing's) is combined with it. Released however the run ends.
+  const own = register({ run_id: runId, task: options.task ?? "auto", parent_run_id: options.parentRunId ?? null });
+  const signal = options.signal === undefined ? own : AbortSignal.any([own, options.signal]);
+  try {
+    return await runLoop(options, signal);
+  } finally {
+    release(runId, own);
+  }
+}
+
+async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunResult> {
   const started = Date.now();
   const { runId } = options;
   /** The request's input; a routed pre_trade gets the trade the Router built from the question. */
@@ -382,7 +406,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   }
 
   // The briefing is a fixed chain of whole runs with its own trace, not a loop of its own.
-  if (options.task === BRIEFING) return briefing(options);
+  if (options.task === BRIEFING) return briefing({ ...options, signal });
 
   const tracer = startRun(runId);
   // Before the Router has picked, the lines have no task; setTask never touches the file, so the second call is safe.
@@ -420,11 +444,31 @@ export async function run(options: RunOptions): Promise<RunResult> {
     });
   };
 
+  /** The one "cancelled" trace line of a run, and the outcome that ends it: like a spent limit, with the best draft so far. */
+  let cancelLogged = false;
+  const cancelledOutcome = (draft: Draft | null, rounds: number, where: string): NeedsHuman => {
+    if (!cancelLogged) {
+      cancelLogged = true;
+      tracer.log({
+        agent_name: AGENT,
+        action: "cancelled",
+        input_summary: capped(where),
+        output_summary: capped(`cancelled: the run returns needs_human with ${draft === null ? "no draft" : `the best draft (${draft.findings.length} findings, ${draft.total === null ? "score unavailable" : `total ${draft.total}`})`}; nothing is remembered or recorded`),
+        status: "needs_human",
+        why: "cancelled by the owner",
+        retry_count: Math.max(0, rounds - 1),
+        stop_reason: "cancelled",
+      });
+    }
+    return { kind: "needs_human", stop: "cancelled", detail: "cancelled by the owner", draft, rounds };
+  };
+
   let outcome: Outcome;
   try {
     outcome = await execute();
   } catch (error) {
-    outcome = { kind: "error", error: errorOf(error) };
+    // An abort that surfaced outside the loop's own try (as_of, memory recall) still ends the run as cancelled, never as an error.
+    outcome = signal.aborted ? cancelledOutcome(null, 1, "before the loop finished its set-up") : { kind: "error", error: errorOf(error) };
   }
 
   // An accepted run is recorded in the World Model from its query results, never from model text.
@@ -477,7 +521,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     const flagRow = () => {
       flags.injection = true;
     };
-    run = new RunState({ runId, tracer, config, sampleMode, ...(options.localReason === undefined ? {} : { localReason: options.localReason }), onResult: (fresh) => scrubResult(fresh, tracer, flagRow) });
+    run = new RunState({ runId, tracer, config, sampleMode, signal, ...(options.localReason === undefined ? {} : { localReason: options.localReason }), onResult: (fresh) => scrubResult(fresh, tracer, flagRow) });
     const state = run;
 
     // 1. Time and budget, before the first model call (the Router's).
@@ -489,6 +533,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     // When the round ends, or the run if sooner: llm.ts retries a 502 empty_response only while a whole call still fits.
     const roundDeadline = () => Math.min(roundStarted + config.ROUND_TIMEOUT_MS, runDeadline);
     const budgetStop = (needsQueries: boolean): StopReason | null => {
+      // Checked before every agent call, query, tool round and round: a stopped run makes no further call.
+      if (signal.aborted) return "cancelled";
       if (runLeft() <= 0) return "run_timeout";
       if (roundLeft() <= 0) return "round_timeout";
       if (state.usage.model_calls >= config.MAX_MODEL_CALLS) return "model_calls";
@@ -504,6 +550,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
           return `${state.tokens()} of ${config.MAX_TOKENS_PER_RUN} tokens used`;
         case "query_calls":
           return `${state.usage.query_calls} of ${config.MAX_QUERY_CALLS} query calls used`;
+        case "cancelled":
+          return "cancelled by the owner";
         case "round_timeout":
           return `${Date.now() - roundStarted} ms into the round, limit ${config.ROUND_TIMEOUT_MS} ms`;
         case "run_timeout":
@@ -548,7 +596,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       state.beforeModelCall();
       const routed = await route(
         { question, plan_id: input.plan_id || null, instruments: [...data.portfolio.instruments.values()] },
-        { tracer, config, sampleMode, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft() },
+        { tracer, config, sampleMode, signal, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft() },
       ).catch((error: unknown): never => {
         state.afterFailedModelCall(failedCallUsage(error));
         throw error;
@@ -610,6 +658,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     const roundsRun = () => Math.min(round + 1, config.MAX_ROUNDS);
     const stopped = (reason: StopReason, detail = stopDetail(reason)): NeedsHuman => {
       const draft = accepted ?? best ?? latest;
+      if (reason === "cancelled") return cancelledOutcome(draft, roundsRun(), `round ${roundsRun()} of ${config.MAX_ROUNDS}`);
       tracer.log({
         agent_name: AGENT,
         action: "stop",
@@ -742,7 +791,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             calling = "Planner";
             const planned: PlanOutcome = await plan(
               { task, question, as_of: asOf, trade: null, memories, world, feedback },
-              { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
+              { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
             ).catch((error: unknown): never => {
               // plan() has no run of its own: a failed Planner call is counted here, every request it made.
               state.afterFailedModelCall(failedCallUsage(error));
@@ -788,7 +837,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
             calling = "Analyst";
             const analysis = await analyse(
               { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
-              { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
+              { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
             );
             modelIds.add(analysis.model.model_id);
             if (!analysis.ok) {
@@ -815,7 +864,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
             { task, question, as_of: asOf, trade, focus: task === "reconcile" ? RECONCILE_FOCUS : PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
-            { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
+            { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
           if (!analysis.ok) {
@@ -834,7 +883,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           calling = "Planner";
           const planned: PlanOutcome = await plan(
             { task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback },
-            { tracer, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
+            { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
           ).catch((error: unknown): never => {
             // plan() has no run of its own: a failed Planner call is counted here, every request it made.
             state.afterFailedModelCall(failedCallUsage(error));
@@ -852,7 +901,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
             { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, world, previous_findings: previous, feedback },
-            { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
+            { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
           if (!analysis.ok) {
@@ -879,7 +928,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         calling = "Evaluator";
         const verdict = await evaluate(
           { task, question, as_of: asOf, findings, gaps, memories, results: state.store },
-          { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), round },
+          { tracer, run: state, config, sampleMode, signal, timeoutMs: timeLeft("fast"), roundDeadlineMs: roundDeadline(), round },
         );
         if (verdict.model !== null) modelIds.add(verdict.model.model_id);
         lastConfidence = verdict.model === null ? null : verdict.confidence;
@@ -923,10 +972,11 @@ export async function run(options: RunOptions): Promise<RunResult> {
             rounds: accepted.round + 1,
           },
         },
-        { tracer, run: state, config, sampleMode, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), round: accepted.round },
+        { tracer, run: state, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), round: accepted.round },
       );
       modelIds.add(written.model.model_id);
       if (written.injection_seen) flags.injection = true;
+      if (!written.ok && signal.aborted) return stopped("cancelled");
       if (!written.ok) {
         const detail = written.reason ?? "the review failed its code check";
         return { ...stopped("writer_rejected", detail), summary: written.summary, review_markdown: written.review_markdown };
@@ -936,6 +986,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
       const awaitsOwner = preTrade?.escalation != null || (task === "reconcile" && (reconciliation?.rows.length ?? 0) > 0);
       return { kind: awaitsOwner ? "escalated" : "success", ...done };
     } catch (error) {
+      // A call that threw because the run was stopped (the signal's reason, or the SDK's abort error) ends as cancelled, whatever it was.
+      if (signal.aborted) return stopped("cancelled");
       // A budget an agent found spent, or a timeout that was the round's or the run's, ends as needs_human.
       if (error instanceof BudgetExhaustedError) return stopped(error.stop_reason === "max_tokens" ? "tokens" : "model_calls", error.message);
       if (error instanceof ModelTimeout) {
@@ -956,6 +1008,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
    */
   async function feedbackRun(): Promise<Outcome> {
     const fail = (message: string): Outcome => ({ kind: "error", error: { type: "InvalidInput", message, recoverable: false } });
+    if (signal.aborted) return cancelledOutcome(null, 0, "task=feedback, before the correction was stored");
     if (typeof input.review_run_id !== "string" || input.review_run_id.trim() === "") return fail("review_run_id is required for feedback: the run id of the review this corrects.");
     if (typeof input.text !== "string" || input.text.trim() === "") return fail("text is required for feedback: the correction in the owner's words.");
     const wrongIds = input.wrong_memory_ids ?? [];
@@ -1015,7 +1068,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       return { kind: "approval", status: "needs_human", summary: `${APPROVE_REFUSED} Nothing was written.`, applied: null };
     }
 
-    const state = new RunState({ runId, tracer, config, sampleMode, localReason: "reconcile_approve reads the files as they are now, never Zetaris" });
+    const state = new RunState({ runId, tracer, config, sampleMode, signal, localReason: "reconcile_approve reads the files as they are now, never Zetaris" });
     run = state;
     const current = await state.query("reconciliation", {});
     const row: Row | undefined = current.rows.find((candidate) => String(candidate.issue_id) === issueId);
@@ -1030,6 +1083,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
       return { kind: "approval", status: "needs_human", summary: `Issue ${issueId} is a ${edit.reason}. Code applies no fix for it; check it against your own records. Nothing was written.`, applied: null };
     }
 
+    // The last point to stop: after this line the ledger changes.
+    if (signal.aborted) return cancelledOutcome(null, 0, `task=reconcile_approve issue_id=${issueId}, before the fix was applied`);
     const writeStarted = Date.now();
     if (edit.op === "add_contribution") await appendContribution(edit.row);
     else await appendTransaction(edit.row);
@@ -1252,6 +1307,8 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
   const config = options.config ?? loadConfig();
   const sampleMode = options.sampleMode ?? config.sampleMode;
   const input = options.input;
+  /** Set by run() (the registry's signal, combined with a caller's); undefined when briefing() is called directly. */
+  const signal = options.signal;
   const seconds = () => Math.round(Date.now() - started) / 1000;
   const noUsage = (): RunUsage => ({ model_calls: 0, query_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: Date.now() - started });
   const refused = (message: string): RunResult => ({ run_id: String(runId), task: BRIEFING, status: "error", output: null, error: { type: "InvalidInput", message, recoverable: false }, agents: [], usage: noUsage(), trace_id: String(runId), log_file: null, execution_time_seconds: seconds() });
@@ -1274,6 +1331,19 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
   }
 
   const usage = sumUsage(sections, Date.now() - started);
+  // Cancelled while sections were missing: one "cancelled" line, then run_end. A cancel that landed after every section was covered changes nothing.
+  const cancelled = failure === null && signal?.aborted === true && !sections.every(covered);
+  if (cancelled) {
+    tracer.log({
+      agent_name: AGENT,
+      action: "cancelled",
+      input_summary: capped(`task=${BRIEFING} as_of=${asOf ?? "unresolved"}`),
+      output_summary: capped(`cancelled: ${sections.filter((section) => section.stop_reason === "cancelled").map((section) => `${section.task}:${section.status}`).join(", ") || "no section"} stopped; the run returns needs_human with the sections that finished`),
+      status: "needs_human",
+      why: "cancelled by the owner",
+      stop_reason: "cancelled",
+    });
+  }
   const result = build();
   tracer.log({
     agent_name: AGENT,
@@ -1329,17 +1399,19 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
     // The children start through runWithLimit, at most MAX_CONCURRENT_CHILDREN at once. A job never writes to the
     // parent trace or to `sections`: the sections and the handoff lines are written at fan-in, in task order.
     const deadline = started + config.BRIEFING_TIMEOUT_MS;
-    type Outcome = { skipped: { left: number } | null; reply: RunResult | null; started_at: string; finished_at: string };
+    type Outcome = { skipped: { left: number; reason: "run_timeout" | "cancelled" } | null; reply: RunResult | null; started_at: string; finished_at: string };
     const jobs = BRIEFING_CHAIN.map((child) => async (): Promise<Outcome> => {
       const childRunId = `${runId}-${child.suffix}`;
       const startedAt = new Date().toISOString();
       const left = deadline - Date.now();
-      if (left < BRIEFING_MIN_CHILD_MS) return { skipped: { left }, reply: null, started_at: startedAt, finished_at: startedAt };
+      // A child that has not started when the briefing is cancelled never starts.
+      if (signal?.aborted) return { skipped: { left, reason: "cancelled" }, reply: null, started_at: startedAt, finished_at: startedAt };
+      if (left < BRIEFING_MIN_CHILD_MS) return { skipped: { left, reason: "run_timeout" }, reply: null, started_at: startedAt, finished_at: startedAt };
       const childInput: RunInput = child.task === "explain_week" ? { question, as_of: asOf } : { as_of: asOf };
       const childConfig: Config = { ...config, RUN_TIMEOUT_MS: Math.min(config.RUN_TIMEOUT_MS, left) };
       let reply: RunResult;
       try {
-        reply = await runChild({ runId: childRunId, task: child.task, input: childInput, sampleMode, config: childConfig, ...(options.localReason === undefined ? {} : { localReason: options.localReason }) });
+        reply = await runChild({ runId: childRunId, task: child.task, input: childInput, sampleMode, config: childConfig, parentRunId: runId, ...(signal === undefined ? {} : { signal }), ...(options.localReason === undefined ? {} : { localReason: options.localReason }) });
       } catch (error) {
         const caught = errorOf(error);
         reply = { run_id: childRunId, task: child.task, status: "error", output: null, error: caught, agents: [], usage: noUsage(), trace_id: childRunId, log_file: null, execution_time_seconds: 0 };
@@ -1359,16 +1431,24 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
           : { skipped: null, reply: { run_id: childRunId, task: child.task, status: "error", output: null, error: errorOf(settledJob.reason), agents: [], usage: noUsage(), trace_id: childRunId, log_file: null, execution_time_seconds: 0 }, started_at: new Date().toISOString(), finished_at: new Date().toISOString() };
       if (skipped !== null || reply === null) {
         const left = skipped?.left ?? 0;
-        sections.push({ task: child.task, run_id: childRunId, status: "skipped", summary: `${child.task} did not start: ${Math.max(0, left)} ms of BRIEFING_TIMEOUT_MS (${config.BRIEFING_TIMEOUT_MS} ms) were left.`, stop_reason: "run_timeout", usage: noUsage() });
+        const stop = skipped?.reason ?? "run_timeout";
+        sections.push({
+          task: child.task,
+          run_id: childRunId,
+          status: "skipped",
+          summary: stop === "cancelled" ? `${child.task} did not start: the briefing was cancelled by the owner.` : `${child.task} did not start: ${Math.max(0, left)} ms of BRIEFING_TIMEOUT_MS (${config.BRIEFING_TIMEOUT_MS} ms) were left.`,
+          stop_reason: stop,
+          usage: noUsage(),
+        });
         tracer.log({
           agent_name: AGENT,
           action: "child_skipped",
           input_summary: capped(`child=${child.task} run_id=${childRunId}`),
-          output_summary: capped(`run_timeout: ${Math.max(0, left)} ms left, at least ${BRIEFING_MIN_CHILD_MS} ms are needed; no run was started`),
+          output_summary: capped(stop === "cancelled" ? "cancelled: the briefing was stopped before this child started; no run was started" : `run_timeout: ${Math.max(0, left)} ms left, at least ${BRIEFING_MIN_CHILD_MS} ms are needed; no run was started`),
           target_agent: child.task,
           status: "needs_human",
-          why: "run_timeout",
-          stop_reason: "run_timeout",
+          why: stop === "cancelled" ? "cancelled by the owner" : "run_timeout",
+          stop_reason: stop,
         });
         return;
       }
@@ -1408,7 +1488,8 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
     if (failure !== null) return { ...base, status: "error", output: null, error: failure };
 
     const done = sections.every(covered);
-    const stopReason = sections.find((section) => section.stop_reason !== null)?.stop_reason ?? null;
+    // A cancelled briefing says so whatever its first stopped section was.
+    const stopReason = cancelled ? "cancelled" : (sections.find((section) => section.stop_reason !== null)?.stop_reason ?? null);
     const parts: string[] = [`# Weekly briefing for ${asOf}`];
     const citations: Citation[] = [];
     const findings: Finding[] = [];

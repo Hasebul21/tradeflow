@@ -10,7 +10,7 @@ export type Cell = string | number | boolean | null;
 
 export type ZetarisRow = Record<string, unknown>;
 
-export type ZetarisErrorType = "timeout" | "unauthorized" | "http" | "network" | "bad_reply";
+export type ZetarisErrorType = "timeout" | "unauthorized" | "http" | "network" | "bad_reply" | "aborted";
 
 /** A Zetaris call that failed. `type` says why; the message never holds the URL, a key or a password. */
 export class ZetarisError extends Error {
@@ -42,8 +42,11 @@ export type ZetarisReply = {
 };
 
 export interface ZetarisClient {
-  /** `onRetry` runs once, just before the one retry after a timeout, so the caller can trace it. */
-  run(sql: string, opts: { timeoutMs: number; onRetry?: () => void }): Promise<ZetarisReply>;
+  /**
+   * `onRetry` runs once, just before the one retry after a timeout, so the caller can trace it. `signal` is the run's
+   * cancel signal: it ends the request at once with type "aborted", which is never retried.
+   */
+  run(sql: string, opts: { timeoutMs: number; onRetry?: () => void; signal?: AbortSignal }): Promise<ZetarisReply>;
 }
 
 /** Rows asked for in one call; the named queries aggregate in SQL, so this is a ceiling, not a target. */
@@ -55,12 +58,12 @@ export function createZetarisClient(cfg: Config["zetaris"], fetchImpl: typeof fe
   if (cfg === null) return null;
   const base = cfg.restUrl.replace(/\/+$/, "");
   return {
-    async run(sql, { timeoutMs, onRetry }) {
+    async run(sql, { timeoutMs, onRetry, signal }) {
       const started = Date.now();
       // One retry, on a timeout only: a 401 or bad SQL gives the same answer twice.
       for (let attempt = 0; ; attempt++) {
         try {
-          const reply = await post(base, cfg, sql, timeoutMs, fetchImpl);
+          const reply = await post(base, cfg, sql, timeoutMs, fetchImpl, signal);
           return { ...reply, sql, durationMs: Date.now() - started };
         } catch (error) {
           if (error instanceof ZetarisError && error.type === "timeout" && attempt === 0) {
@@ -81,6 +84,7 @@ async function post(
   sql: string,
   timeoutMs: number,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<Omit<ZetarisReply, "durationMs" | "sql">> {
   let response: Response;
   try {
@@ -93,9 +97,12 @@ async function post(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ queryId: randomUUID(), sql, source: "SqlEditor", limit: ROW_LIMIT }),
-      signal: AbortSignal.timeout(timeoutMs),
+      // The timeout and the run's cancel signal both end the request; AbortSignal.any reports whichever fires first.
+      signal: signal === undefined ? AbortSignal.timeout(timeoutMs) : AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]),
     });
   } catch (error) {
+    // A cancel is not a timeout: it is never retried.
+    if (signal?.aborted) throw new ZetarisError("aborted", "The request was cancelled.");
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
       throw new ZetarisError("timeout", "The request timed out.");
     }

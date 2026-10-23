@@ -55,6 +55,8 @@ export type PlanDeps = {
   timeoutMs?: number;
   /** When the round ends; passed on to llm.ts for its empty_response retries. */
   roundDeadlineMs?: number;
+  /** The run's cancel signal; it goes to every model call this agent makes. */
+  signal?: AbortSignal;
   /** The model calls left in the run's budget; passed on to llm.ts, which sends no request past it. */
   modelCallsLeft?: number;
   /** The loop round, 0 in the first; written as retry_count on the trace lines. */
@@ -189,6 +191,7 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
     ...(deps.sampleMode === undefined ? {} : { sampleMode: deps.sampleMode }),
     ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
     ...(deps.roundDeadlineMs === undefined ? {} : { roundDeadlineMs: deps.roundDeadlineMs }),
+    ...(deps.signal === undefined ? {} : { signal: deps.signal }),
     ...(deps.modelCallsLeft === undefined ? {} : { modelCallsLeft: deps.modelCallsLeft }),
   });
 

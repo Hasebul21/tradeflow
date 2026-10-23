@@ -46,6 +46,7 @@ describe("waitingFor", () => {
   it("names a stop reason in words, an escalation rule, a reconciliation, and the fallback", () => {
     expect(waitingFor({ stop_reason: "rounds", escalation_rule: null })).toContain("round limit");
     expect(waitingFor({ stop_reason: "made_up", escalation_rule: null })).toBe("The run stopped: made_up.");
+    expect(waitingFor({ stop_reason: "cancelled", escalation_rule: null })).toContain("You stopped the run");
     expect(waitingFor({ stop_reason: null, escalation_rule: "sector_target" })).toContain("sector_target");
     expect(waitingFor({ stop_reason: null, escalation_rule: "reconcile_proposals" })).toContain("approve");
     expect(waitingFor({ stop_reason: null, escalation_rule: null })).toBe("The run waits for your decision.");

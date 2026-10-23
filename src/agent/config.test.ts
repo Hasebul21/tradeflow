@@ -23,6 +23,7 @@ describe("limits and defaults", () => {
       RUN_TIMEOUT_MS: 900000,
       BRIEFING_TIMEOUT_MS: 1200000,
       MAX_CONCURRENT_CHILDREN: 2,
+      MAX_CONCURRENT_RUNS: 2,
       MAX_ROWS_PER_QUERY: 50,
       MAX_MEMORIES: 5,
       MAX_PROMPT_CHARS: 40000,
@@ -57,6 +58,8 @@ describe("limits and defaults", () => {
     expect(cfg.TEMPERATURE).toBe(0);
     expect(loadConfig({ MAX_CONCURRENT_CHILDREN: "1" }, () => {}).MAX_CONCURRENT_CHILDREN).toBe(1);
     expect(() => loadConfig({ MAX_CONCURRENT_CHILDREN: "0" }, () => {})).toThrow(ConfigError);
+    expect(loadConfig({ MAX_CONCURRENT_RUNS: "1" }, () => {}).MAX_CONCURRENT_RUNS).toBe(1);
+    expect(() => loadConfig({ MAX_CONCURRENT_RUNS: "0" }, () => {})).toThrow(ConfigError);
   });
 
   it("counts an empty limit as unset", () => {

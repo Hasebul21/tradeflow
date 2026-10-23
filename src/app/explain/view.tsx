@@ -9,7 +9,7 @@ import type { TraceLine } from "@/agent/trace";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
-import { acceptedText, adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner, stopReasonLabel } from "./badges";
+import { acceptedText, adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner, stoppedBadge, stopReasonLabel, usageText } from "./badges";
 import { approveFix, runPreTrade, runReconcile, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
 
@@ -26,7 +26,7 @@ const QUESTIONS = ["Why did my portfolio move this week?", "Which of my rules ar
 // ---------------------------------------------------------------------------------------------------------------
 // One run: a client-made run id, a poll of GET /run/<run_id> while the action is awaited, then the result.
 
-type RunState = { running: boolean; runId: string | null; steps: TraceLine[]; started: boolean; result: RunResult | null; proof: Proof | null };
+type RunState = { running: boolean; runId: string | null; steps: TraceLine[]; started: boolean; result: RunResult | null; proof: Proof | null; stopping: boolean };
 
 async function fetchProof(runId: string): Promise<Proof | null> {
   try {
@@ -48,13 +48,13 @@ async function fetchSteps(runId: string): Promise<TraceLine[] | null> {
 }
 
 function useRun() {
-  const [state, setState] = useState<RunState>({ running: false, runId: null, steps: [], started: false, result: null, proof: null });
+  const [state, setState] = useState<RunState>({ running: false, runId: null, steps: [], started: false, result: null, proof: null, stopping: false });
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   const start = async (action: (runId: string) => Promise<RunResult>) => {
     const runId = crypto.randomUUID();
-    setState({ running: true, runId, steps: [], started: false, result: null, proof: null });
+    setState({ running: true, runId, steps: [], started: false, result: null, proof: null, stopping: false });
     timer.current = setInterval(async () => {
       const lines = await fetchSteps(runId);
       const proof = await fetchProof(runId);
@@ -70,9 +70,21 @@ function useRun() {
     if (timer.current) clearInterval(timer.current);
     const lines = (await fetchSteps(runId)) ?? [];
     const proof = await fetchProof(runId);
-    setState({ running: false, runId, steps: lines, started: lines.length > 0, result, proof });
+    setState({ running: false, runId, steps: lines, started: lines.length > 0, result, proof, stopping: false });
   };
-  return { state, start };
+
+  /** Asks the server to stop the run in progress. The action still returns the result: needs_human, stopped by you. */
+  const stop = async () => {
+    const runId = state.runId;
+    if (runId === null || !state.running) return;
+    setState((s) => (s.runId === runId ? { ...s, stopping: true } : s));
+    try {
+      await fetch(`/run/${runId}/cancel`, { method: "POST" });
+    } catch {
+      // The run may have finished already (404); the action's result shows what happened.
+    }
+  };
+  return { state, start, stop };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -144,10 +156,14 @@ export function ProofRow({ proof }: { proof: Proof | null }) {
   );
 }
 
-function Live({ state }: { state: RunState }) {
+function Live({ state, onStop }: { state: RunState; onStop?: () => void }) {
   if (!state.running) return null;
   return (
-    <Card size="small" title="Working">
+    <Card
+      size="small"
+      title="Working"
+      extra={onStop === undefined ? null : <Button danger size="small" loading={state.stopping} disabled={state.stopping || !state.started} onClick={onStop}>{state.stopping ? "Stopping" : "Stop"}</Button>}
+    >
       <ProofRow proof={state.proof} />
       {state.started ? <StepsList steps={state.steps} /> : <Typography.Text type="secondary">Starting</Typography.Text>}
     </Card>
@@ -241,6 +257,8 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
     <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       <Flex wrap gap={8} align="center">
         <Tag color={result.status === "success" ? "green" : result.status === "needs_human" ? "orange" : "red"}>{result.status}</Tag>
+        {stoppedBadge(out) ? <Tag color="gold">{stoppedBadge(out)}</Tag> : null}
+        {stoppedBadge(out) ? <Tag>{usageText(result.usage)}</Tag> : null}
         <Badge count={`${counts.zetaris} via Zetaris`} color="blue" />
         <Badge count={`${counts.local} local`} color="gray" />
         <Badge count={`${counts.fallback} local-fallback`} color="orange" />
@@ -276,7 +294,7 @@ function Result({ state, extra }: { state: RunState; extra?: React.ReactNode }) 
             </Descriptions.Item>
             <Descriptions.Item label="Model">{out.model_source}</Descriptions.Item>
             <Descriptions.Item label="Usage">
-              {`${result.usage.model_calls} model calls, ${result.usage.query_calls} query calls, ${result.usage.tokens_in + result.usage.tokens_out} tokens, ${(result.usage.duration_ms / 1000).toFixed(1)} s`}
+              {usageText(result.usage)}
             </Descriptions.Item>
           </Descriptions>
           {extra}
@@ -326,7 +344,7 @@ function AsOf({ value, onChange, range }: { value: string; onChange: (v: string)
 }
 
 function WeekTab({ range }: { range: Range }) {
-  const { state, start } = useRun();
+  const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const [question, setQuestion] = useState("");
   return (
@@ -349,7 +367,7 @@ function WeekTab({ range }: { range: Range }) {
           Explain my week
         </Button>
       </Form>
-      <Live state={state} />
+      <Live state={state} onStop={stop} />
       <Result state={state} />
     </Space>
   );
@@ -358,7 +376,7 @@ function WeekTab({ range }: { range: Range }) {
 const VERDICT_COLOR: Record<string, string> = { confirmed: "green", contradicted: "red", open: "gold" };
 
 function ThesesTab({ range, theses }: { range: Range; theses: Record<string, string> }) {
-  const { state, start } = useRun();
+  const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const out = state.result?.output;
   const rows = (out?.verdicts ?? []).map((v) => ({
@@ -382,7 +400,7 @@ function ThesesTab({ range, theses }: { range: Range; theses: Record<string, str
         <AsOf value={asOf} onChange={setAsOf} range={range} />
         <Button type="primary" loading={state.running} onClick={() => start((id) => runTheses(id, asOf))}>Check</Button>
       </Form>
-      <Live state={state} />
+      <Live state={state} onStop={stop} />
       <Result
         state={state}
         extra={<DataTable rowKey="key" columns={columns} dataSource={rows} pagination={false} locale={{ emptyText: <EmptyState message="No thesis verdicts." /> }} />}
@@ -392,7 +410,7 @@ function ThesesTab({ range, theses }: { range: Range; theses: Record<string, str
 }
 
 function PreTradeTab({ range, plans }: { range: Range; plans: Plan[] }) {
-  const { state, start } = useRun();
+  const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const [mode, setMode] = useState<"trade" | "plan">(plans.length ? "plan" : "trade");
   const [planId, setPlanId] = useState<string | undefined>(plans[0]?.id);
@@ -429,7 +447,7 @@ function PreTradeTab({ range, plans }: { range: Range; plans: Plan[] }) {
           Check this trade
         </Button>
       </Form>
-      <Live state={state} />
+      <Live state={state} onStop={stop} />
       <Result state={state} />
     </Space>
   );
@@ -462,7 +480,7 @@ function ApproveCell({ proposal, reviewRunId }: { proposal: Proposal; reviewRunI
 }
 
 function ReconcileTab({ range }: { range: Range }) {
-  const { state, start } = useRun();
+  const { state, start, stop } = useRun();
   const [asOf, setAsOf] = useState(range.last);
   const reviewRunId = state.result?.run_id ?? "";
   const rows = (state.result?.output?.proposals ?? []).map((p) => ({ key: p.issue_id, ...p }));
@@ -485,7 +503,7 @@ function ReconcileTab({ range }: { range: Range }) {
         <AsOf value={asOf} onChange={setAsOf} range={range} />
         <Button type="primary" loading={state.running} onClick={() => start((id) => runReconcile(id, asOf))}>Reconcile</Button>
       </Form>
-      <Live state={state} />
+      <Live state={state} onStop={stop} />
       <Result
         state={state}
         extra={<DataTable rowKey="key" columns={columns} dataSource={rows} pagination={false} locale={{ emptyText: <EmptyState message="No differences to approve." /> }} />}

@@ -51,6 +51,11 @@ export type CompleteOptions = {
    * call, retries included; a request past this number is not made: BudgetExhaustedError("max_model_calls").
    */
   modelCallsLeft?: number;
+  /**
+   * The run's cancel signal. It goes to the openai client as the request's `signal` (an abort ends the request and
+   * the error is rethrown at once: never retried, never a fallback); in sample mode it is checked before the reply.
+   */
+  signal?: AbortSignal;
 };
 
 export type ToolCallResult = {
@@ -254,6 +259,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
   }
 
   if (sampleMode) {
+    // A run that was stopped before this call makes no request, so nothing is counted.
+    options.signal?.throwIfAborted();
     let result: CompleteResult;
     try {
       result = await completeWithSampleModel(options);
@@ -392,7 +399,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       ...(onLine > 0 || state.usage !== null
         ? { usage: { ...(state.usage === null ? {} : { tokens_in: state.usage.tokens_in, tokens_out: state.usage.tokens_out }), model_calls: onLine } }
         : {}),
-      why: error instanceof ModelError ? error.name : "unexpected error",
+      why: options.signal?.aborted ? "cancelled by the owner" : error instanceof ModelError ? error.name : "unexpected error",
       model: lastRequested,
       duration_ms: Date.now() - started,
       model_retries: state.retries,
@@ -561,7 +568,21 @@ function buildParams(
   return params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
 }
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** Waits `ms`; rejects with the signal's reason as soon as `signal` aborts, so a stopped run does not sit in a backoff. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /** Throws BudgetExhaustedError("max_model_calls") when the next request would pass the caller's modelCallsLeft. */
 function ensureModelCallLeft(state: CallState): void {
@@ -619,8 +640,10 @@ async function sendWithRetry(
     ensureModelCallLeft(state);
     state.attempts += 1;
     try {
-      return await state.client.chat.completions.create(params, { timeout, maxRetries: 0 });
+      return await state.client.chat.completions.create(params, { timeout, maxRetries: 0, ...(options.signal === undefined ? {} : { signal: options.signal }) });
     } catch (error) {
+      // The run was stopped: the SDK throws APIUserAbortError. It is the owner's decision, not a failure to retry or fall back from.
+      if (options.signal?.aborted) throw error;
       const failure = classify(error);
       const retryTrace = (why: string) =>
         options.tracer?.log({
@@ -676,7 +699,7 @@ async function sendWithRetry(
                 model: requested,
                 usage: countAttemptOnLine(state),
               });
-              await sleep(wait);
+              await sleep(wait, options.signal);
               // The retry gets a whole attempt again, inside the round.
               const tierTimeout = tier === "strong" ? cfg.MODEL_TIMEOUT_STRONG_MS : cfg.MODEL_TIMEOUT_MS;
               state.deadline = Date.now() + Math.min(tierTimeout, options.roundDeadlineMs - Date.now());
@@ -709,11 +732,11 @@ async function sendWithRetry(
                 model: requested,
                 usage: countAttemptOnLine(state),
               });
-              await sleep(BACKOFF_MS);
+              await sleep(BACKOFF_MS, options.signal);
               continue;
             }
             retryTrace(why);
-            await sleep(BACKOFF_MS);
+            await sleep(BACKOFF_MS, options.signal);
             continue;
           }
           const times = transportRetried ? "twice" : "once, with no time left for a retry";

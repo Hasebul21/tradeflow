@@ -4,7 +4,7 @@
 export const MODEL_UNAVAILABLE_LABEL = "Draft built by code: the model was unavailable after the queries ran";
 
 /** Every code a run can stop with when it ends needs_human. orchestrator.ts builds StopReason from this list, so a new code is added here first. */
-export const STOP_REASONS = ["rounds", "query_calls", "model_calls", "tokens", "round_timeout", "run_timeout", "writer_rejected", "model_unavailable"] as const;
+export const STOP_REASONS = ["rounds", "query_calls", "model_calls", "tokens", "round_timeout", "run_timeout", "writer_rejected", "model_unavailable", "cancelled"] as const;
 export type StopReasonCode = (typeof STOP_REASONS)[number];
 
 /** One plain sentence per stop code, for the Explain page. A new code without a sentence fails the type check and the labels test. */
@@ -17,4 +17,5 @@ export const STOP_REASON_LABELS: Record<StopReasonCode, string> = {
   run_timeout: "The run took longer than its time limit, so it stopped.",
   writer_rejected: "The written review failed its checks twice, so the run stopped.",
   model_unavailable: MODEL_UNAVAILABLE_LABEL,
+  cancelled: "You stopped the run. The findings are the best draft so far, unreviewed.",
 };

@@ -495,3 +495,35 @@ describe("the SQL that was sent", () => {
     expect((await call(clientOf(fetchOf(() => json(weekMovesReply()))))).sql).toBeUndefined();
   });
 });
+
+describe("a cancelled Zetaris call", () => {
+  /** A fetch that never answers and rejects with the signal's reason on abort. */
+  const hanging = () => vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })));
+
+  it("ends with type aborted, once: a cancel is not a timeout and is never retried", async () => {
+    const fetchImpl = hanging();
+    const controller = new AbortController();
+    const pending = clientOf(fetchImpl).run("SELECT 1", { timeoutMs: 5000, signal: controller.signal }).catch((e: unknown) => e);
+    setTimeout(() => controller.abort(), 20);
+    const error = await pending;
+    expect(error).toBeInstanceOf(ZetarisError);
+    expect((error as ZetarisError).type).toBe("aborted");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("runQuery with a cancelled signal throws, never falls back to local rows, and writes no Query line", async () => {
+    const controller = new AbortController();
+    const fetchImpl = hanging();
+    const { tracer, lines, call } = weekMoves({ signal: controller.signal });
+    expect(tracer).toBeDefined();
+    const pending = call(clientOf(fetchImpl)).catch((e: unknown) => e);
+    setTimeout(() => controller.abort(), 20);
+    const error = await pending;
+    expect((error as ZetarisError).type).toBe("aborted");
+    expect(lines.filter((line) => line.agent_name === "Query")).toEqual([]);
+    // Already aborted before the call: nothing is sent at all.
+    const again = weekMoves({ signal: controller.signal });
+    await expect(again.call(clientOf(hanging()))).rejects.toBeDefined();
+    expect(again.lines).toEqual([]);
+  });
+});

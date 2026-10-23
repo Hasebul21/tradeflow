@@ -77,3 +77,13 @@ export function acceptedText(status: RunResult["status"], output: Pick<Output, "
   if (status === "success") return `accepted in round ${output?.rounds ?? 0}`;
   return stopReasonLabel(output) ?? "Not accepted. The decision is yours.";
 }
+
+/** The header tag of a run the owner stopped, or null. */
+export function stoppedBadge(output: Pick<Output, "stop_reason"> | null | undefined): string | null {
+  return output?.stop_reason === "cancelled" ? "Stopped by you" : null;
+}
+
+/** The usage line of a result: what the run spent, which for a stopped run is what it spent before it stopped. */
+export function usageText(usage: RunResult["usage"]): string {
+  return `${usage.model_calls} model calls, ${usage.query_calls} query calls, ${usage.tokens_in + usage.tokens_out} tokens, ${(usage.duration_ms / 1000).toFixed(1)} s`;
+}

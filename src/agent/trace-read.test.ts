@@ -87,6 +87,13 @@ describe("the review queue", () => {
     expect(Object.fromEntries(all.map((run) => [run.run_id, run.status]))).toEqual({ new_limit: "needs_human", old_escalated: "needs_human", fine: "success", broken: "error", still_running: "running" });
   });
 
+  it("lists a run the owner stopped, with stop_reason cancelled from its last line", async () => {
+    await write("stopped", [line({ run_id: "stopped", agent_name: "Orchestrator", action: "cancelled", status: "needs_human", why: "cancelled by the owner" }), runEnd("stopped", "2026-10-01T10:05:00.000Z", { task: "explain_week", stop_reason: "cancelled", output_summary: "status=needs_human stop_reason=cancelled" })]);
+    const queue = await reviewQueue(dir);
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ run_id: "stopped", status: "needs_human", stop_reason: "cancelled", escalation_rule: null });
+  });
+
   it("is empty for a directory that does not exist", async () => {
     expect(await listRuns(path.join(dir, "missing"))).toEqual([]);
   });
