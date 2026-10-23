@@ -18,7 +18,7 @@ import { runWithLimit } from "./concurrency";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { MODEL_UNAVAILABLE_LABEL, PLANNER_FALLBACK_LABEL, STOP_REASONS } from "./labels";
-import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError, ModelTimeout, RateLimited, type AgentName } from "./llm";
+import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError, ModelTimeout, PromptTooLarge, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
@@ -842,7 +842,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       const ran = Object.values(state.store).map((result) => result.query_id);
       const detail = `${type} in the ${calling}'s call (${error.message}); ${ran.length} queries ran: ${ran.join(", ")}.`;
       const base = bestDraft();
-      const gap = `The ${calling}'s ${unreadable ? "model replies could not be read" : "model call failed"} (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
+      const oversized = error instanceof PromptTooLarge;
+      const gap = `The ${calling}'s ${unreadable ? "model replies could not be read" : oversized ? "prompt was too large for the model" : "model call failed"} (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
       const draft: Draft = { findings: base?.findings ?? [], gaps: [...(base?.gaps ?? []), gap], code_gaps: [...(base?.code_gaps ?? []), gap], scores: base?.scores ?? null, total: base?.total ?? null, round: base?.round ?? round };
       tracer.log({
         agent_name: AGENT,
@@ -855,7 +856,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         retry_count: Math.min(round, config.MAX_ROUNDS - 1),
         stop_reason: "model_unavailable",
       });
-      const summary = `${MODEL_UNAVAILABLE_LABEL}. The model ${unreadable ? "answered, but none of its replies could be read" : "did not answer"} (${type}, in the ${calling}'s step), so this draft comes from ${ran.length} query results. Nothing was reviewed or scored.`;
+      const reply = unreadable ? "answered, but none of its replies could be read" : oversized ? "was sent a prompt over MAX_PROMPT_CHARS" : "did not answer";
+      const summary = `${MODEL_UNAVAILABLE_LABEL}. The model ${reply} (${type}, in the ${calling}'s step), so this draft comes from ${ran.length} query results. Nothing was reviewed or scored.`;
       const lines = [summary, "", `Queries that ran: ${ran.join(", ")}.`, ""];
       if (draft.findings.length === 0) lines.push("No findings were drafted before the model stopped answering.");
       for (const finding of draft.findings) lines.push(`- ${finding.claim} ${finding.cites.map((id) => `[q:${id}]`).join(" ")}`.trimEnd());
@@ -1194,6 +1196,9 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       // the round's or the run's, a 429, a network error, or replies that still could not be read), after at least one
       // query result is held: keep the evidence and return a code-built draft, never an error.
       if (isModelFailure(error) && Object.keys(state.store).length > 0) return modelUnavailable(error as ModelError);
+      // The Analyst's prompt over MAX_PROMPT_CHARS, after analyse() cut what it could (previous findings, tool rounds).
+      // Only a system prompt that is over the limit alone still errors: no cut can make that prompt fit.
+      if (error instanceof PromptTooLarge && !error.systemAlone && calling === "Analyst" && Object.keys(state.store).length > 0) return modelUnavailable(error);
       throw error;
     }
   }
