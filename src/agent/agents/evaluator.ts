@@ -300,13 +300,21 @@ function numbersOf(value: unknown, ignore: readonly string[], out: number[] = []
  * hold it as the check reads a row (the same value, or that value rounded to one decimal place) and the finding does
  * not cite, or none. A hint only: the check itself is unchanged, and the finding still has to cite the row.
  */
-function whereIs(value: number, cites: readonly string[], store: ResultStore): string {
+/** Each result's numbers, read once per evaluate (whereIs asks for them once per refused figure). */
+type NumbersByResult = ReadonlyMap<string, readonly number[]>;
+
+function numbersByResult(store: ResultStore): NumbersByResult {
   const ids = Object.keys(store);
-  const holders = Object.values(store).filter((result) => !cites.includes(result.run_query_id) && numbersOf(result.rows, ids).some((n) => Math.abs(n - value) < 1e-9 || Math.abs(round1(n) - value) < 1e-9));
+  return new Map(Object.values(store).map((result) => [result.run_query_id, numbersOf(result.rows, ids)]));
+}
+
+function whereIs(value: number, cites: readonly string[], store: ResultStore, numbers: NumbersByResult): string {
+  const of = (result: QueryResult) => numbers.get(result.run_query_id) ?? [];
+  const holders = Object.values(store).filter((result) => !cites.includes(result.run_query_id) && of(result).some((n) => Math.abs(n - value) < 1e-9 || Math.abs(round1(n) - value) < 1e-9));
   if (holders.length === 0) {
     // A figure rounded the wrong way (2.2 for 2.25, 7259 for 7259.4): name the row value it most likely came from.
     for (const result of Object.values(store)) {
-      const near = numbersOf(result.rows, ids).find((n) => Math.abs(n - value) < 0.1 || (Number.isInteger(value) && Math.round(n) === value && n !== value));
+      const near = of(result).find((n) => Math.abs(n - value) < 0.1 || (Number.isInteger(value) && Math.round(n) === value && n !== value));
       if (near !== undefined) return `no result of this run holds ${value}; ${result.query_id} ${result.run_query_id} has ${near}: write it as the row gives it or rounded half up to one decimal place, or leave it out`;
     }
     return `no result of this run holds ${value}, so leave it out`;
@@ -316,15 +324,15 @@ function whereIs(value: number, cites: readonly string[], store: ResultStore): s
 }
 
 /**
- * Every failure, grouped by finding in the draft's order: no problem is left out of the fix. Each refused figure says
- * where it is in this run, or that it is nowhere.
+ * Every failure, grouped by finding in the draft's order: no problem is left out of the fix. With `numbers`, each
+ * refused figure says where it is in this run, or that it is nowhere; without, the fix names the problems only.
  */
-function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[], store: ResultStore): string {
+function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[], store: ResultStore, numbers: NumbersByResult | null): string {
   const byFinding = new Map<number, string[]>();
   for (const failure of failures) {
     const value = failure.problem.match(REFUSED);
     const finding = findings[failure.finding - 1];
-    const hint = value === null || finding === undefined ? "" : ` (${whereIs(Number(value[1]), finding.cites, store)})`;
+    const hint = value === null || finding === undefined || numbers === null ? "" : ` (${whereIs(Number(value[1]), finding.cites, store, numbers)})`;
     const problems = byFinding.get(failure.finding) ?? [];
     // The same refused figure twice in one claim is one problem.
     if (!problems.includes(`${failure.problem}${hint}`)) problems.push(`${failure.problem}${hint}`);
@@ -437,19 +445,24 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   const citations = checkCitations(findings, input.results, memories, tracer, input.as_of);
   const citationCheck: CodeCheck = citations.ok
     ? { check: "citations", ok: true, reason: "every finding cites a result of this run and every number is in the cited rows", fix: null }
-    : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures, input.results) };
-  traceCheck(citationCheck);
+    : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures, input.results, numbersByResult(input.results)) };
 
   // 2. No advice, every finding matches the schema, a verdict where the task needs one. The draft is the Analyst's reply.
   const guard = afterModel("Analyst", { findings, gaps }, { task: input.task }, tracer);
   const guardCheck: CodeCheck = guard.ok
     ? { check: "guard", ok: true, reason: `the draft passes the reply guard${guard.injection_seen ? " (injection wording seen)" : ""}`, fix: null }
     : { check: "guard", ok: false, reason: guard.reason, fix: guardFix(guard.reason) };
-  traceCheck(guardCheck);
 
   // 3. The task's required findings are there.
   const covered = coverage(input.task, findings, input.results, input.as_of);
   const coverageCheck: CodeCheck = covered.ok ? { check: "coverage", ok: true, reason: covered.reason, fix: null } : { check: "coverage", ok: false, reason: covered.reason, fix: covered.fix };
+
+  // The fix goes into the Planner's and the Analyst's prompts: past MAX_FIX_CHARS the refused-figure hints go, and
+  // every problem stays named.
+  const others = [guardCheck, coverageCheck].filter((check) => !check.ok).reduce((n, check) => n + (check.fix?.length ?? 0) + 1, 0);
+  if (!citationCheck.ok && (citationCheck.fix?.length ?? 0) + others > cfg.MAX_FIX_CHARS) citationCheck.fix = citationFix(findings, citations.failures, input.results, null);
+  traceCheck(citationCheck);
+  traceCheck(guardCheck);
   traceCheck(coverageCheck);
 
   const failed = [citationCheck, guardCheck, coverageCheck].filter((check) => !check.ok);
@@ -575,11 +588,15 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * (BXPHARMA, j-013, Pharmaceuticals & Chemicals). A finding the fix does not name is kept into the next draft by code.
  */
 export function namedIn(fix: string, findings: readonly Finding[]): number[] {
-  const numbers = new Set([...fix.matchAll(/\bfindings? (\d+)\b/gi)].map((match) => Number(match[1])));
+  // "finding 3", "findings 2 and 3", "findings 2, 4 or 5": every number in the list.
+  const numbers = new Set([...fix.matchAll(/\bfindings? (\d+(?:(?:\s*,\s*|\s+(?:and|or)\s+|\s*&\s*)\d+)*)/gi)].flatMap((match) => match[1].match(/\d+/g)!.map(Number)));
   const out: number[] = [];
   for (const [index, finding] of findings.entries()) {
-    const subject = new RegExp(`(?<![A-Za-z0-9_-])${escaped(finding.subject)}(?![A-Za-z0-9_-])`);
-    if (numbers.has(index + 1) || subject.test(fix)) out.push(index + 1);
+    // A subject counts only as the target of a finding ("the GP finding", "BXPHARMA's claim", "the finding on GP"),
+    // not in passing ("compare with BXPHARMA").
+    const s = `(?<![A-Za-z0-9_-])${escaped(finding.subject)}(?![A-Za-z0-9_-])`;
+    const asTarget = new RegExp(`${s}(?:'s)?\\s+(?:\\w+\\s+)?(?:finding|claim)s?\\b|\\b(?:finding|claim)s?\\s+(?:on|about|for|of)\\s+${s}`, "i");
+    if (numbers.has(index + 1) || asTarget.test(fix)) out.push(index + 1);
   }
   return out;
 }

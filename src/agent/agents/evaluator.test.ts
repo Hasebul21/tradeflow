@@ -229,6 +229,21 @@ describe("the Evaluator's fix names every open problem", () => {
     expect(outcome.flagged).toEqual([1, 3]);
   });
 
+  it("past MAX_FIX_CHARS drops the refused-figure hints and still names every problem", async () => {
+    const { run } = runState();
+    const moves = await run.query("week_moves", { as_of: AS_OF });
+    const bad = (subject: string, value: number) => finding(subject, [moves.run_query_id], [{ value, label: "made-up" }]);
+    const draft = [bad("BXPHARMA", 111.1), bad("RENATA", 222.2), bad("GP", 333.3)];
+    const roomy = await evaluate(input(run, draft), { tracer: collector().tracer, run });
+    expect(roomy.fix).toContain("no result of this run holds 111.1");
+    const cap = loadConfig({ SAMPLE_MODE: "true", MAX_FIX_CHARS: String(roomy.fix.length - 1) }, () => {});
+    const capped = await evaluate(input(run, draft), { tracer: collector().tracer, run, config: cap });
+    expect(capped.fix).not.toContain("no result of this run holds");
+    expect(capped.fix.length).toBeLessThanOrEqual(roomy.fix.length);
+    for (const n of ["111.1", "222.2", "333.3"]) expect(capped.fix).toContain(`the number ${n} (made-up) is not in the cited rows`);
+    expect(capped.flagged).toEqual([1, 2, 3]);
+  });
+
   it("names every reconciliation issue that has no finding, not just the first", async () => {
     const { run } = runState();
     const reconciliation = await run.query("reconciliation", {});
@@ -240,11 +255,16 @@ describe("the Evaluator's fix names every open problem", () => {
     expect(missing.ok ? "" : missing.fix).not.toMatch(/more\)/);
   });
 
-  it("flags the findings a model's fix names by subject or number, and no other", () => {
+  it("flags the findings a model's fix names as targets or by number, and no subject named in passing", () => {
     const findings = [finding("PORTFOLIO", ["q"]), finding("BXPHARMA", ["q"]), finding("Pharmaceuticals & Chemicals", ["q"]), finding("GP", ["q"])];
-    expect(namedIn("Say why BXPHARMA fell and drop the GP claim.", findings)).toEqual([2, 4]);
+    // BXPHARMA is named in passing; the GP claim is the target.
+    expect(namedIn("Say why BXPHARMA fell and drop the GP claim.", findings)).toEqual([4]);
     expect(namedIn("Rewrite finding 1: it overstates the move.", findings)).toEqual([1]);
-    expect(namedIn("Compare Pharmaceuticals & Chemicals with DSEX.", findings)).toEqual([3]);
+    expect(namedIn("Rewrite findings 2 and 3, and finding 4.", findings)).toEqual([2, 3, 4]);
+    expect(namedIn("Fix findings 1, 2 or 4.", findings)).toEqual([1, 2, 4]);
+    expect(namedIn("Compare Pharmaceuticals & Chemicals with DSEX.", findings)).toEqual([]);
+    expect(namedIn("The Pharmaceuticals & Chemicals sector finding overstates the fall.", findings)).toEqual([3]);
+    expect(namedIn("BXPHARMA's claim needs the announcement date; check the finding on PORTFOLIO.", findings)).toEqual([1, 2]);
     // A subject inside a longer word is not named: GPX is not GP.
     expect(namedIn("Add a finding on GPX.", findings)).toEqual([]);
   });

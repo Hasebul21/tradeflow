@@ -8,7 +8,7 @@ import type { RecalledMemory } from "../memory";
 import { loadQueryData, type QueryData } from "../queries";
 import { BudgetExhaustedError, RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
-import { analyse, analystReplySchema, codeGaps, toolsFor, type AnalysisRequest } from "./analyst";
+import { ANALYST_REPLY_SHAPE, analyse, analystReplySchema, codeGaps, RETRY_NOTE_CHARS, toolsFor, type AnalysisRequest } from "./analyst";
 import { plan, type PlannedStep } from "./planner";
 
 // The seed data in data/, a fake tracer that keeps every line in memory, and the sample model unless a test stubs
@@ -244,17 +244,58 @@ describe("the Analyst with the sample model", () => {
     expect(small.lines.find((entry) => entry.action === "analyse")?.input_summary).toContain("1 left out for size");
   });
 
+  it("packs the kept results so a tool round and a bad-JSON retry still fit in MAX_PROMPT_CHARS, the feedback counted first", async () => {
+    const feedback = `Explain GP. ${"Fix finding 1 (move PORTFOLIO): the claim has 1.1, which is not in its numbers or the cited rows. ".repeat(20)}`;
+    const askFor = async (limit: number) => {
+      const state = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_PROMPT_CHARS: String(limit) }, () => {}) });
+      const held = await state.run.query("fundamentals_latest", { symbol: "BXPHARMA", as_of: AS_OF });
+      const calls: CompleteOptions[] = [];
+      const previous = [{ ...finding("BXPHARMA", [held.run_query_id]), kind: "fundamentals" }];
+      await analyse(request([step("week_moves")], { previous_findings: previous, feedback, flagged_findings: [] }), {
+        run: state.run,
+        complete: scripted([() => ({ tool_calls: [{ id: "call-1", name: "fundamentals_latest", arguments: { symbol: "RENATA", as_of: AS_OF } }] }), () => done([])], calls),
+      });
+      const shown = (JSON.parse(calls[0].user) as { results: { query_id: string }[] }).results.map((result) => result.query_id);
+      return { calls, shown };
+    };
+    const reserve = config.MAX_TOOL_ROUNDS * config.TOOL_ROUND_RESERVE_CHARS + RETRY_NOTE_CHARS;
+
+    // Find the size of the first prompt with the kept result in it, then set the limit exactly at it plus the reserve.
+    const roomy = await askFor(1_000_000);
+    expect(roomy.shown).toEqual(["week_moves", "fundamentals_latest"]);
+    expect(JSON.parse(roomy.calls[0].user).feedback).toBe(feedback);
+    const atCap = roomy.calls[0].system.length + roomy.calls[0].user.length + reserve;
+    const tight = await askFor(atCap);
+    expect(tight.shown).toEqual(["week_moves", "fundamentals_latest"]);
+    // The tool round's history fits.
+    const second = tight.calls[1];
+    const history = (second.history ?? []).reduce((n, message) => n + JSON.stringify(message).length, 0);
+    expect(second.system.length + second.user.length + history).toBeLessThanOrEqual(atCap);
+    // A bad-JSON retry's correction fits too: the longest llm.ts writes (a 300-character reason, the token-limit
+    // sentence, the JSON-only sentence and the shape) is within RETRY_NOTE_CHARS.
+    const correction = `Your last reply did not match the required shape: ${"r".repeat(300)}. It stopped at the token limit; keep the reply short. Reply with the JSON object only. The shape: ${ANALYST_REPLY_SHAPE}`;
+    expect(correction.length).toBeLessThanOrEqual(RETRY_NOTE_CHARS);
+    expect(tight.calls[0].system.length + tight.calls[0].user.length + history + correction.length).toBeLessThanOrEqual(atCap);
+    // One character less and the kept result is left out rather than crowding the reserve.
+    expect((await askFor(atCap - 1)).shown).toEqual(["week_moves"]);
+  });
+
+  it("reads retracted: null as no retraction", async () => {
+    const outcome = await analyse(request([step("week_moves")]), { run: runState().run, complete: scripted([() => ({ ...done([]), retracted: null })]) });
+    expect(outcome).toMatchObject({ ok: true, retracted: [] });
+  });
+
   it("sends the prompt file as-is and one JSON user message with the task, question, as_of, trade, focus, memories, world, results, previous_findings, feedback and flagged_findings", async () => {
     const calls: CompleteOptions[] = [];
     const { run } = runState();
     const previous = [finding("PORTFOLIO", ["q-old"])];
-    await analyse(request([step("week_moves")], { previous_findings: previous, feedback: "Explain GP.", flagged_findings: [1] }), { run, complete: scripted([() => done([])], calls) });
+    await analyse(request([step("week_moves")], { previous_findings: previous, feedback: "Explain GP.", flagged_findings: [{ finding: 1, kind: "move", subject: "PORTFOLIO" }] }), { run, complete: scripted([() => done([])], calls) });
     expect(calls).toHaveLength(1);
     expect(calls[0].system).toBe(readFileSync(path.join(__dirname, "../prompts/analyst.md"), "utf8"));
     expect(calls[0]).toMatchObject({ model: "main", json: true, agent: "Analyst" });
     const user = JSON.parse(calls[0].user) as Record<string, unknown>;
     expect(Object.keys(user)).toEqual(["task", "question", "as_of", "trade", "focus", "memories", "world", "results", "previous_findings", "feedback", "flagged_findings"]);
-    expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, trade: null, world: [], previous_findings: previous, feedback: "Explain GP.", flagged_findings: [1] });
+    expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, trade: null, world: [], previous_findings: previous, feedback: "Explain GP.", flagged_findings: [{ finding: 1, kind: "move", subject: "PORTFOLIO" }] });
     const results = user.results as { run_query_id: string; query_id: string; row_count: number; truncated: boolean; rows: unknown[] }[];
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ query_id: "week_moves", truncated: false });

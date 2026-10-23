@@ -65,7 +65,7 @@ describe("mergeRevision: revise, don't restart", () => {
     ]);
   });
 
-  it("leaves out a retracted finding, but restores a retracted or fix-named one the coverage check requires", async () => {
+  it("leaves out a retracted finding, restores a retracted one the coverage check requires with a gap, and asks again for a flagged one", async () => {
     const { run, moves } = await week();
     const renata = finding("move", "RENATA", [moves], "RENATA fell 3.7% over the week.", [{ value: -3.74, label: "change %" }]);
     const bxpharma = finding("move", "BXPHARMA", [moves], "BXPHARMA fell 14.9% over the week.", [{ value: -14.88, label: "change %" }]);
@@ -74,16 +74,20 @@ describe("mergeRevision: revise, don't restart", () => {
       { kind: "move", subject: "BXPHARMA", why: "covered elsewhere" },
     ];
 
-    const result = merge(run, { previous: [renata, bxpharma], next: [], retracted });
+    const known = knownSubjects(d.portfolio.instruments.values(), run.store);
+    const result = merge(run, { previous: [renata, bxpharma], next: [], retracted, known });
     expect(result.findings).toEqual([bxpharma]);
     expect(result.kept).toEqual([expect.objectContaining({ finding: bxpharma, how: "restored", why: expect.stringMatching(/largest move.*the Analyst retracted it/) })]);
-
-    const named = merge(run, { previous: [renata, bxpharma], flagged: new Set([bxpharma]), next: [] });
-    expect(named.findings).toEqual([renata, bxpharma]);
-    expect(named.kept.map((entry) => [entry.finding.subject, entry.how])).toEqual([
-      ["RENATA", "carried"],
-      ["BXPHARMA", "restored"],
+    // The review says code kept it; the Analyst's reason is model text, so it stays out of this trusted gap.
+    expect(result.notes).toEqual([
+      { key: "move\u0000BXPHARMA", gap: "The Analyst withdrew its move finding on BXPHARMA; it is kept unchanged because the coverage check requires it.", finding: bxpharma, kind: "kept_despite_retraction" },
     ]);
+    expect(result.notes[0].gap).not.toContain("covered elsewhere");
+
+    // A required finding the last fix flagged is not put back unchanged: the coverage check asks for it again.
+    const named = merge(run, { previous: [renata, bxpharma], flagged: new Set([bxpharma]), next: [] });
+    expect(named.findings).toEqual([renata]);
+    expect(named.kept.map((entry) => [entry.finding.subject, entry.how])).toEqual([["RENATA", "carried"]]);
   });
 
   it("never carries or restores a finding that fails the code checks, so no refused number gets back in", async () => {
@@ -96,7 +100,7 @@ describe("mergeRevision: revise, don't restart", () => {
     expect(passesCodeChecks(bxpharma, "explain_week", run.store)).toBe(false);
 
     const result = merge(run, { previous: [sector, bxpharma], next: [] });
-    expect(result).toEqual({ findings: [], kept: [] });
+    expect(result).toEqual({ findings: [], kept: [], notes: [] });
   });
 
   it("restores one thesis finding per missing journal id, and never a second for an id the new draft covers", async () => {
@@ -153,5 +157,44 @@ describe("mergeRevision: revise, don't restart", () => {
     // A valid symbol or sector, with a valid kind, is named.
     expect(droppedGap(of("move", "BXPHARMA"), known)).toBe("The move finding on BXPHARMA was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.");
     expect(droppedGap(of("sector", "Pharmaceuticals & Chemicals"), known)).toMatch(/^The sector finding on Pharmaceuticals & Chemicals was left out/);
+  });
+
+  it("reads a run-dated day range as dates, as the Evaluator does: such a finding is carried, and not dropped", async () => {
+    // The run's as_of is 17 Sept; the cited query's window starts on 11 Sept. Only as_of makes 17 a date of the run.
+    const run = new RunState({ runId: "t", tracer, config, sampleMode: true, data: d });
+    const announcements = await run.query("announcements_between", { from: "2026-09-11", to: "2026-09-16" });
+    const ranged = finding("announcement", "PORTFOLIO", [announcements.run_query_id], "The data shows the announcements over 11-17 Sept 2026.");
+    const asOf = "2026-09-17";
+    expect(passesCodeChecks(ranged, "explain_week", run.store)).toBe(false);
+    expect(passesCodeChecks(ranged, "explain_week", run.store, [], asOf)).toBe(true);
+
+    const input = { task: "explain_week" as const, previous: [ranged], flagged: new Set<Finding>(), next: [], retracted: [], required: [], store: run.store };
+    expect(mergeRevision({ ...input, asOf }).findings).toEqual([ranged]);
+    expect(mergeRevision(input).findings).toEqual([]);
+
+    const known = knownSubjects(d.portfolio.instruments.values(), run.store);
+    const flagged = new Set([{ ...ranged }]);
+    expect(dropRepeatFailures({ task: "explain_week", flagged, findings: [ranged], required: [], store: run.store, known, asOf }).dropped).toEqual([]);
+    expect(dropRepeatFailures({ task: "explain_week", flagged, findings: [ranged], required: [], store: run.store, known }).dropped).toHaveLength(1);
+  });
+
+  it("names the check a dropped finding failed in its gap", async () => {
+    const { run, moves } = await week();
+    const known = knownSubjects(d.portfolio.instruments.values(), run.store);
+    const advice = finding("move", "GP", [moves], "You should sell GP now.");
+    const flagged = new Set([{ ...advice }]);
+    const result = dropRepeatFailures({ task: "explain_week", flagged, findings: [advice], required: [], store: run.store, known });
+    expect(result.dropped.map((gone) => gone.gap)).toEqual(["The move finding on GP was left out: after the Evaluator's fix the reply guard still refused it (advice, or a finding that breaks the schema)."]);
+  });
+
+  it("matches previous findings with the same kind and subject by count, so a surplus one is carried", async () => {
+    const { run, rules } = await week();
+    const first = finding("rule", "Pharmaceuticals & Chemicals", [rules], "The data shows Pharmaceuticals & Chemicals is 37.8% of the portfolio.", [{ value: 37.8, label: "weight %" }]);
+    const second = finding("rule", "Pharmaceuticals & Chemicals", [rules], "The data shows Pharmaceuticals & Chemicals is 7.8 points over its target.", [{ value: 7.8, label: "points over" }]);
+    const rewritten = { ...first, claim: "The data shows Pharmaceuticals & Chemicals is 37.8% of the portfolio against a 30% target." };
+    const result = merge(run, { previous: [first, second], next: [rewritten] });
+    expect(result.findings).toEqual([rewritten, second]);
+    expect(result.kept).toEqual([expect.objectContaining({ finding: second, how: "carried" })]);
+    expect(merge(run, { previous: [first, second], next: [rewritten, { ...second }] }).kept).toEqual([]);
   });
 });

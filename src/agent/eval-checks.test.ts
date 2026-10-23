@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DISCLAIMER } from "./agents/writer";
 import { checkExpectation, tracePathChecks, universalChecks, type TraceLine } from "./eval-checks";
+import { droppedGap } from "./revision";
 import { PLANNER_FALLBACK_LABEL } from "./labels";
 import type { RunOutput, RunResult } from "./orchestrator";
 
@@ -124,6 +125,21 @@ describe("universalChecks", () => {
       expect(failed(universalChecks(r))).toEqual(["planner_fallback: the plan was built in code"]);
     }
     expect(failed(universalChecks(result({ gaps: ["dividends_between returned no rows."] })))).toEqual([]);
+  });
+
+  it("fails a result in which code dropped a finding, by its trace line or its gap; carried and restored findings pass", () => {
+    const drop: TraceLine = { agent_name: "Orchestrator", action: "drop_finding", input_summary: "round 2: sector Pharmaceuticals & Chemicals, flagged last round" };
+    const reason = "dropped_finding: a finding was dropped by code";
+    expect(failed(universalChecks(result({}), [drop]))).toEqual([reason]);
+    const gap = droppedGap({ kind: "sector", subject: "Pharmaceuticals & Chemicals", claim: "x", numbers: [], cites: [], verdict: null, proposed_fix: null, memory_ids: [] }, new Set(["Pharmaceuticals & Chemicals"]));
+    expect(failed(universalChecks(result({ gaps: [gap] })))).toEqual([reason]);
+    expect(universalChecks(result({}), [drop]).find((c) => c.name === reason)?.detail).toContain("a finding was dropped by code");
+    const kept: TraceLine[] = [
+      { agent_name: "Orchestrator", action: "carry_forward" },
+      { agent_name: "Orchestrator", action: "restore_finding" },
+    ];
+    const keptGap = "The Analyst withdrew its move finding on BXPHARMA; it is kept unchanged because the coverage check requires it.";
+    expect(failed(universalChecks(result({ gaps: [keptGap] }), kept))).toEqual([]);
   });
 
   it("skips an error result", () => {

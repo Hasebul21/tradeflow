@@ -3,8 +3,9 @@
 // Evaluator did not flag, that the new draft neither replaces (the same kind and subject) nor retracts, and that
 // still passes the code checks on its own, is carried into the new draft. A finding the coverage check requires
 // (requiredFindings in agents/evaluator.ts) that the new draft lacks is restored from the previous draft, even when
-// the Analyst retracted it or the model's fix named it, as long as it passes the code checks. Pure: orchestrator.ts
-// writes one trace line for each finding kept here.
+// the Analyst retracted it (with a gap code writes, so the review says so), as long as it passes the code checks. One
+// the last fix flagged is not restored unchanged: the coverage check asks for it again. Pure: orchestrator.ts writes
+// one trace line for each finding kept here and keeps the gaps for the rest of the run.
 import { FINDING_KINDS } from "./agents/analyst";
 import { meetsRequirement, type Requirement } from "./agents/evaluator";
 import type { ResultStore, Task } from "./context";
@@ -31,15 +32,44 @@ export type RevisionInput = {
   /** The run's result store and recalled memories, for the code checks. */
   store: ResultStore;
   memories?: readonly RecalledMemory[];
+  /** The run's as_of, so a run-dated day range in a claim (11-17 Sept 2026) reads as dates, as the Evaluator reads it. */
+  asOf?: string;
+  /** knownSubjects plus the required subjects: the only subjects a gap written here may name. */
+  known?: ReadonlySet<string>;
 };
 
-export type Revision = { findings: Finding[]; kept: KeptFinding[] };
+/** A gap code wrote about a finding, with the finding it is about, so the run can keep it while it stays true. */
+export type CodeNote = { key: string; gap: string; /** The finding the note is about; a restore note holds while this exact finding is in the draft. */ finding: Finding; kind: "dropped" | "kept_despite_retraction" };
 
-const keyOf = (finding: { kind: string; subject: string }) => `${finding.kind}\u0000${finding.subject}`;
+export type Revision = { findings: Finding[]; kept: KeptFinding[]; notes: CodeNote[] };
+
+export const keyOf = (finding: { kind: string; subject: string }) => `${finding.kind}\u0000${finding.subject}`;
+
+/** The code check one finding fails on its own, in the Evaluator's order, or null when it passes both. */
+export function failingCheck(finding: Finding, task: Task, store: ResultStore, memories: readonly RecalledMemory[] = [], asOf?: string): "citations" | "guard" | null {
+  if (!checkCitations([finding], store, memories, undefined, asOf).ok) return "citations";
+  return afterModel("Analyst", { findings: [finding] }, { task }).ok ? null : "guard";
+}
 
 /** The checks the Evaluator's code runs, on one finding: its numbers are in its cited rows and the reply guard allows it. */
-export function passesCodeChecks(finding: Finding, task: Task, store: ResultStore, memories: readonly RecalledMemory[] = []): boolean {
-  return checkCitations([finding], store, memories).ok && afterModel("Analyst", { findings: [finding] }, { task }).ok;
+export function passesCodeChecks(finding: Finding, task: Task, store: ResultStore, memories: readonly RecalledMemory[] = [], asOf?: string): boolean {
+  return failingCheck(finding, task, store, memories, asOf) === null;
+}
+
+const isKind = (kind: string) => (FINDING_KINDS as readonly string[]).includes(kind);
+
+/** "The <kind> finding on <subject>" when both are validated names, else "A flagged finding" (see droppedGap). */
+function named(finding: Finding, known: ReadonlySet<string>, fallback: string): string {
+  return isKind(finding.kind) && known.has(finding.subject) ? `The ${finding.kind} finding on ${finding.subject}` : fallback;
+}
+
+/**
+ * The code-written gap for a required finding kept although the Analyst withdrew it. The Analyst's reason is model
+ * text, so it stays in the trace line and out of this trusted gap; the subject is named only when validated.
+ */
+export function keptDespiteRetractionGap(finding: Finding, known: ReadonlySet<string>): string {
+  const what = isKind(finding.kind) && known.has(finding.subject) ? `its ${finding.kind} finding on ${finding.subject}` : "a finding";
+  return `The Analyst withdrew ${what}; it is kept unchanged because the coverage check requires it.`;
 }
 
 /**
@@ -49,14 +79,24 @@ export function passesCodeChecks(finding: Finding, task: Task, store: ResultStor
 export function mergeRevision(input: RevisionInput): Revision {
   const { previous, flagged, next, required, task, store } = input;
   const memories = input.memories ?? [];
-  const nextKeys = new Set(next.map(keyOf));
+  const known = input.known ?? new Set<string>();
   const retractedKeys = new Set(input.retracted.map(keyOf));
-  const passes = (finding: Finding) => passesCodeChecks(finding, task, store, memories);
+  const passes = (finding: Finding) => passesCodeChecks(finding, task, store, memories, input.asOf);
   const kept = new Map<number, KeptFinding>();
+  // A new finding replaces one previous finding with the same kind and subject: matched by count, so when the
+  // previous draft had two and the new one has one, the second is left over and may be carried.
+  const replacing = new Map<string, number>();
+  for (const finding of next) replacing.set(keyOf(finding), (replacing.get(keyOf(finding)) ?? 0) + 1);
 
   // 1. Carried: left out of the new draft without being replaced, retracted or flagged.
   for (const [index, finding] of previous.entries()) {
-    if (nextKeys.has(keyOf(finding)) || retractedKeys.has(keyOf(finding)) || flagged.has(finding) || !passes(finding)) continue;
+    const key = keyOf(finding);
+    const left = replacing.get(key) ?? 0;
+    if (left > 0) {
+      replacing.set(key, left - 1);
+      continue;
+    }
+    if (retractedKeys.has(key) || flagged.has(finding) || !passes(finding)) continue;
     kept.set(index, { finding, was: index + 1, how: "carried", why: "the Evaluator did not flag it and the new draft left it out without replacing or retracting it" });
   }
 
@@ -69,17 +109,22 @@ export function mergeRevision(input: RevisionInput): Revision {
       if (already.how === "carried") kept.set(already.was - 1, { ...already, how: "restored", why: need.why });
       continue;
     }
-    const index = previous.findIndex((finding) => meetsRequirement(finding, need) && passes(finding));
+    // One the last fix flagged is not put back unchanged: the coverage check rejects the draft and asks for it again,
+    // so the Analyst writes it anew instead of the Evaluator seeing the version it already refused.
+    const index = previous.findIndex((finding) => meetsRequirement(finding, need) && !flagged.has(finding) && passes(finding));
     if (index < 0) continue;
     const finding = previous[index];
-    const despite = retractedKeys.has(keyOf(finding)) ? "; the Analyst retracted it, but a required finding is never dropped" : flagged.has(finding) ? "; the fix named it, but a required finding is never dropped" : "";
+    const despite = retractedKeys.has(keyOf(finding)) ? "; the Analyst retracted it, but a required finding is never dropped" : "";
     kept.set(index, { finding, was: index + 1, how: "restored", why: `${need.why}${despite}` });
   }
 
   const findings = [...next];
   const entries = [...kept.values()].sort((a, b) => a.was - b.was);
   for (const entry of entries) findings.splice(Math.min(entry.was - 1, findings.length), 0, entry.finding);
-  return { findings, kept: entries };
+  const notes: CodeNote[] = entries
+    .filter((entry) => entry.how === "restored" && retractedKeys.has(keyOf(entry.finding)))
+    .map((entry) => ({ key: keyOf(entry.finding), gap: keptDespiteRetractionGap(entry.finding, known), finding: entry.finding, kind: "kept_despite_retraction" }));
+  return { findings, kept: entries, notes };
 }
 
 /** A finding code left out of the draft, with the gap the review shows for it. */
@@ -105,11 +150,13 @@ export function knownSubjects(instruments: Iterable<{ symbol: string; sector: st
  * identifier (one of the nine kinds; a known symbol or sector, exactly): finding.kind and finding.subject are model
  * text, and a subject such as "BXPHARMA 99.9" would otherwise put 99.9 among the figures the Writer may repeat.
  */
-export function droppedGap(finding: Finding, known: ReadonlySet<string>): string {
-  const kind = (FINDING_KINDS as readonly string[]).includes(finding.kind) ? finding.kind : null;
-  const what = kind !== null && known.has(finding.subject) ? `The ${kind} finding on ${finding.subject}` : "A flagged finding";
-  return `${what} was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.`;
+export function droppedGap(finding: Finding, known: ReadonlySet<string>, check: "citations" | "guard" = "citations"): string {
+  const why = check === "citations" ? "it still used figures that no cited row of this run holds" : "the reply guard still refused it (advice, or a finding that breaks the schema)";
+  return `${named(finding, known, "A flagged finding")} ${DROPPED_GAP_MARK} after the Evaluator's fix ${why}.`;
 }
+
+/** The words every dropped-finding gap holds; eval-checks.ts finds a drop by them. */
+export const DROPPED_GAP_MARK = "was left out:";
 
 /**
  * A finding the last rejection flagged that comes back (the same kind and subject) still failing the code checks is
@@ -126,6 +173,8 @@ export function dropRepeatFailures(input: {
   /** knownSubjects: the only subjects the gap may name. */
   known: ReadonlySet<string>;
   memories?: readonly RecalledMemory[];
+  /** The run's as_of, as for mergeRevision. */
+  asOf?: string;
 }): {
   findings: Finding[];
   dropped: DroppedFinding[];
@@ -134,12 +183,14 @@ export function dropRepeatFailures(input: {
   let findings = [...input.findings];
   const dropped: DroppedFinding[] = [];
   for (const finding of input.findings) {
-    if (!flaggedKeys.has(keyOf(finding)) || passesCodeChecks(finding, input.task, input.store, input.memories)) continue;
+    if (!flaggedKeys.has(keyOf(finding))) continue;
+    const check = failingCheck(finding, input.task, input.store, input.memories, input.asOf);
+    if (check === null) continue;
     const without = findings.filter((other) => other !== finding);
     const needed = input.required.some((need) => meetsRequirement(finding, need) && !without.some((other) => meetsRequirement(other, need)));
     if (needed) continue;
     findings = without;
-    dropped.push({ finding, gap: droppedGap(finding, input.known) });
+    dropped.push({ finding, gap: droppedGap(finding, input.known, check) });
   }
   return { findings, dropped };
 }

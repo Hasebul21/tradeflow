@@ -36,6 +36,10 @@ export type Config = {
   readonly MAX_ROWS_PER_QUERY: number;
   readonly MAX_MEMORIES: number;
   readonly MAX_PROMPT_CHARS: number;
+  /** Room the Analyst keeps in MAX_PROMPT_CHARS for each tool round's history when it adds a previous finding's results. */
+  readonly TOOL_ROUND_RESERVE_CHARS: number;
+  /** The longest fix the Evaluator sends back: past it, the refused-figure hints go and every problem stays named. */
+  readonly MAX_FIX_CHARS: number;
   readonly TEMPERATURE: number;
   readonly MAX_COMPLETION_TOKENS: number;
   readonly PORT: number;
@@ -145,6 +149,8 @@ const limitsSchema = z.object({
   MAX_ROWS_PER_QUERY: positiveInt(50),
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),
+  TOOL_ROUND_RESERVE_CHARS: positiveInt(6000),
+  MAX_FIX_CHARS: positiveInt(6000),
   TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
   MAX_COMPLETION_TOKENS: positiveInt(16000),
   PORT: z.coerce.number().int().min(1).max(65535).default(8000),

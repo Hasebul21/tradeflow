@@ -43,7 +43,11 @@ export const retractionSchema = z.object({ kind: z.string().min(1), subject: z.s
 export const analystReplySchema = z.object({
   findings: z.array(analystFindingSchema),
   gaps: z.array(z.string()).default([]),
-  retracted: z.array(retractionSchema).default([]),
+  // A model that writes "retracted": null means none.
+  retracted: z
+    .array(retractionSchema)
+    .nullish()
+    .transform((value) => value ?? []),
 });
 export type AnalystReply = z.infer<typeof analystReplySchema>;
 
@@ -51,12 +55,24 @@ export type AnalystReply = z.infer<typeof analystReplySchema>;
 export const ANALYST_REPLY_SHAPE =
   '{"findings": [{"kind": "move", "subject": "<symbol, sector, PORTFOLIO, journal id, plan id or issue id>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}], "gaps": ["..."], "retracted": []}';
 
+/**
+ * The room a structured retry's correction takes (llm.ts retryMessage): a reason of at most 300 characters, three
+ * short fixed sentences and this reply shape. The Analyst keeps it free when it adds previous findings' results.
+ */
+export const RETRY_NOTE_CHARS = ANALYST_REPLY_SHAPE.length + 500;
+
 /** Why a parsed reply fails the Analyst schema (the first issue), or null; llm.ts asks again with it. */
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
   const parsed = analystReplySchema.safeParse(json);
   if (parsed.success) return null;
   return schemaReason(parsed.error.issues[0]);
 }
+
+/**
+ * A previous finding the fix flags: the number the fix gives it (counting the whole draft from 1, every thesis batch
+ * included, so it can differ from its place in previous_findings), and the kind and subject to find it by.
+ */
+export type FlaggedFinding = { finding: number; kind: string; subject: string };
 
 /** What the orchestrator hands the Analyst: the task, the plan (its focus and steps) and the round's context. */
 export type AnalysisRequest = {
@@ -75,8 +91,8 @@ export type AnalysisRequest = {
   previous_findings?: readonly Finding[] | null;
   /** On a retry: the Evaluator's fix. Null in round 1. */
   feedback?: string | null;
-  /** On a retry: the previous findings the fix flags, by number counting from 1. Code keeps every other one. */
-  flagged_findings?: readonly number[] | null;
+  /** On a retry: the previous findings the fix flags. Code keeps every other one. */
+  flagged_findings?: readonly FlaggedFinding[] | null;
   /**
    * thesis_check: one batch of theses with their evidence tables. Code has run every query, so the Analyst gets these
    * instead of results and offers the model no tools.
@@ -98,8 +114,8 @@ export type AnalystInput = {
   results: ResultForModel[];
   previous_findings: Finding[] | null;
   feedback: string | null;
-  /** On a retry: the numbers (from 1) of the previous findings the feedback flags; null in round 1. */
-  flagged_findings: number[] | null;
+  /** On a retry: the previous findings the feedback flags; null in round 1. */
+  flagged_findings: FlaggedFinding[] | null;
   /** Only for thesis_check: the batch's theses, each with its evidence table. */
   theses?: ThesisEvidence[];
 };
@@ -251,18 +267,26 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     flagged_findings: request.flagged_findings === undefined || request.flagged_findings === null ? null : [...request.flagged_findings],
     ...(request.theses === undefined ? {} : { theses: [...request.theses] }),
   };
+  // thesis_check and pre_trade: code has run every query, so the model is offered no tools.
+  const tools = request.theses === undefined && request.noTools !== true ? toolsFor(request.task) : [];
+
   // On a retry, the results the previous findings cite stay in view even when this round's plan left their query
   // out, so the Analyst can keep or fix those findings. They come from the run's store (no query runs, none is
-  // counted), and each is added only while the prompt stays within MAX_PROMPT_CHARS; one that does not fit is left
-  // out and counted in the trace (code still checks a kept finding against the full store).
+  // counted). thesis_check gets none: its evidence tables already carry every run_query_id to cite. The input as it
+  // stands (the feedback, of at most MAX_FIX_CHARS, included) is counted first, then each result is added only while
+  // the prompt leaves room for every tool round (TOOL_ROUND_RESERVE_CHARS each, when tools are offered) and for a
+  // structured retry's correction (RETRY_NOTE_CHARS); one that does not fit is left out and counted in the trace
+  // (code still checks a kept finding against the full store).
   let previousCited = 0;
   let previousLeftOut = 0;
   const systemChars = analystPromptVersion().text.length;
-  for (const id of new Set((request.previous_findings ?? []).flatMap((finding) => finding.cites))) {
+  const reserve = (tools.length > 0 ? cfg.MAX_TOOL_ROUNDS * cfg.TOOL_ROUND_RESERVE_CHARS : 0) + RETRY_NOTE_CHARS;
+  const cited = request.theses === undefined ? (request.previous_findings ?? []).flatMap((finding) => finding.cites) : [];
+  for (const id of new Set(cited)) {
     const held = run.store[id];
     if (held === undefined || seen.has(id)) continue;
     const extra = trimmed(held);
-    if (systemChars + JSON.stringify(input).length + JSON.stringify(extra).length + 1 > cfg.MAX_PROMPT_CHARS) {
+    if (systemChars + JSON.stringify(input).length + JSON.stringify(extra).length + 1 + reserve > cfg.MAX_PROMPT_CHARS) {
       previousLeftOut += 1;
       continue;
     }
@@ -274,9 +298,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${results.length} results (${results.reduce((n, r) => n + r.row_count, 0)} rows${previousCited > 0 ? `, ${previousCited} kept for the previous findings` : ""}${previousLeftOut > 0 ? `, ${previousLeftOut} left out for size` : ""}), ${request.theses === undefined ? "" : `${request.theses.length} theses, `}${skipped.length} skipped, ${input.memories.length} memories, ${input.world.length} world facts, previous_findings=${input.previous_findings === null ? "none" : `${input.previous_findings.length}${input.flagged_findings === null || input.flagged_findings.length === 0 ? "" : ` (${input.flagged_findings.length} flagged)`}`}, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
   );
 
-  // 2. The model, with the task's queries as tools; each tool call runs through the same cache and guard.
-  // thesis_check and pre_trade: code has run every query, so the model is offered no tools.
-  const tools = request.theses === undefined && request.noTools !== true ? toolsFor(request.task) : [];
+  // 2. The model, with the task's queries as tools (above); each tool call runs through the same cache and guard.
   const history: HistoryMessage[] = [];
   const model: AnalysisBase["model"] = { model_id: "", source: "sample-model", usage: null, calls: 0, duration_ms: 0 };
   let toolRounds = 0;

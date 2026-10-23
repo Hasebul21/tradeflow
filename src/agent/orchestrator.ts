@@ -8,7 +8,7 @@
 // trace line of every run is the Orchestrator's run_end line with the run's total usage. Server only (node:fs
 // through trace.ts, memory.ts and queries.ts).
 import path from "node:path";
-import { analyse, type AnalysisOutcome } from "./agents/analyst";
+import { analyse, type AnalysisOutcome, type FlaggedFinding } from "./agents/analyst";
 import { evaluate, requiredFindings, type Scores } from "./agents/evaluator";
 import { defaultPlanFor, PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome, type PlanRequest } from "./agents/planner";
 import { route } from "./agents/router";
@@ -22,7 +22,7 @@ import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
-import { dropRepeatFailures, knownSubjects, mergeRevision, type Retraction } from "./revision";
+import { dropRepeatFailures, keyOf, knownSubjects, mergeRevision, type CodeNote, type Retraction } from "./revision";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
@@ -702,6 +702,13 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     let previous: Finding[] | null = null;
     /** The findings of `previous` that the last rejection flagged; code carries every other one into the next draft. */
     let flagged: ReadonlySet<Finding> = new Set();
+    /** Each flagged finding's number as the fix gives it: its place in the whole rejected draft, every batch counted. */
+    let flaggedNumber: ReadonlyMap<Finding, number> = new Map();
+    /**
+     * The gaps code wrote about findings it dropped or kept despite a retraction, for the rest of the run: keyed by scope
+     * ("draft", or "batch <n>" for thesis_check) and the finding's kind and subject. Each stays while it is true.
+     */
+    const codeNotes = new Map<string, Map<string, CodeNote>>();
     /** thesis_check: the evidence, the plan's focus and each batch's findings and gaps, kept across rounds. */
     let thesis: { prepared: PreparedTheses; focus: string; /** The planner_fallback gap, when code made the plan. */ note: string | null; found: (Finding[] | null)[]; gapsBy: string[][]; codeGapsBy: string[][] } | null = null;
     let stop: StopReason | null = null;
@@ -737,21 +744,46 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       return { kind: "needs_human", stop: reason, detail, draft, rounds: roundsRun() };
     };
 
-    /** The numbers (from 1) of the findings in `prior` that the last rejection flagged, for the Analyst's input. */
-    const flaggedIn = (prior: readonly Finding[] | null): number[] | null =>
-      prior === null ? null : prior.flatMap((finding, index) => (flagged.has(finding) ? [index + 1] : []));
+    /**
+     * The findings in `prior` that the last rejection flagged, for the Analyst's input: each with the number the fix
+     * gives it (the whole draft's numbering, so a thesis batch's finding 26 is 26 here too), its kind and its subject.
+     */
+    const flaggedIn = (prior: readonly Finding[] | null): FlaggedFinding[] | null =>
+      prior === null ? null : prior.flatMap((finding) => (flagged.has(finding) ? [{ finding: flaggedNumber.get(finding) ?? 0, kind: finding.kind, subject: finding.subject }] : []));
+
+    /**
+     * The code notes of one scope that still hold for `findings`: a drop note while no finding has that kind and
+     * subject again, a kept-despite-retraction note while that exact finding is in the draft. Returns their gaps.
+     */
+    const notesFor = (scope: string, findings: readonly Finding[], added: readonly CodeNote[]): string[] => {
+      const notes = codeNotes.get(scope) ?? new Map<string, CodeNote>();
+      for (const note of added) notes.set(`${note.kind}\u0000${note.key}`, note);
+      const keys = new Set(findings.map(keyOf));
+      for (const [id, note] of notes) {
+        const holds = note.kind === "dropped" ? !keys.has(note.key) : findings.includes(note.finding);
+        if (!holds) notes.delete(id);
+      }
+      codeNotes.set(scope, notes);
+      return [...new Set([...notes.values()].map((note) => note.gap))];
+    };
 
     /**
      * Revise, don't restart (revision.ts): on a retry, the Analyst's new findings merged with `prior`, the draft the
      * Evaluator rejected. Every previous finding code keeps (carried, or restored because coverage requires it) and
      * every retraction gets its own Orchestrator line, so the trace says which findings code put back and why. A
      * flagged finding that comes back still failing the code checks is dropped (dropRepeatFailures) unless coverage
-     * needs it, with a "drop_finding" line and a gap written by code, returned in `gaps`.
+     * needs it, with a "drop_finding" line and a gap written by code. `gaps` holds every code note of the scope that
+     * still holds, this round's and earlier rounds' (notesFor), so a later accepted round keeps saying what code did.
+     * The gaps come back as code_gaps, so they name only validated symbols, sectors and required ids; the trace lines
+     * may name the raw subject, because nothing reads a trace line's text as allowed figures.
      */
-    const revised = (next: Finding[], retracted: readonly Retraction[], prior: readonly Finding[] | null): { findings: Finding[]; gaps: string[] } => {
-      if (prior === null || prior.length === 0) return { findings: next, gaps: [] };
+    const revised = (next: Finding[], retracted: readonly Retraction[], prior: readonly Finding[] | null, scope = "draft"): { findings: Finding[]; gaps: string[] } => {
+      if (prior === null || prior.length === 0) return { findings: next, gaps: notesFor(scope, next, []) };
       const required = requiredFindings(task, state.store, resolved.asOf);
-      const merged = mergeRevision({ task, previous: prior, flagged, next, retracted, required, store: state.store, memories });
+      const known = knownSubjects(data.portfolio.instruments.values(), state.store);
+      for (const need of required) if (need.subject !== null) known.add(need.subject);
+      const asOfDay = resolved.asOf;
+      const merged = mergeRevision({ task, previous: prior, flagged, next, retracted, required, store: state.store, memories, asOf: asOfDay, known });
       for (const gone of retracted) {
         tracer.log({
           agent_name: AGENT,
@@ -776,10 +808,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           retry_count: round,
         });
       }
-      // The gaps come back as code_gaps, so they name only validated symbols and sectors; the trace lines may name the
-      // raw subject, because nothing reads a trace line's text as allowed figures.
-      const known = knownSubjects(data.portfolio.instruments.values(), state.store);
-      const kept = dropRepeatFailures({ task, flagged, findings: merged.findings, required, store: state.store, known, memories });
+      const kept = dropRepeatFailures({ task, flagged, findings: merged.findings, required, store: state.store, known, memories, asOf: asOfDay });
       for (const gone of kept.dropped) {
         tracer.log({
           agent_name: AGENT,
@@ -792,7 +821,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           retry_count: round,
         });
       }
-      return { findings: kept.findings, gaps: kept.dropped.map((gone) => gone.gap) };
+      const added: CodeNote[] = [...merged.notes, ...kept.dropped.map((gone): CodeNote => ({ key: keyOf(gone.finding), gap: gone.gap, finding: gone.finding, kind: "dropped" }))];
+      return { findings: kept.findings, gaps: notesFor(scope, kept.findings, added) };
     };
 
     /**
@@ -1003,10 +1033,10 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
               continue;
             }
             if (analysis.injection_seen) flags.injection = true;
-            const merged = round === 0 ? { findings: analysis.findings, gaps: [] } : revised(analysis.findings, analysis.retracted, thesis.found[index]);
+            const merged = round === 0 ? { findings: analysis.findings, gaps: [] } : revised(analysis.findings, analysis.retracted, thesis.found[index], `batch ${index}`);
             thesis.found[index] = merged.findings;
-            thesis.gapsBy[index] = [...analysis.gaps, ...merged.gaps];
-            thesis.codeGapsBy[index] = [...analysis.code_gaps, ...merged.gaps];
+            thesis.gapsBy[index] = [...new Set([...analysis.gaps, ...merged.gaps])];
+            thesis.codeGapsBy[index] = [...new Set([...analysis.code_gaps, ...merged.gaps])];
           }
           findings = thesis.found.flatMap((batchFindings) => batchFindings ?? []);
           const planNote = thesis.note === null ? [] : [thesis.note];
@@ -1037,8 +1067,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (analysis.injection_seen) flags.injection = true;
           const merged = revised(analysis.findings, analysis.retracted, previous);
           findings = merged.findings;
-          gaps = [...analysis.gaps, ...merged.gaps];
-          codeGaps = [...analysis.code_gaps, ...merged.gaps];
+          gaps = [...new Set([...analysis.gaps, ...merged.gaps])];
+          codeGaps = [...new Set([...analysis.code_gaps, ...merged.gaps])];
           cutByQueryBudget = cutByBudget(fixed);
         } else {
           // Planner, or the task's default plan when its call fails after llm.ts gives up (BadJson, a 5xx, a timeout,
@@ -1066,8 +1096,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           const merged = revised(analysis.findings, analysis.retracted, previous);
           findings = merged.findings;
           // A plan made in code is said in the review: its note is a gap code wrote, as is each finding code dropped.
-          gaps = [...analysis.gaps, ...merged.gaps, ...(planned.note === null ? [] : [planned.note])];
-          codeGaps = [...analysis.code_gaps, ...merged.gaps, ...(planned.note === null ? [] : [planned.note])];
+          gaps = [...new Set([...analysis.gaps, ...merged.gaps, ...(planned.note === null ? [] : [planned.note])])];
+          codeGaps = [...new Set([...analysis.code_gaps, ...merged.gaps, ...(planned.note === null ? [] : [planned.note])])];
           // Stop with that draft instead of scoring it as complete.
           cutByQueryBudget = cutByBudget(planned.steps);
         }
@@ -1098,7 +1128,9 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         }
         feedback = verdict.fix !== "" ? verdict.fix : verdict.error === undefined ? "Revise the draft." : `The Evaluator could not score the draft (${verdict.error.type}): ${verdict.error.message}`;
         previous = findings;
-        flagged = new Set(verdict.flagged.flatMap((number) => (findings[number - 1] === undefined ? [] : [findings[number - 1]])));
+        const numbered = verdict.flagged.flatMap((number): [Finding, number][] => (findings[number - 1] === undefined ? [] : [[findings[number - 1], number]]));
+        flagged = new Set(numbered.map(([finding]) => finding));
+        flaggedNumber = new Map(numbered);
         revise(round, feedback, previous.length, flagged.size);
       }
       if (stop !== null) return stopped(stop);
