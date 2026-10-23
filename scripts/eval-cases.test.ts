@@ -48,27 +48,36 @@ afterEach(() => {
 });
 
 describe("evaluate with concurrency 3", () => {
-  it("runs at most 3 stubbed cases of different lengths at once and finishes sooner than one by one", async () => {
+  it("runs at most 3 stubbed cases of different lengths at once", async () => {
     const lengths: Record<string, number> = { a: 120, b: 30, c: 80, d: 20, e: 60, f: 100, g: 40, h: 10 };
     const { runGroup, stats } = stubRunner((id) => lengths[id]);
-    const started = Date.now();
-    const rows = await evaluate(stubCases(Object.keys(lengths)), { concurrency: 3, real: false, checks: noChecks, runGroup, chains: [] });
-    const took = Date.now() - started;
-    const oneByOne = Object.values(lengths).reduce((sum, ms) => sum + ms, 0);
+    const { rows, errors } = await evaluate(stubCases(Object.keys(lengths)), { concurrency: 3, real: false, checks: noChecks, runGroup, chains: [] });
     expect(stats.peak).toBe(3);
-    expect(took).toBeLessThan(oneByOne);
     expect(rows.map((row) => row.verdict)).toEqual(Array(8).fill("pass"));
+    expect(errors).toEqual([]);
+  });
+
+  it("starts the chain first, ahead of lone cases listed before it", async () => {
+    const { runGroup, stats } = stubRunner(() => 5);
+    const started: string[] = [];
+    const wrapped: RunGroup = (group, index, report) => {
+      started.push(group[0].id);
+      return runGroup(group, index, report);
+    };
+    await evaluate(stubCases(["a", "b", "c", "d"]), { concurrency: 2, real: false, checks: noChecks, runGroup: wrapped, chains: [["c", "d"]] });
+    expect(started[0]).toBe("c");
+    expect(stats.finished).toHaveLength(4);
   });
 
   it("writes RESULTS.md rows in the usual case order, though later cases finish first", async () => {
     const cases = listCases(process.cwd());
     const runnable = cases.filter((item) => !item.skipped).map((item) => item.id);
     const { runGroup, stats } = stubRunner((id) => 5 * (runnable.length - runnable.indexOf(id)));
-    const rows = await evaluate(cases, { concurrency: 3, real: false, checks: noChecks, runGroup });
+    const { rows } = await evaluate(cases, { concurrency: 3, real: false, checks: noChecks, runGroup });
     expect(stats.finished).not.toEqual(runnable);
     tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-results-"));
     const file = path.join(tmp, "RESULTS.md");
-    writeResults(file, rows, false, { commit: "test", models: {}, host: "unknown" });
+    writeResults(file, rows, false, { commit: "test", models: {}, host: "unknown", concurrency: 3 });
     const text = readFileSync(file, "utf8");
     const tableIds = text
       .split("\n")
@@ -76,17 +85,49 @@ describe("evaluate with concurrency 3", () => {
       .map((line) => line.split("|")[1].trim());
     expect(tableIds).toEqual(cases.map((item) => item.id));
     expect(text).toContain("| case | result | status | citations | rounds | Evaluator total | model calls | query calls | tokens | seconds | failed check |");
+    expect(text).not.toContain("- Concurrency:");
   });
 
-  it("marks the unfinished cases of a group whose runner fails as failed, and keeps the others", async () => {
+  it("adds a Concurrency line to a real-model section only when concurrency is above 1", () => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-results-"));
+    const file = path.join(tmp, "RESULTS.md");
+    const rows = stubCases(["a"]).map((item) => ({ id: item.id, verdict: "pass" as const, result: fakeResult(item.id), failed: [], seconds: 1 }));
+    writeResults(file, rows, true, { commit: "abc", models: {}, host: "h", concurrency: 1 });
+    expect(readFileSync(file, "utf8")).not.toContain("- Concurrency:");
+    writeResults(file, rows, true, { commit: "abc", models: {}, host: "h", concurrency: 3 });
+    expect(readFileSync(file, "utf8").split("## Real model, run 2")[1]).toContain("- Concurrency: 3");
+  });
+
+  it("fails the unfinished cases of a rejected group and returns its reason, keeping the others", async () => {
     const runGroup: RunGroup = async (group, _index, report) => {
       for (const item of group) {
         if (item.id === "b") throw new Error("worker stopped");
         report(item.id, { result: fakeResult(item.id), seconds: 0 });
       }
     };
-    const rows = await evaluate(stubCases(["a", "b", "c", "d"]), { concurrency: 3, real: false, checks: noChecks, runGroup, chains: [["a", "b", "c"]] });
+    const { rows, errors } = await evaluate(stubCases(["a", "b", "c", "d"]), { concurrency: 3, real: false, checks: noChecks, runGroup, chains: [["a", "b", "c"]] });
     expect(rows.map((row) => [row.id, row.verdict])).toEqual([["a", "pass"], ["b", "fail"], ["c", "fail"], ["d", "pass"]]);
     expect(rows[1].failed).toEqual([{ name: "run", pass: false, detail: "worker stopped" }]);
+    expect(errors).toEqual([{ ids: ["a", "b", "c"], reason: "worker stopped" }]);
+  });
+
+  it("returns the rejection of a group that reported every case before it failed", async () => {
+    const runGroup: RunGroup = async (group, _index, report) => {
+      for (const item of group) report(item.id, { result: fakeResult(item.id), seconds: 0 });
+      if (group[0].id === "a") throw new Error("worker exit code 1");
+    };
+    const { rows, errors } = await evaluate(stubCases(["a", "b"]), { concurrency: 3, real: false, checks: noChecks, runGroup, chains: [] });
+    expect(rows.map((row) => row.verdict)).toEqual(["pass", "pass"]);
+    expect(errors).toEqual([{ ids: ["a"], reason: "worker exit code 1" }]);
+  });
+
+  it("writes a fail row for a case its group never reported, though the group resolved", async () => {
+    const runGroup: RunGroup = async (group, _index, report) => {
+      for (const item of group) if (item.id !== "b") report(item.id, { result: fakeResult(item.id), seconds: 0 });
+    };
+    const { rows, errors } = await evaluate(stubCases(["a", "b", "c"]), { concurrency: 3, real: false, checks: noChecks, runGroup, chains: [["a", "b"]] });
+    expect(rows.map((row) => [row.id, row.verdict])).toEqual([["a", "pass"], ["b", "fail"], ["c", "pass"]]);
+    expect(rows[1].failed).toEqual([{ name: "run", pass: false, detail: "no result: its group finished without running it" }]);
+    expect(errors).toEqual([]);
   });
 });

@@ -13,6 +13,9 @@ import { runWithLimit, type Settled } from "../src/agent/concurrency";
  *   learned.
  * example_3b runs before example_7a, as in today's name order, so it never sees the correction.
  * No red-team case reads another case's memory: none has a memory expectation (evals/redteam/cases.json).
+ * Recall is by tag on a shared store, so in one shared data dir (npm run e2e:live against one server) a case in no
+ * chain may or may not recall example_3a's review or example_7a's correction, depending on when it starts. The eval
+ * avoids this by giving each group its own data dir; the live runner reports what each case recalled.
  */
 export const CASE_CHAINS: ReadonlyArray<readonly string[]> = [["example_3a", "example_3b", "example_7a", "example_7b"]];
 
@@ -42,6 +45,14 @@ export function chainGroups(ids: readonly string[], chains: ReadonlyArray<readon
     }
   }
   return groups;
+}
+
+/**
+ * The groups with every chain (more than one case) first, each kind in its own order, so a chain, the longest work,
+ * starts at once and is never queued behind lone cases. The lone cases still start as soon as a slot is free.
+ */
+export function chainsFirst(groups: readonly string[][]): string[][] {
+  return [...groups.filter((group) => group.length > 1), ...groups.filter((group) => group.length <= 1)];
 }
 
 /**

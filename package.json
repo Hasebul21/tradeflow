@@ -18,7 +18,7 @@
     "eval": "node --env-file-if-exists=.env --import tsx scripts/eval.ts",
     "e2e:live": "node --env-file-if-exists=.env --import tsx scripts/e2e-live.ts",
     "metrics": "node --env-file-if-exists=.env --import tsx scripts/metrics.ts",
-    "check": "npm run lint && tsc --noEmit && npm test && npm run eval -- --no-results && npm run eval -- --no-results --concurrency 3",
+    "check": "npm run lint && tsc --noEmit && npm test && npm run eval -- --no-results --concurrency 1 && npm run eval -- --no-results --concurrency 3",
     "mcp": "node --env-file-if-exists=.env --import tsx scripts/mcp-server.ts",
     "mcp-smoke": "node --env-file-if-exists=.env --import tsx scripts/mcp-smoke.ts"
   },

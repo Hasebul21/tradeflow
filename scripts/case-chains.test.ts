@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CASE_CHAINS, chainGroups, parseConcurrency, runChains } from "./case-chains";
+import { CASE_CHAINS, chainGroups, chainsFirst, parseConcurrency, runChains } from "./case-chains";
 import { listCases } from "./eval-cases";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,6 +26,13 @@ describe("chainGroups", () => {
   });
 });
 
+describe("chainsFirst", () => {
+  it("moves every chain ahead of the lone cases and keeps each kind in its order", () => {
+    expect(chainsFirst([["a"], ["b"], ["c", "d"], ["e"], ["f", "g"]])).toEqual([["c", "d"], ["f", "g"], ["a"], ["b"], ["e"]]);
+    expect(chainsFirst(chainGroups(ALL_IDS))[0]).toEqual(["example_3a", "example_3b", "example_7a", "example_7b"]);
+  });
+});
+
 describe("runChains at concurrency 3", () => {
   it("runs example_3b after example_3a and example_7b after example_7a, every time", async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -33,7 +40,7 @@ describe("runChains at concurrency 3", () => {
       const ended = new Map<string, number>();
       let clock = 0;
       await runChains(
-        chainGroups(ALL_IDS),
+        chainsFirst(chainGroups(ALL_IDS)),
         async (group) => {
           for (const id of group) {
             started.set(id, (clock += 1));

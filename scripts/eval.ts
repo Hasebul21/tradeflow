@@ -15,11 +15,11 @@
 // uses a fixture data dir from make-fixtures.ts (base unless the case names one), so memory starts empty each eval
 // run and data/ is never touched. Loads .env through node --env-file; it never opens it. Runs under tsx as
 // CommonJS: async main(), no top-level await.
-import { execFileSync, fork } from "node:child_process";
+import { execFileSync, fork, type ChildProcess } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chainGroups, parseConcurrency } from "./case-chains";
+import { chainGroups, chainsFirst, parseConcurrency } from "./case-chains";
 import { evaluate, jobFor, listCases, runCaseHere, tableLines, writeResults, type EvalCase, type Outcome, type RunGroup } from "./eval-cases";
 import { FIXTURES_DIR, makeFixtures } from "./make-fixtures";
 
@@ -28,6 +28,8 @@ const RESULTS = path.join(ROOT, "evals", "RESULTS.md");
 const BASE_DIR = path.join(FIXTURES_DIR, "base");
 const WORKER = path.join(__dirname, "eval-worker.ts");
 const USAGE = "Usage: npm run eval [-- --no-results] [--concurrency N]";
+/** The running eval workers, so a SIGINT or SIGTERM can stop them. */
+const workers = new Set<ChildProcess>();
 
 function shortCommit(): string {
   try {
@@ -63,9 +65,11 @@ function inWorkers(tmp: string): RunGroup {
     });
     return new Promise<void>((resolve, reject) => {
       const child = fork(WORKER, [], { cwd: ROOT, env: process.env, execArgv: process.execArgv, stdio: ["ignore", "inherit", "inherit", "ipc"] });
+      workers.add(child);
       child.on("message", (message: { id: string } & Outcome) => report(message.id, { result: message.result, seconds: message.seconds }));
       child.on("error", reject);
       child.on("exit", (code, signal) => {
+        workers.delete(child);
         if (code === 0) resolve();
         else reject(new Error(`the eval worker for ${group.map((item) => item.id).join(", ")} stopped (${signal ?? `exit code ${code}`})`));
       });
@@ -98,15 +102,25 @@ async function main(argv: string[]): Promise<number> {
   const cases: EvalCase[] = listCases(ROOT);
 
   let tmp: string | null = null;
+  // On Ctrl-C or a kill, stop every worker and remove the temporary data dirs before exiting.
+  const stop = (signal: NodeJS.Signals): void => {
+    for (const child of workers) child.kill(signal);
+    if (tmp !== null) rmSync(tmp, { recursive: true, force: true });
+    process.stderr.write(`\nStopped by ${signal}: ${workers.size} eval workers stopped, temporary data dirs removed.\n`);
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
   if (concurrency > 1) {
     tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-eval-"));
-    const groups = chainGroups(cases.filter((item) => !item.skipped).map((item) => item.id));
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    const groups = chainsFirst(chainGroups(cases.filter((item) => !item.skipped).map((item) => item.id)));
     const chains = groups.filter((group) => group.length > 1).map((group) => group.join(" -> "));
-    process.stdout.write(`Running ${groups.length} groups, ${concurrency} at a time, each on its own copy of its data dir. Chains in order: ${chains.join("; ") || "none"}.\n`);
+    process.stdout.write(`Running ${groups.length} groups, ${concurrency} at a time, each on its own copy of its data dir. Chains first and in order: ${chains.join("; ") || "none"}.\n`);
   }
   let rows;
+  let errors;
   try {
-    rows = await evaluate(cases, {
+    ({ rows, errors } = await evaluate(cases, {
       concurrency,
       real,
       checks,
@@ -116,8 +130,10 @@ async function main(argv: string[]): Promise<number> {
         const failed = row.failed.map((c) => `${c.name}: ${c.detail}`).join("; ");
         process.stdout.write(`${row.verdict === "pass" ? "pass" : "FAIL"} ${row.id}: ${row.result?.status ?? "no result"}${failed === "" ? "" : ` (${failed})`}\n`);
       },
-    });
+    }));
   } finally {
+    process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop);
     if (tmp !== null) rmSync(tmp, { recursive: true, force: true });
   }
 
@@ -127,6 +143,7 @@ async function main(argv: string[]): Promise<number> {
   const skipped = rows.filter((row) => row.verdict === "skipped").length;
   const limited = rows.filter((row) => row.verdict === "rate-limited").length;
   process.stdout.write(`\n${passes} passed, ${fails} failed, ${skipped} skipped${limited > 0 ? `, ${limited} rate-limited` : ""} (${real ? "real model" : "sample mode"})\n`);
+  for (const error of errors) process.stdout.write(`Group ${error.ids.join(", ")} stopped: ${error.reason}\n`);
 
   if (!noResults) {
     const config = loadConfig(process.env, () => {});
@@ -136,10 +153,10 @@ async function main(argv: string[]): Promise<number> {
     } catch {
       host = "unknown";
     }
-    writeResults(RESULTS, rows, real, { commit, models: config.models, host });
+    writeResults(RESULTS, rows, real, { commit, models: config.models, host, concurrency });
     process.stdout.write(`wrote ${path.relative(ROOT, RESULTS)}\n`);
   }
-  return fails > 0 ? 1 : 0;
+  return fails > 0 || errors.length > 0 ? 1 : 0;
 }
 
 main(process.argv.slice(2)).then(

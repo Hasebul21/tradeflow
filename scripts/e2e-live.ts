@@ -5,12 +5,15 @@
 // <dir>/<case>.trace.jsonl, and one line per case is printed: case, HTTP status, status, stop_reason, seconds, model
 // calls. A red-team case with a data_dir runs through npm run agent on a copy of its fixture instead. It never edits
 // the repo: the app writes its own logs/, and the runner writes only under <dir>. It checks nothing against the
-// expectations; npm run eval does that. It exits 1 only when a case got no reply at all. Loads .env through node --env-file for the limits; it never opens it. Runs
+// expectations; npm run eval does that. Chains start first. A case with no result (no reply, or still 429 Busy after
+// the whole wait) stops the rest of its chain, which is marked not run. Each line also names the memory the run
+// recalled. After the run it prints every case again in case order. It exits 1 when a case has no result or was not
+// run, or a group stopped; an error reply is a result, because some red-team cases expect one. Loads .env through node --env-file for the limits; it never opens it. Runs
 // under tsx as CommonJS: async main(), no top-level await.
 import path from "node:path";
 import { loadConfig, type Config } from "../src/agent/config";
-import { chainGroups, parseConcurrency, runChains } from "./case-chains";
-import { ensureDir, liveCases, runCliCase, runHttpCase, summaryLine, type LiveOutcome } from "./live-runner";
+import { chainGroups, chainsFirst, parseConcurrency, runChains } from "./case-chains";
+import { ensureDir, liveCases, runCliCase, runHttpCase, runLiveGroup, summaryLine, type LiveCase, type LiveOutcome } from "./live-runner";
 
 const ROOT = process.cwd();
 const USAGE = "Usage: npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam]";
@@ -73,40 +76,51 @@ async function main(): Promise<number> {
   ensureDir(args.out);
   const cases = liveCases(ROOT, args.redteam);
   const byId = new Map(cases.map((item) => [item.id, item]));
-  const groups = chainGroups(cases.map((item) => item.id));
+  const groups = chainsFirst(chainGroups(cases.map((item) => item.id)));
   const chains = groups.filter((group) => group.length > 1).map((group) => group.join(" -> "));
-  process.stdout.write(`${cases.length} cases against ${args.base}, ${args.concurrency} at a time; chains in order: ${chains.join("; ") || "none"}. Each run may take up to ${Math.round(timeoutMs / 60_000)} min.\n`);
+  process.stdout.write(`${cases.length} cases against ${args.base}, ${args.concurrency} at a time; chains first and in order: ${chains.join("; ") || "none"}. Each run may take up to ${Math.round(timeoutMs / 60_000)} min.\n`);
 
   const started = Date.now();
-  const outcomes: LiveOutcome[] = [];
+  const outcomes = new Map<string, LiveOutcome>();
   let busySeen = false;
-  await runChains(
+  const settled = await runChains(
     groups,
-    async (group) => {
-      for (const id of group) {
-        const item = byId.get(id);
-        if (item === undefined) continue;
-        const outcome =
-          item.dataDir === undefined
-            ? await runHttpCase(item, args.base, args.out, timeoutMs, {
+    (group) =>
+      runLiveGroup(
+        group,
+        (id) => {
+          const item = byId.get(id) as LiveCase;
+          return item.dataDir === undefined
+            ? runHttpCase(item, args.base, args.out, timeoutMs, {
                 onBusy: (caseId, ms) => {
                   if (!busySeen) process.stdout.write(`${caseId}: the server is at its MAX_CONCURRENT_RUNS cap (429 Busy); waiting ${ms / 1000} s and trying again.\n`);
                   busySeen = true;
                 },
               })
-            : await runCliCase(item, ROOT, args.out, timeoutMs);
-        outcomes.push(outcome);
-        process.stdout.write(`${summaryLine(outcome)}\n`);
-      }
-    },
+            : runCliCase(item, ROOT, args.out, timeoutMs);
+        },
+        (outcome) => {
+          outcomes.set(outcome.id, outcome);
+          process.stdout.write(`${summaryLine(outcome)}\n`);
+        },
+      ),
     args.concurrency,
   );
 
-  // An error reply is a result (some red-team cases expect InvalidInput); only a case with no reply fails the run.
-  const noReply = outcomes.filter((outcome) => outcome.reply === null).length;
-  const errors = outcomes.filter((outcome) => outcome.reply?.status === "error").length;
-  process.stdout.write(`\n${outcomes.length} cases in ${((Date.now() - started) / 60_000).toFixed(1)} min; ${errors} error replies, ${noReply} with no reply. Saved to ${args.out}\n`);
-  return noReply > 0 ? 1 : 0;
+  settled.forEach((result, index) => {
+    if (result.status === "rejected") process.stdout.write(`The group ${groups[index].join(", ")} stopped: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}\n`);
+  });
+  const missing = cases.filter((item) => !outcomes.has(item.id)).map((item) => item.id);
+  const rejected = settled.filter((result) => result.status === "rejected").length;
+  const ordered = cases.map((item) => outcomes.get(item.id)).filter((outcome): outcome is LiveOutcome => outcome !== undefined);
+  // An error reply is a result (some red-team cases expect InvalidInput); a case with no reply, a case not run and a
+  // stopped group fail the run.
+  const noReply = ordered.filter((outcome) => outcome.reply === null).length;
+  const errors = ordered.filter((outcome) => outcome.reply?.status === "error").length;
+  process.stdout.write(`\nIn case order:\n${ordered.map(summaryLine).join("\n")}\n`);
+  if (missing.length > 0) process.stdout.write(`No outcome for: ${missing.join(", ")}\n`);
+  process.stdout.write(`\n${cases.length} cases in ${((Date.now() - started) / 60_000).toFixed(1)} min; ${errors} error replies, ${noReply} with no reply or not run, ${missing.length} missing. Saved to ${args.out}\n`);
+  return noReply > 0 || missing.length > 0 || rejected > 0 ? 1 : 0;
 }
 
 main().then(

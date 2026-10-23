@@ -8,7 +8,7 @@ import type * as EvalChecks from "../src/agent/eval-checks";
 import type { CaseCheck, Expectation, TraceLine } from "../src/agent/eval-checks";
 import type { RunResult } from "../src/agent/orchestrator";
 import { promptVersion } from "../src/agent/prompts";
-import { CASE_CHAINS, chainGroups, runChains } from "./case-chains";
+import { CASE_CHAINS, chainGroups, chainsFirst, runChains } from "./case-chains";
 
 type RedTeamCase = { id: string; data_dir?: string; input: Record<string, unknown>; expect: Expectation };
 
@@ -81,19 +81,23 @@ export function rowFor(item: EvalCase, outcome: Outcome, real: boolean, checks: 
   return { id: item.id, verdict: failed.length === 0 ? "pass" : "fail", result, failed, seconds };
 }
 
+/** A group whose runner rejected: its case ids and the reason. */
+export type GroupError = { ids: string[]; reason: string };
+
 /**
- * Runs every case that is not skipped and returns one row per case in the usual order. With concurrency 1 every case
- * is one group, in order. Above 1 the cases are split by chainGroups, and at most `concurrency` groups run at once
- * through runChains. A group whose runner fails marks its unfinished cases as failed. `onRow` sees each row as its
- * case finishes.
+ * Runs every case that is not skipped and returns one row per case in the usual order, and every group that
+ * rejected. With concurrency 1 every case is one group, in order. Above 1 the cases are split by chainGroups, chains
+ * first (chainsFirst), and at most `concurrency` groups run at once through runChains. A case with no row once every
+ * group has settled, from a rejected group or one that resolved without reporting it, gets a fail row that says why.
+ * `onRow` sees each row as its case finishes.
  */
 export async function evaluate(
   cases: EvalCase[],
   options: { concurrency: number; real: boolean; checks: Checks; runGroup: RunGroup; onRow?: (row: Row) => void; chains?: ReadonlyArray<readonly string[]> },
-): Promise<Row[]> {
+): Promise<{ rows: Row[]; errors: GroupError[] }> {
   const byId = new Map(cases.map((item) => [item.id, item]));
   const runnable = cases.filter((item) => !item.skipped).map((item) => item.id);
-  const groups = options.concurrency <= 1 ? [runnable] : chainGroups(runnable, options.chains ?? CASE_CHAINS);
+  const groups = options.concurrency <= 1 ? [runnable] : chainsFirst(chainGroups(runnable, options.chains ?? CASE_CHAINS));
   const rows = new Map<string, Row>();
   const settled = await runChains(
     groups,
@@ -109,17 +113,19 @@ export async function evaluate(
       ),
     options.concurrency,
   );
+  const errors: GroupError[] = [];
   settled.forEach((outcome, index) => {
-    if (outcome.status === "fulfilled") return;
-    const detail = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+    const reason = outcome.status === "rejected" ? (outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)) : null;
+    if (reason !== null) errors.push({ ids: groups[index], reason });
     for (const id of groups[index]) {
       if (rows.has(id)) continue;
+      const detail = reason ?? "no result: its group finished without running it";
       const row: Row = { id, verdict: "fail", result: null, failed: [{ name: "run", pass: false, detail }], seconds: 0 };
       rows.set(id, row);
       options.onRow?.(row);
     }
   });
-  return cases.map((item) => (item.skipped ? { id: item.id, verdict: "skipped", result: null, failed: [], seconds: 0 } : (rows.get(item.id) as Row)));
+  return { rows: cases.map((item) => (item.skipped ? { id: item.id, verdict: "skipped", result: null, failed: [], seconds: 0 } : (rows.get(item.id) as Row))), errors };
 }
 
 /** The Evaluator total, or "score unavailable" when the Evaluator accepted the draft unscored; never 0 for a missing score. */
@@ -168,7 +174,8 @@ function modelStats(runIds: string[]): { routed: string; cost: string } {
   return { routed: routed ?? "none", cost: costSeen ? `${cost.toFixed(6)} USD` : "unknown" };
 }
 
-export function writeResults(file: string, rows: Row[], real: boolean, meta: { commit: string; models: { strong?: string; main?: string; fast?: string }; host: string }): void {
+/** `meta.concurrency` above 1 adds a "Concurrency" line to a real-model section; the sample section never has one. */
+export function writeResults(file: string, rows: Row[], real: boolean, meta: { commit: string; models: { strong?: string; main?: string; fast?: string }; host: string; concurrency?: number }): void {
   const date = new Date().toISOString().slice(0, 10);
   const { routed, cost } = modelStats(rows.filter((row) => row.result !== null).map((row) => row.id));
   const totals = { pass: rows.filter((r) => r.verdict === "pass").length, fail: rows.filter((r) => r.verdict === "fail").length, skipped: rows.filter((r) => r.verdict === "skipped").length, limited: rows.filter((r) => r.verdict === "rate-limited").length };
@@ -183,6 +190,7 @@ export function writeResults(file: string, rows: Row[], real: boolean, meta: { c
     `- routed_model (first real model call): ${routed}`,
     `- cost_usd (sum over every model call): ${cost}`,
     ...(real ? [`- Commit: ${meta.commit}`] : []),
+    ...(real && (meta.concurrency ?? 1) > 1 ? [`- Concurrency: ${meta.concurrency}`] : []),
     `- Totals: ${totals.pass} passed, ${totals.fail} failed, ${totals.skipped} skipped${totals.limited > 0 ? `, ${totals.limited} rate-limited` : ""}`,
   ];
   const section = [heading, "", ...facts, "", ...tableLines(rows), ""].join("\n");

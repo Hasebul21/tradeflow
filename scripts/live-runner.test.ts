@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { retryAfterMs, runHttpCase, summaryLine } from "./live-runner";
+import { memorySeen, retryAfterMs, runCliCase, runHttpCase, runLiveGroup, summaryLine, type LiveOutcome } from "./live-runner";
 
 let server: http.Server | null = null;
 let tmp: string | null = null;
@@ -31,7 +31,7 @@ async function stubServer(replies: { status: number; headers?: Record<string, st
     }
     if (req.method === "GET" && req.url === "/run/example_1") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ run_id: "example_1", done: true, lines: [{ action: "run_start" }, { action: "run_end" }] }));
+      res.end(JSON.stringify({ run_id: "example_1", done: true, lines: [{ action: "run_start" }, { agent_name: "Memory", action: "recall", output_summary: "by_tag=mem-52; by_query=none; corrections=none" }, { action: "run_end" }] }));
       return;
     }
     res.writeHead(404);
@@ -42,7 +42,10 @@ async function stubServer(replies: { status: number; headers?: Record<string, st
 }
 
 const busy = { status: 429, headers: { "Retry-After": "2" }, body: { status: "error", error: { type: "Busy", message: "The server is running 2 runs; try again in a few seconds.", recoverable: true } } };
-const success = { status: 200, body: { run_id: "example_1", status: "success", output: { stop_reason: null }, usage: { model_calls: 4 } } };
+const success = {
+  status: 200,
+  body: { run_id: "example_1", status: "success", output: { stop_reason: null, memories_recalled: [{ id: "mem-52", tags: ["review", "explain_week", "2026-09-24", "run:example_3a"] }] }, usage: { model_calls: 4 } },
+};
 
 describe("runHttpCase", () => {
   it("retries a 429 Busy after Retry-After, then saves the reply and the trace", { timeout: 15_000 }, async () => {
@@ -55,8 +58,9 @@ describe("runHttpCase", () => {
     expect(outcome.http).toBe(200);
     expect(outcome.busyRetries).toBe(1);
     expect(JSON.parse(readFileSync(path.join(tmp, "example_1.json"), "utf8"))).toEqual(success.body);
-    expect(readFileSync(path.join(tmp, "example_1.trace.jsonl"), "utf8")).toBe('{"action":"run_start"}\n{"action":"run_end"}\n');
-    expect(summaryLine(outcome)).toMatch(/^example_1 {2}200 {2}success {2}- {2}\d+\.\d s {2}4 model calls {2}\(1 busy retries\)$/);
+    expect(readFileSync(path.join(tmp, "example_1.trace.jsonl"), "utf8").split("\n")).toHaveLength(4);
+    expect(outcome.memory).toBe("by_tag=mem-52 (review of example_3a); by_query=none");
+    expect(summaryLine(outcome)).toMatch(/^example_1 {2}200 {2}success {2}- {2}\d+\.\d s {2}4 model calls {2}memory: by_tag=mem-52 \(review of example_3a\); by_query=none {2}\(1 busy retries\)$/);
   });
 
   it("does not retry a 429 that is not Busy, and stops retrying Busy once the wait would pass the timeout", { timeout: 15_000 }, async () => {
@@ -73,14 +77,61 @@ describe("runHttpCase", () => {
     const stuck = await runHttpCase({ id: "example_1", body: { run_id: "example_1" } }, second.base, tmp, 5_000, { sleep: async (ms) => void waits.push(ms) });
     expect(waits).toEqual([2000, 2000]);
     expect(stuck.http).toBe(429);
-    expect(stuck.note).toBe("still busy after waiting the full timeout");
+    expect(stuck.reply).toBeNull();
+    expect(stuck.note).toBe("no result: still 429 Busy after waiting the full timeout");
   });
 });
 
 describe("retryAfterMs", () => {
-  it("reads whole seconds and falls back to 5 s", () => {
+  it("reads whole seconds, falls back to 5 s and never waits less than 1 s", () => {
     expect(retryAfterMs({ "retry-after": "3" })).toBe(3000);
     expect(retryAfterMs({})).toBe(5000);
     expect(retryAfterMs({ "retry-after": "soon" })).toBe(5000);
+    expect(retryAfterMs({ "retry-after": "0" })).toBe(1000);
+  });
+});
+
+describe("runLiveGroup", () => {
+  const result = (id: string, reply: Record<string, unknown> | null): LiveOutcome => ({ id, http: reply === null ? 429 : 200, reply, seconds: 0, busyRetries: 0, note: null });
+
+  it("runs a chain in order and marks the rest not run after a case with no result", async () => {
+    const ran: string[] = [];
+    const recorded: LiveOutcome[] = [];
+    await runLiveGroup(["example_3a", "example_3b", "example_7a"], async (id) => {
+      ran.push(id);
+      return result(id, id === "example_3b" ? null : { status: "success" });
+    }, (outcome) => recorded.push(outcome));
+    expect(ran).toEqual(["example_3a", "example_3b"]);
+    expect(recorded.map((outcome) => [outcome.id, outcome.reply === null])).toEqual([["example_3a", false], ["example_3b", true], ["example_7a", true]]);
+    expect(recorded[2].note).toBe("not run: example_3b in its chain got no result");
+  });
+});
+
+describe("memorySeen", () => {
+  it("labels the ids from the recall line with the reply's memories, and is null without a recall line", () => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
+    const file = path.join(tmp, "t.jsonl");
+    writeFileSync(file, `${JSON.stringify({ agent_name: "Memory", action: "recall", output_summary: "by_tag=mem-59,mem-52; by_query=mem-3; corrections=mem-59" })}\n`);
+    const reply = { output: { memories_recalled: [{ id: "mem-59", tags: ["event:user_correction", "correction"] }, { id: "mem-52", tags: ["review", "run:example_3a"] }, { id: "mem-3", tags: ["rule"] }] } };
+    expect(memorySeen(file, reply)).toBe("by_tag=mem-59 (correction), mem-52 (review of example_3a); by_query=mem-3 (rule)");
+    writeFileSync(file, `${JSON.stringify({ agent_name: "Orchestrator", action: "run_end" })}\n`);
+    expect(memorySeen(file, reply)).toBeNull();
+  });
+});
+
+describe("runCliCase", () => {
+  it("returns a missing fixture as an outcome with no reply, never a throw", async () => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
+    const outcome = await runCliCase({ id: "x", body: {}, dataDir: "no/such/fixture" }, tmp, tmp, 1000);
+    expect(outcome.reply).toBeNull();
+    expect(outcome.note).toBe("no/such/fixture is missing: run npm run make-fixtures first");
+  });
+
+  it("returns a copy that fails as an outcome with no reply", async () => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
+    writeFileSync(path.join(tmp, "fixture"), "a file, not a folder");
+    const outcome = await runCliCase({ id: "x", body: {}, dataDir: "fixture" }, tmp, path.join(tmp, "missing-out"), 1000);
+    expect(outcome.reply).toBeNull();
+    expect(outcome.note).toMatch(/^npm run agent (failed|wrote no result)/);
   });
 });
