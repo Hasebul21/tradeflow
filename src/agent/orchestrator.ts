@@ -14,6 +14,7 @@ import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanO
 import { route } from "./agents/router";
 import { DISCLAIMER, write } from "./agents/writer";
 import { BRIEFING_MIN_CHILD_MS, ConfigError, loadConfig, type Config, type Tier } from "./config";
+import { runWithLimit } from "./concurrency";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
@@ -1238,11 +1239,12 @@ function sumUsage(sections: readonly BriefingSection[], durationMs: number): Run
 /**
  * The weekly briefing. Validates like every other task (a bad or out-of-range as_of is InvalidInput and no child run
  * starts), resolves as_of once, writes one Orchestrator "fixed_plan" line, then runs explain_week, thesis_check and
- * reconcile in that order through `runChild` (run() unless a test replaces it). Each child keeps its own limits and
- * trace file, gets a config whose RUN_TIMEOUT_MS is the smaller of its own and the briefing's time left, and is skipped
- * with stop_reason "run_timeout" when BRIEFING_MIN_CHILD_MS is not left. One "handoff" line follows each child and
- * carries the child's usage, so a run's lines other than run_end still add up to its usage. A child that stops or
- * fails never removes the others. Never throws.
+ * reconcile through `runChild` (run() unless a test replaces it), at most MAX_CONCURRENT_CHILDREN at a time (1 runs
+ * them one after another). Each child keeps its own limits and trace file, gets a config whose RUN_TIMEOUT_MS is the
+ * smaller of its own and the briefing's time left when it starts, and is skipped with stop_reason "run_timeout" when
+ * BRIEFING_MIN_CHILD_MS is not left. At fan-in, when every child has settled, one "handoff" line per child is written
+ * in task order, with the child's usage (so a run's lines other than run_end still add up to its usage) and its
+ * started_at and finished_at. A child that stops or fails never removes the others. Never throws.
  */
 export async function briefing(options: RunOptions, runChild: RunChild = run): Promise<RunResult> {
   const started = Date.now();
@@ -1318,17 +1320,45 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
       agent_name: AGENT,
       action: "fixed_plan",
       input_summary: capped(`task=${BRIEFING} as_of=${asOf}`),
-      output_summary: capped(`no Planner call: ${BRIEFING_CHAIN.map((child) => child.task).join(", ")} as three whole runs, one after the other`),
+      output_summary: capped(`no Planner call: ${BRIEFING_CHAIN.map((child) => child.task).join(", ")} as three whole runs, ${BRIEFING_CHAIN.length} children, up to ${config.MAX_CONCURRENT_CHILDREN} at a time`),
       target_agent: BRIEFING_CHAIN[0].task,
       status: "ok",
       why: BRIEFING_CHAIN.map((child, index) => `${index + 1}. ${child.task}: ${child.why}.`).join(" "),
     });
 
+    // The children start through runWithLimit, at most MAX_CONCURRENT_CHILDREN at once. A job never writes to the
+    // parent trace or to `sections`: the sections and the handoff lines are written at fan-in, in task order.
     const deadline = started + config.BRIEFING_TIMEOUT_MS;
-    for (const child of BRIEFING_CHAIN) {
+    type Outcome = { skipped: { left: number } | null; reply: RunResult | null; started_at: string; finished_at: string };
+    const jobs = BRIEFING_CHAIN.map((child) => async (): Promise<Outcome> => {
       const childRunId = `${runId}-${child.suffix}`;
+      const startedAt = new Date().toISOString();
       const left = deadline - Date.now();
-      if (left < BRIEFING_MIN_CHILD_MS) {
+      if (left < BRIEFING_MIN_CHILD_MS) return { skipped: { left }, reply: null, started_at: startedAt, finished_at: startedAt };
+      const childInput: RunInput = child.task === "explain_week" ? { question, as_of: asOf } : { as_of: asOf };
+      const childConfig: Config = { ...config, RUN_TIMEOUT_MS: Math.min(config.RUN_TIMEOUT_MS, left) };
+      let reply: RunResult;
+      try {
+        reply = await runChild({ runId: childRunId, task: child.task, input: childInput, sampleMode, config: childConfig, ...(options.localReason === undefined ? {} : { localReason: options.localReason }) });
+      } catch (error) {
+        const caught = errorOf(error);
+        reply = { run_id: childRunId, task: child.task, status: "error", output: null, error: caught, agents: [], usage: noUsage(), trace_id: childRunId, log_file: null, execution_time_seconds: 0 };
+      }
+      return { skipped: null, reply, started_at: startedAt, finished_at: new Date().toISOString() };
+    });
+    const settled = await runWithLimit(jobs, config.MAX_CONCURRENT_CHILDREN);
+
+    // Fan-in: every child has settled. One section, and one handoff or child_skipped line, per child in task order.
+    BRIEFING_CHAIN.forEach((child, index) => {
+      const childRunId = `${runId}-${child.suffix}`;
+      // A job catches its own errors, so a rejection here is unexpected; it still becomes an error section.
+      const settledJob = settled[index];
+      const { skipped, reply, started_at, finished_at }: Outcome =
+        settledJob.status === "fulfilled"
+          ? settledJob.value
+          : { skipped: null, reply: { run_id: childRunId, task: child.task, status: "error", output: null, error: errorOf(settledJob.reason), agents: [], usage: noUsage(), trace_id: childRunId, log_file: null, execution_time_seconds: 0 }, started_at: new Date().toISOString(), finished_at: new Date().toISOString() };
+      if (skipped !== null || reply === null) {
+        const left = skipped?.left ?? 0;
         sections.push({ task: child.task, run_id: childRunId, status: "skipped", summary: `${child.task} did not start: ${Math.max(0, left)} ms of BRIEFING_TIMEOUT_MS (${config.BRIEFING_TIMEOUT_MS} ms) were left.`, stop_reason: "run_timeout", usage: noUsage() });
         tracer.log({
           agent_name: AGENT,
@@ -1340,16 +1370,7 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
           why: "run_timeout",
           stop_reason: "run_timeout",
         });
-        continue;
-      }
-      const childInput: RunInput = child.task === "explain_week" ? { question, as_of: asOf } : { as_of: asOf };
-      const childConfig: Config = { ...config, RUN_TIMEOUT_MS: Math.min(config.RUN_TIMEOUT_MS, left) };
-      let reply: RunResult;
-      try {
-        reply = await runChild({ runId: childRunId, task: child.task, input: childInput, sampleMode, config: childConfig, ...(options.localReason === undefined ? {} : { localReason: options.localReason }) });
-      } catch (error) {
-        const caught = errorOf(error);
-        reply = { run_id: childRunId, task: child.task, status: "error", output: null, error: caught, agents: [], usage: noUsage(), trace_id: childRunId, log_file: null, execution_time_seconds: 0 };
+        return;
       }
       const stopReason = reply.output?.stop_reason ?? null;
       const section: BriefingSection = {
@@ -1372,11 +1393,13 @@ export async function briefing(options: RunOptions, runChild: RunChild = run): P
         status: reply.status === "success" ? "ok" : "needs_human",
         why: child.why,
         child_run_id: childRunId,
+        started_at,
+        finished_at,
         duration_ms: reply.usage.duration_ms,
         usage: { model_calls: reply.usage.model_calls, query_calls: reply.usage.query_calls, tokens_in: reply.usage.tokens_in, tokens_out: reply.usage.tokens_out },
         ...(stopReason === null ? {} : { stop_reason: stopReason }),
       });
-    }
+    });
     return null;
   }
 

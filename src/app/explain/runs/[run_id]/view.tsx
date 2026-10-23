@@ -50,6 +50,7 @@ export function RunView({ runId, lines, proof, done, summary }: { runId: string;
                   <div data-testid={`handoff-${row.n}`}>
                     <Typography.Text strong>{`Handed to ${row.child.task}, ${row.child.status}: `}</Typography.Text>
                     <Link href={`/explain/runs/${row.child.run_id}`}>{row.child.run_id}</Link>
+                    {row.times !== null ? <div className="muted" data-testid={`handoff-times-${row.n}`}>{`Started ${row.times.started_at}, finished ${row.times.finished_at}`}</div> : null}
                   </div>
                 ) : null}
                 {row.detail !== null ? (

@@ -29,6 +29,8 @@ export type Config = {
   readonly RUN_TIMEOUT_MS: number;
   /** The whole weekly briefing: its three child runs together; each child gets the time left (its own RUN_TIMEOUT_MS if smaller). */
   readonly BRIEFING_TIMEOUT_MS: number;
+  /** How many briefing children run at once; 1 runs them one after another. Set it to 1 if the model provider rate-limits parallel calls. */
+  readonly MAX_CONCURRENT_CHILDREN: number;
   readonly MAX_ROWS_PER_QUERY: number;
   readonly MAX_MEMORIES: number;
   readonly MAX_PROMPT_CHARS: number;
@@ -95,6 +97,7 @@ const limitsSchema = z.object({
   ROUND_TIMEOUT_MS: positiveInt(360000),
   RUN_TIMEOUT_MS: positiveInt(900000),
   BRIEFING_TIMEOUT_MS: positiveInt(1200000),
+  MAX_CONCURRENT_CHILDREN: positiveInt(2),
   MAX_ROWS_PER_QUERY: positiveInt(50),
   MAX_MEMORIES: positiveInt(5),
   MAX_PROMPT_CHARS: positiveInt(40000),

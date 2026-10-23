@@ -201,6 +201,8 @@ describe("briefing", () => {
   });
 });
 
+const RULE4_WORDS = ", and at most `MAX_CONCURRENT_CHILDREN` briefing children at a time (set it to 1 if the model provider rate-limits parallel calls)";
+
 describe("AGENTS.md rule 3", () => {
   const agents = readFileSync(path.resolve("AGENTS.md"), "utf8");
   const rule = agents.split("\n").find((line) => line.startsWith("3. **Every external call**")) ?? "";
@@ -217,7 +219,13 @@ describe("AGENTS.md rule 3", () => {
     } catch {
       return; // no git here (a clean clone without .git): the phrase check above still holds
     }
-    const changed = diff.split("\n").filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line));
+    // Step 20b also adds the MAX_CONCURRENT_CHILDREN words to rule 4: that one pair of lines is allowed, with nothing else changed in it.
+    const rule4 = agents.split("\n").find((line) => line.startsWith("4. **Bounded loop.**")) ?? "";
+    expect(rule4).toContain(RULE4_WORDS);
+    const changed = diff
+      .split("\n")
+      .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line))
+      .filter((line) => line !== `+${rule4}` && line !== `-${rule4.replace(RULE4_WORDS, "")}`);
     if (changed.length === 0) return; // already committed
     expect(changed).toHaveLength(2);
     const [removed, added] = changed;
@@ -225,4 +233,101 @@ describe("AGENTS.md rule 3", () => {
     expect(added).toBe(`+${rule}`);
     expect(added.slice(1).replace("; a briefing may run up to BRIEFING_TIMEOUT_MS", "")).toBe(removed.slice(1));
   });
+});
+
+// Concurrency: the children run through runWithLimit under MAX_CONCURRENT_CHILDREN. The stub replaces runChild, so
+// nothing here depends on the model; the sections and handoff lines must still come out in task order.
+const DELAY_MS = 300;
+const stubSuccess =
+  (delayMs: number): RunChild =>
+  async (options) => {
+    const task = options.task ?? "briefing";
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const usage = { model_calls: 1, query_calls: 1, tokens_in: 10, tokens_out: 5, duration_ms: delayMs };
+    return {
+      run_id: options.runId,
+      task,
+      status: "success",
+      output: { summary: `${task} done`, review_markdown: `${task} review\n\n${DISCLAIMER}`, findings: [], gaps: [], citations: [], needs_human: false, declined_advice: false, injection_seen: false, memories_recalled: [], applied_corrections: [], rounds: 1, scores: null, model_source: "sample-model", partial: false, stop_reason: null },
+      error: null,
+      agents: [],
+      usage,
+      trace_id: options.runId,
+      log_file: null,
+      execution_time_seconds: delayMs / 1000,
+    };
+  };
+const capConfig = (cap: number) => loadConfig({ SAMPLE_MODE: "true", MAX_CONCURRENT_CHILDREN: String(cap) }, () => {});
+const handoffsOf = (runId: string) => traceOf(runId).filter((line) => line.agent_name === "Orchestrator" && line.action === "handoff");
+
+describe("briefing concurrency", () => {
+  it("runs the three children at once at cap 3: under 700 ms, sections in task order", async () => {
+    const started = Date.now();
+    const result = await briefing({ runId: "briefing-cap3", input: { as_of: AS_OF }, sampleMode: true, config: capConfig(3) }, stubSuccess(DELAY_MS));
+    const took = Date.now() - started;
+    expect(took).toBeLessThan(700);
+    expect(result.status).toBe("success");
+    expect(result.output!.sections!.map((section) => section.task)).toEqual(ORDER);
+    expect(handoffsOf("briefing-cap3").map((line) => line.target_agent)).toEqual(ORDER);
+    expect(result.usage.duration_ms).toBeGreaterThanOrEqual(DELAY_MS);
+    console.info(`briefing cap 3: ${took} ms`);
+  });
+
+  it("runs them one after another at cap 1: 850 ms or more, sections in task order, usage summed", async () => {
+    const started = Date.now();
+    const result = await briefing({ runId: "briefing-cap1", input: { as_of: AS_OF }, sampleMode: true, config: capConfig(1) }, stubSuccess(DELAY_MS));
+    const took = Date.now() - started;
+    expect(took).toBeGreaterThanOrEqual(850);
+    expect(result.output!.sections!.map((section) => section.task)).toEqual(ORDER);
+    expect(result.usage.model_calls).toBe(3);
+    const [first, second, third] = handoffsOf("briefing-cap1");
+    expect(Date.parse(second.started_at!)).toBeGreaterThanOrEqual(Date.parse(first.finished_at!));
+    expect(Date.parse(third.started_at!)).toBeGreaterThanOrEqual(Date.parse(second.finished_at!));
+    console.info(`briefing cap 1: ${took} ms`);
+  });
+
+  it("at cap 2 starts two children together and the third after one of them finished", async () => {
+    const started = Date.now();
+    const result = await briefing({ runId: "briefing-cap2-stub", input: { as_of: AS_OF }, sampleMode: true, config: capConfig(2) }, stubSuccess(DELAY_MS));
+    console.info(`briefing cap 2: ${Date.now() - started} ms`);
+    expect(result.output!.sections!.map((section) => section.task)).toEqual(ORDER);
+    const [first, second, third] = handoffsOf("briefing-cap2-stub");
+    expect(Math.abs(Date.parse(first.started_at!) - Date.parse(second.started_at!))).toBeLessThan(150);
+    const earlierFinish = Math.min(Date.parse(first.finished_at!), Date.parse(second.finished_at!));
+    expect(Date.parse(third.started_at!)).toBeGreaterThanOrEqual(earlierFinish);
+  });
+
+  it("a plain briefing writes one fixed_plan naming the cap, three handoff lines in task order with times, then run_end with usage", () => {
+    const lines = traceOf("briefing-main");
+    const orchestrator = lines.filter((line) => line.agent_name === "Orchestrator");
+    expect(orchestrator.map((line) => line.action)).toEqual(["fixed_plan", "handoff", "handoff", "handoff", "run_end"]);
+    expect(orchestrator[0].output_summary).toContain("3 children, up to 2 at a time");
+    const handoffs = orchestrator.filter((line) => line.action === "handoff");
+    expect(handoffs.map((line) => line.target_agent)).toEqual(ORDER);
+    for (const handoff of handoffs) {
+      expect(handoff.child_run_id).toMatch(/^briefing-main-[123]-/);
+      expect(Date.parse(handoff.started_at!)).toBeLessThanOrEqual(Date.parse(handoff.finished_at!));
+    }
+    // Only handoff lines carry started_at and finished_at.
+    expect(lines.filter((line) => line.started_at !== undefined || line.finished_at !== undefined)).toHaveLength(3);
+    expect(lines[lines.length - 1]).toMatchObject({ agent_name: "Orchestrator", action: "run_end", usage: expect.objectContaining({ model_calls: main.usage.model_calls }) });
+    // The trace viewer shows the times on a handoff step and on no other step.
+    const times = stepRows(lines).filter((row) => row.times !== null);
+    expect(times.map((row) => row.action)).toEqual(["handoff", "handoff", "handoff"]);
+  });
+
+  it("at cap 2 leaves the memory store holding each child's review, and its files parse as JSON", async () => {
+    const result = await briefing({ runId: "briefing-cap2", input: { as_of: AS_OF }, sampleMode: true, config: capConfig(2) });
+    expect(result.status).toBe("success");
+    const state = JSON.parse(readFileSync(path.join(dir, "memory", "state.json"), "utf8")) as { seq: number; records: { id: string; tags: string[] }[] };
+    const wrote = result.output!.sections!.filter((section) => traceOf(section.run_id).some((line) => line.agent_name === "Memory" && line.action === "remember"));
+    expect(wrote.map((section) => section.task)).toEqual(expect.arrayContaining(["explain_week", "thesis_check"]));
+    for (const section of wrote) {
+      expect(state.records.filter((record) => record.tags.includes("review") && record.tags.includes(`run:${section.run_id}`))).toHaveLength(1);
+    }
+    expect(new Set(state.records.map((record) => record.id)).size).toBe(state.records.length);
+    for (const line of readFileSync(path.join(dir, "memory", "ledger.jsonl"), "utf8").split("\n").filter(Boolean)) JSON.parse(line);
+    const world = readFileSync(path.join(dir, "memory", "world", ".world", "tradeflow.json"), "utf8");
+    expect(() => JSON.parse(world)).not.toThrow();
+  }, 120_000);
 });

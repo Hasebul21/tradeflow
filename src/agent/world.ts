@@ -8,6 +8,7 @@
 // as_of, the run id and the run_query_id of the result it came from.
 import path from "node:path";
 import { WorldModel, externalId, type Entity, type Fact, type Provenance } from "../../vendor/world-model/src/index";
+import { withLock } from "./concurrency";
 import type { QueryResult, Row } from "./queries";
 import { dataDir } from "@/lib/store";
 
@@ -49,7 +50,7 @@ export type CitingFinding = { kind: string; subject: string; cites: readonly str
  * is recorded only when a finding cites its result and names its symbol or id: the cited announcements. Returns
  * what was written and the run_query_ids it came from.
  */
-export async function recordRun(a: { run_id: string; as_of: string; results: Record<string, QueryResult>; findings?: readonly CitingFinding[] }): Promise<RecordSummary> {
+async function recordRunUnlocked(a: { run_id: string; as_of: string; results: Record<string, QueryResult>; findings?: readonly CitingFinding[] }): Promise<RecordSummary> {
   const wm = openWorld();
   const at = `${a.as_of}T00:00:00Z`;
   const source = (runQueryId: string): Provenance => ({ kind: "api", by: "tradeflow-agent", at, runId: a.run_id, url: `run_query:${runQueryId}` });
@@ -154,6 +155,12 @@ export async function recordRun(a: { run_id: string; as_of: string; results: Rec
   summary.run_query_ids = [...used];
   return summary;
 }
+
+/**
+ * recordRun, one at a time per data dir: it awaits between reading the World Model (isHolding) and writing it, and
+ * the briefing's children record at the same time. The docs above describe it.
+ */
+export const recordRun = (...args: Parameters<typeof recordRunUnlocked>): ReturnType<typeof recordRunUnlocked> => withLock(`world:${worldDir()}`, () => recordRunUnlocked(...args));
 
 // ---------------------------------------------------------------------------------------------------------------
 // about

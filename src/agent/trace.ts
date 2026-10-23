@@ -55,6 +55,9 @@ export type TraceLine = {
   source?: "local" | "zetaris" | "local-fallback";
   /** Written only on an Orchestrator "handoff" line: the run id of the child run it handed to (the briefing's children). */
   child_run_id?: string;
+  /** Written only on an Orchestrator "handoff" line: ISO timestamps of when that child started and ended, so overlapping children show. */
+  started_at?: string;
+  finished_at?: string;
   /** Memory recall lines: the H-MEM query's trace.retrievalReason and trace.strategy. */
   retrievalReason?: string;
   strategy?: string;

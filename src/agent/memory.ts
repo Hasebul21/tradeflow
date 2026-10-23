@@ -9,6 +9,7 @@ import path from "node:path";
 import { HMEM } from "../../vendor/hmem/src/index";
 import type { MemoryRecord, MemoryType } from "../../vendor/hmem/src/types";
 import { loadConfig, type Config } from "./config";
+import { withLock } from "./concurrency";
 import { beforeRemember } from "./guards";
 import { complete, failedCallUsage } from "./llm";
 import type { Tracer } from "./trace";
@@ -117,7 +118,7 @@ const toRecalled = (memory: MemoryRecord, relevance: number | null): RecalledMem
  * First by tag and without a threshold: every correction, then the review with the latest date tag before `asOf`.
  * Then the H-MEM query fills what room is left up to MAX_MEMORIES. Traces one Memory.recall line.
  */
-export async function recall(question: string, asOf: string, tracer: Tracer): Promise<RecalledMemory[]> {
+async function recallUnlocked(question: string, asOf: string, tracer: Tracer): Promise<RecalledMemory[]> {
   assertYmd(asOf, "asOf");
   const started = Date.now();
   const hmem = openMemory();
@@ -184,7 +185,7 @@ export class MemoryBlockedError extends Error {
 /**
  * Stores an accepted review as a "general" memory tagged review, the task, the as_of date and the run. Returns its id.
  * guards.beforeRemember runs first: a refused write throws MemoryBlockedError and stores nothing. */
-export async function remember(a: { content: string; task: string; asOf: string; runId: string; tracer: Tracer }): Promise<string> {
+async function rememberUnlocked(a: { content: string; task: string; asOf: string; runId: string; tracer: Tracer }): Promise<string> {
   assertYmd(a.asOf, "asOf");
   const guard = beforeRemember({ kind: "review", text: a.content }, a.tracer);
   if (!guard.ok) throw new MemoryBlockedError(guard.reason);
@@ -216,7 +217,7 @@ export async function remember(a: { content: string; task: string; asOf: string;
  * task, the issue and the review it approves. Returns its id. guards.beforeRemember runs first with kind "decision":
  * a refused write throws MemoryBlockedError and stores nothing.
  */
-export async function rememberDecision(a: { content: string; task: string; issueId: string; reviewRunId: string; tracer: Tracer }): Promise<string> {
+async function rememberDecisionUnlocked(a: { content: string; task: string; issueId: string; reviewRunId: string; tracer: Tracer }): Promise<string> {
   const guard = beforeRemember({ kind: "decision", text: a.content }, a.tracer);
   if (!guard.ok) throw new MemoryBlockedError(guard.reason);
   const started = Date.now();
@@ -308,7 +309,7 @@ function seedsFrom(rules: Rules | null, profile: Profile | null, journal: Journa
  * Adds the owner's rules, profile and journal theses as long-term memories, once: a seed whose source is already
  * in the store is skipped. The one exception to AGENTS.md rule 6: it skips guards.beforeRemember.
  */
-export async function seedOwnerContext(tracer?: Tracer): Promise<{ added: number; already_present: number }> {
+async function seedOwnerContextUnlocked(tracer?: Tracer): Promise<{ added: number; already_present: number }> {
   const started = Date.now();
   const [rules, profile, journal, transactions] = await Promise.all([
     readJson<Rules | null>("rules", null),
@@ -366,7 +367,7 @@ const refused = (message: string): LearnResult => ({ ok: false, error: { type: "
  * Traces one Memory "learn" line per memory written and one Memory "feedback" line per wrong id. The text is
  * stored as the owner's words, never as an instruction to the agents.
  */
-export async function learnCorrection(a: { review_run_id: string; text: string; wrong_memory_ids?: readonly string[]; tracer: Tracer }): Promise<LearnResult> {
+async function learnCorrectionUnlocked(a: { review_run_id: string; text: string; wrong_memory_ids?: readonly string[]; tracer: Tracer }): Promise<LearnResult> {
   const hmem = openMemory();
   const reviewRunId = typeof a.review_run_id === "string" ? a.review_run_id.trim() : "";
   const text = typeof a.text === "string" ? a.text.trim() : "";
@@ -437,3 +438,17 @@ export async function learnCorrection(a: { review_run_id: string; text: string; 
   }
   return { ok: true, as_of: asOf, memory_ids_added: added, wrong_memory_ids: wrong };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// One queue per data dir. The briefing's children run at the same time on the one HMEM instance, and a call that
+// awaits (a mined correction waits for the model) must not interleave with another call's writes. Each public call
+// below starts after the previous call for the same data dir has settled. The docs above belong to the functions
+// they name; the wrappers keep their signatures.
+
+const queue = <T>(fn: () => Promise<T>): Promise<T> => withLock(`memory:${memoryDir()}`, fn);
+
+export const recall = (...args: Parameters<typeof recallUnlocked>): ReturnType<typeof recallUnlocked> => queue(() => recallUnlocked(...args));
+export const remember = (...args: Parameters<typeof rememberUnlocked>): ReturnType<typeof rememberUnlocked> => queue(() => rememberUnlocked(...args));
+export const rememberDecision = (...args: Parameters<typeof rememberDecisionUnlocked>): ReturnType<typeof rememberDecisionUnlocked> => queue(() => rememberDecisionUnlocked(...args));
+export const seedOwnerContext = (...args: Parameters<typeof seedOwnerContextUnlocked>): ReturnType<typeof seedOwnerContextUnlocked> => queue(() => seedOwnerContextUnlocked(...args));
+export const learnCorrection = (...args: Parameters<typeof learnCorrectionUnlocked>): ReturnType<typeof learnCorrectionUnlocked> => queue(() => learnCorrectionUnlocked(...args));

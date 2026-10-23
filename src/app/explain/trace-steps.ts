@@ -20,6 +20,8 @@ export type StepRow = {
   detail: { label: string; text: string } | null;
   /** An Orchestrator handoff line: the child run it handed to, shown as a link to that run's own trace. */
   child: { task: string; status: string; run_id: string } | null;
+  /** A handoff line's started_at and finished_at (ISO), so overlapping briefing children are visible; null on every other line. */
+  times: { started_at: string; finished_at: string } | null;
 };
 
 const text = (value: unknown): string | null => (typeof value === "string" && value.trim() !== "" ? value : null);
@@ -56,6 +58,13 @@ function childOf(line: TraceLine): StepRow["child"] {
   return { task: text(line.target_agent) ?? "-", status, run_id: line.child_run_id as string };
 }
 
+/** The start and end of a handoff line's child; null when the line has either missing. */
+function timesOf(line: TraceLine): StepRow["times"] {
+  const started = text(line.started_at);
+  const finished = text(line.finished_at);
+  return line.action === "handoff" && started !== null && finished !== null ? { started_at: started, finished_at: finished } : null;
+}
+
 /** Every line as a step, in file order, numbered from 1. */
 export function stepRows(lines: readonly TraceLine[]): StepRow[] {
   return lines.map((line, index) => ({
@@ -71,6 +80,7 @@ export function stepRows(lines: readonly TraceLine[]): StepRow[] {
     usage: usageText(line.usage),
     detail: detailOf(line),
     child: childOf(line),
+    times: timesOf(line),
   }));
 }
 
