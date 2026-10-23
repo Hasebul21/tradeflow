@@ -86,7 +86,7 @@ describe("the Evaluator's code checks", () => {
     const outcome = await evaluate(input(run, [bad, bxpharma]), { tracer, run });
 
     expect(outcome).toMatchObject({ accepted: false, scores: null, total: 0, confidence: 0, target_agent: "Planner", model: null, flagged: [1] });
-    expect(outcome.fix).toMatch(/^Fix finding 1 \(move PORTFOLIO\): the number 98765\.4 \(loss\) is not in the cited rows; use only figures from the rows it cites\.$/);
+    expect(outcome.fix).toMatch(/^Fix finding 1 \(move PORTFOLIO\): the number 98765\.4 \(loss\) is not in the cited rows \(no result of this run holds 98765\.4, so leave it out\); use only figures from the rows it cites\.$/);
     expect(outcome.code_checks).toEqual([
       { check: "citations", ok: false, reason: expect.stringMatching(/98765\.4/), fix: outcome.fix },
       expect.objectContaining({ check: "guard", ok: true }),
@@ -199,8 +199,11 @@ describe("the Evaluator's fix names every open problem", () => {
     const outcome = await evaluate(input(run, [finding("PORTFOLIO", [sectors.run_query_id]), sector]), { tracer, run });
 
     expect(outcome.accepted).toBe(false);
+    // Each refused figure names the row value it most likely came from (-2.25 and -7259.4 in sector_vs_stock).
+    const at = `sector_vs_stock ${sectors.run_query_id}`;
+    const advice = "write it as the row gives it or rounded half up to one decimal place, or leave it out";
     expect(outcome.fix).toBe(
-      "Fix finding 2 (sector Pharmaceuticals & Chemicals): the claim has 2.2, which is not in its numbers or the cited rows; the claim has 7259, which is not in its numbers or the cited rows; use only figures from the rows it cites. Explain BXPHARMA: it is the largest move of the week and has no finding.",
+      `Fix finding 2 (sector Pharmaceuticals & Chemicals): the claim has 2.2, which is not in its numbers or the cited rows (no result of this run holds 2.2; ${at} has 2.25: ${advice}); the claim has 7259, which is not in its numbers or the cited rows (no result of this run holds 7259; ${at} has 7259.4: ${advice}); use only figures from the rows it cites. Explain BXPHARMA: it is the largest move of the week and has no finding.`,
     );
     expect(outcome.fix).not.toMatch(/more problem/);
     expect(outcome.flagged).toEqual([2]);
@@ -221,7 +224,7 @@ describe("the Evaluator's fix names every open problem", () => {
     const bad = (subject: string, value: number) => finding(subject, [moves.run_query_id], [{ value, label: "made-up" }]);
     const outcome = await evaluate(input(run, [bad("BXPHARMA", 111.1), finding("GP", [moves.run_query_id]), bad("RENATA", 222.2)]), { tracer: collector().tracer, run });
     expect(outcome.fix).toBe(
-      "Fix finding 1 (move BXPHARMA): the number 111.1 (made-up) is not in the cited rows; use only figures from the rows it cites. Fix finding 3 (move RENATA): the number 222.2 (made-up) is not in the cited rows; use only figures from the rows it cites.",
+      "Fix finding 1 (move BXPHARMA): the number 111.1 (made-up) is not in the cited rows (no result of this run holds 111.1, so leave it out); use only figures from the rows it cites. Fix finding 3 (move RENATA): the number 222.2 (made-up) is not in the cited rows (no result of this run holds 222.2, so leave it out); use only figures from the rows it cites.",
     );
     expect(outcome.flagged).toEqual([1, 3]);
   });

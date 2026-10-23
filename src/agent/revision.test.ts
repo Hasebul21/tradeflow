@@ -3,7 +3,7 @@ import { requiredFindings } from "./agents/evaluator";
 import { loadConfig } from "./config";
 import type { Finding } from "./guards";
 import { loadQueryData, type QueryData } from "./queries";
-import { mergeRevision, passesCodeChecks, type RevisionInput } from "./revision";
+import { dropRepeatFailures, mergeRevision, passesCodeChecks, type RevisionInput } from "./revision";
 import { RunState } from "./run-state";
 import type { Tracer } from "./trace";
 
@@ -111,5 +111,26 @@ describe("mergeRevision: revise, don't restart", () => {
     expect(result.findings.filter((f) => f.subject === ids[0])).toEqual([next[0]]);
     expect(result.findings.map((f) => f.subject).sort()).toEqual([...ids].sort());
     expect(result.kept.every((entry) => entry.how === "restored")).toBe(true);
+  });
+
+  it("drops a flagged finding that comes back still failing, unless it is the only one coverage needs", async () => {
+    const { run, moves } = await week();
+    const sectors = await run.query("sector_vs_stock", { as_of: AS_OF, sessions: 5 });
+    const required = requiredFindings("explain_week", run.store, AS_OF);
+    const sectorEight = () => finding("sector", "Pharmaceuticals & Chemicals", [sectors.run_query_id], "The sector fell 2.99%, 2.2 points behind DSEX.", [{ value: -2.99, label: "change %" }]);
+    const badBxpharma = () => finding("move", "BXPHARMA", [moves], "BXPHARMA fell 14.9% over the week.", [{ value: 98765.4, label: "made-up" }]);
+    const portfolio = finding("move", "PORTFOLIO", [moves], "The data shows the portfolio fell 1.7% over the week.", [{ value: -1.67, label: "change %" }]);
+    const flagged = new Set([sectorEight(), badBxpharma()]);
+
+    const again = [portfolio, sectorEight(), badBxpharma()];
+    const result = dropRepeatFailures({ task: "explain_week", flagged, findings: again, required, store: run.store });
+    // The sector finding goes, with a gap; BXPHARMA stays, because it is the only finding on the largest move.
+    expect(result.findings).toEqual([portfolio, again[2]]);
+    expect(result.dropped).toEqual([{ finding: again[1], gap: "The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds." }]);
+
+    // A first failure is never dropped, and a fixed one passes and stays.
+    expect(dropRepeatFailures({ task: "explain_week", flagged: new Set(), findings: again, required, store: run.store }).dropped).toEqual([]);
+    const fixed = { ...sectorEight(), claim: "The sector fell 2.99%, 2.25 points behind DSEX." };
+    expect(dropRepeatFailures({ task: "explain_week", flagged, findings: [portfolio, fixed], required, store: run.store }).findings).toEqual([portfolio, fixed]);
   });
 });

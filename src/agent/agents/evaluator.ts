@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
-import { afterModel, checkCitations, type Finding } from "../guards";
+import { afterModel, checkCitations, numbersIn, type Finding } from "../guards";
 import { BadJson, complete as completeModel, failedCallUsage, ModelHttpError, schemaReason, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
@@ -282,10 +282,54 @@ export function requiredFindings(task: Task, store: ResultStore, asOf: string): 
 // ---------------------------------------------------------------------------------------------------------------
 // The fixes code writes for the first two checks.
 
-/** Every failure, grouped by finding in the draft's order: no problem is left out of the fix. */
-function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[]): string {
+const REFUSED = /^(?:the claim has|the number) (\d+(?:\.\d+)?)\b/;
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** Every number in a result's rows, numbers inside strings too (the owner's "Sell if it gains 10%"), as positive values. */
+function numbersOf(value: unknown, ignore: readonly string[], out: number[] = [], depth = 0): number[] {
+  if (depth > 8) return out;
+  if (typeof value === "number" && Number.isFinite(value)) out.push(Math.abs(value));
+  else if (typeof value === "string") out.push(...numbersIn(value, ignore));
+  else if (Array.isArray(value)) for (const item of value) numbersOf(item, ignore, out, depth + 1);
+  else if (value !== null && typeof value === "object") for (const item of Object.values(value)) numbersOf(item, ignore, out, depth + 1);
+  return out;
+}
+
+/**
+ * Where a refused figure is, so the fix is one the Analyst can act on: the results of this run (at most two) that
+ * hold it as the check reads a row (the same value, or that value rounded to one decimal place) and the finding does
+ * not cite, or none. A hint only: the check itself is unchanged, and the finding still has to cite the row.
+ */
+function whereIs(value: number, cites: readonly string[], store: ResultStore): string {
+  const ids = Object.keys(store);
+  const holders = Object.values(store).filter((result) => !cites.includes(result.run_query_id) && numbersOf(result.rows, ids).some((n) => Math.abs(n - value) < 1e-9 || Math.abs(round1(n) - value) < 1e-9));
+  if (holders.length === 0) {
+    // A figure rounded the wrong way (2.2 for 2.25, 7259 for 7259.4): name the row value it most likely came from.
+    for (const result of Object.values(store)) {
+      const near = numbersOf(result.rows, ids).find((n) => Math.abs(n - value) < 0.1 || (Number.isInteger(value) && Math.round(n) === value && n !== value));
+      if (near !== undefined) return `no result of this run holds ${value}; ${result.query_id} ${result.run_query_id} has ${near}: write it as the row gives it or rounded half up to one decimal place, or leave it out`;
+    }
+    return `no result of this run holds ${value}, so leave it out`;
+  }
+  const named = holders.slice(0, 2).map((result) => `${result.query_id} ${result.run_query_id}`);
+  return `${value} is in ${listed(named)}${holders.length > 2 ? ` and ${holders.length - 2} more` : ""}: cite the one it came from, or leave it out`;
+}
+
+/**
+ * Every failure, grouped by finding in the draft's order: no problem is left out of the fix. Each refused figure says
+ * where it is in this run, or that it is nowhere.
+ */
+function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[], store: ResultStore): string {
   const byFinding = new Map<number, string[]>();
-  for (const failure of failures) byFinding.set(failure.finding, [...(byFinding.get(failure.finding) ?? []), failure.problem]);
+  for (const failure of failures) {
+    const value = failure.problem.match(REFUSED);
+    const finding = findings[failure.finding - 1];
+    const hint = value === null || finding === undefined ? "" : ` (${whereIs(Number(value[1]), finding.cites, store)})`;
+    const problems = byFinding.get(failure.finding) ?? [];
+    // The same refused figure twice in one claim is one problem.
+    if (!problems.includes(`${failure.problem}${hint}`)) problems.push(`${failure.problem}${hint}`);
+    byFinding.set(failure.finding, problems);
+  }
   return [...byFinding.entries()]
     .sort(([a], [b]) => a - b)
     .map(([number, problems]) => {
@@ -393,7 +437,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   const citations = checkCitations(findings, input.results, memories, tracer);
   const citationCheck: CodeCheck = citations.ok
     ? { check: "citations", ok: true, reason: "every finding cites a result of this run and every number is in the cited rows", fix: null }
-    : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures) };
+    : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures, input.results) };
   traceCheck(citationCheck);
 
   // 2. No advice, every finding matches the schema, a verdict where the task needs one. The draft is the Analyst's reply.

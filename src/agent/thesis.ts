@@ -44,6 +44,11 @@ export type ThesisEvidence = {
   date: string;
   thesis: string;
   exit_condition: string;
+  /**
+   * The run_query_id of the journal_for_symbol result that holds this thesis and its exit condition: what a finding
+   * cites when it quotes the owner's words, so a figure in them ("Sell if it gains 10%") is in a cited row.
+   */
+  journal_run_query_id: string | null;
   /** The run_query_id of this symbol's fundamentals_latest result: what an "open" finding cites when no row settles it. */
   fundamentals_run_query_id: string | null;
   eps: EpsRow[];
@@ -149,6 +154,7 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
       date,
       thesis: str(entry.thesis),
       exit_condition: str(entry.exit_condition),
+      journal_run_query_id: journal?.run_query_id ?? null,
       fundamentals_run_query_id: quarters?.run_query_id ?? null,
       eps:
         quarters === undefined

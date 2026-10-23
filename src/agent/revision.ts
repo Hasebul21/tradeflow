@@ -80,3 +80,30 @@ export function mergeRevision(input: RevisionInput): Revision {
   for (const entry of entries) findings.splice(Math.min(entry.was - 1, findings.length), 0, entry.finding);
   return { findings, kept: entries };
 }
+
+/** A finding code left out of the draft, with the gap the review shows for it. */
+export type DroppedFinding = { finding: Finding; gap: string };
+
+/**
+ * A finding the last rejection flagged that comes back (the same kind and subject) still failing the code checks is
+ * left out, with a gap that says so, instead of sinking the whole run. Never a finding the coverage check needs: one
+ * that is the only finding meeting a requirement stays, and the Evaluator rejects the draft as before. The check
+ * itself is unchanged; code only declines to repeat a finding whose figures no cited row holds.
+ */
+export function dropRepeatFailures(input: { task: Task; flagged: ReadonlySet<Finding>; findings: readonly Finding[]; required: readonly Requirement[]; store: ResultStore; memories?: readonly RecalledMemory[] }): {
+  findings: Finding[];
+  dropped: DroppedFinding[];
+} {
+  const flaggedKeys = new Set([...input.flagged].map(keyOf));
+  let findings = [...input.findings];
+  const dropped: DroppedFinding[] = [];
+  for (const finding of input.findings) {
+    if (!flaggedKeys.has(keyOf(finding)) || passesCodeChecks(finding, input.task, input.store, input.memories)) continue;
+    const without = findings.filter((other) => other !== finding);
+    const needed = input.required.some((need) => meetsRequirement(finding, need) && !without.some((other) => meetsRequirement(other, need)));
+    if (needed) continue;
+    findings = without;
+    dropped.push({ finding, gap: `The ${finding.kind} finding on ${finding.subject} was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.` });
+  }
+  return { findings, dropped };
+}

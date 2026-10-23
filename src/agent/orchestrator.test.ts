@@ -255,6 +255,86 @@ describe("the loop: revise, don't restart", () => {
     ]);
   });
 
+  it("example_5, 23 Oct: thesis_check names every refused figure, reruns both batches and succeeds once the findings cite the right rows", async () => {
+    // The live run: j-026 quoted "Trim if it goes above 25%" and a weight of 24.71 (a World Model fact from an earlier
+    // week, in no row of this run) citing only fundamentals; j-005 (in the second batch) named its Tk 18 dividend
+    // citing only fundamentals. The fix named j-026 alone "(and 10 more problems)", so the second batch never reran.
+    type Thesis = { journal_id: string; journal_run_query_id: string | null; fundamentals_run_query_id: string | null };
+    const analystCalls: CompleteOptions[] = [];
+    const thesesOf = (call: CompleteOptions) => (JSON.parse(call.user) as { theses: Thesis[] }).theses;
+    alter(
+      "Analyst",
+      (call) => call <= 2,
+      (reply) => {
+        const theses = thesesOf(analystCalls.at(-1)!);
+        const fundamentals = (id: string) => [theses.find((thesis) => thesis.journal_id === id)!.fundamentals_run_query_id!];
+        const findings = findingsOf(reply).map((finding) => {
+          if (finding.subject === "j-026") {
+            return { ...finding, numbers: [], cites: fundamentals("j-026"), claim: "Open: the holding is 24.71% of the portfolio, approaching the 25% trim threshold; the exit condition 'Trim if it goes above 25%' is not yet met." };
+          }
+          if (finding.subject === "j-005") {
+            return { ...finding, numbers: [], cites: fundamentals("j-005"), claim: "Confirmed: the dividend of Tk 18.00 per share was paid on 2026-07-12, so the thesis of buying for the dividend is still supported." };
+          }
+          return finding;
+        });
+        return { ...reply, findings };
+      },
+      analystCalls,
+    );
+    const result = await run({ runId: "orch-example-5", task: "thesis_check", input: { question: "Do my reasons for each trade still hold?", as_of: AS_OF }, sampleMode: true, config });
+
+    expect(result.status).toBe("success");
+    expect(result.output?.rounds).toBe(2);
+    // Every thesis now carries the journal result to cite when the claim quotes the owner's words.
+    expect(thesesOf(analystCalls[0]).every((thesis) => typeof thesis.journal_run_query_id === "string")).toBe(true);
+
+    const lines = trace(result);
+    const rejects = by(lines, "Evaluator", "reject");
+    expect(rejects).toHaveLength(1);
+    const fix = rejects[0].why ?? "";
+    expect(fix).not.toMatch(/more problem/);
+    expect(fix).toMatch(/Fix finding \d+ \(thesis j-026\): .*the claim has 24\.71, .*\(no result of this run holds 24\.71, so leave it out\)/);
+    expect(fix).toMatch(/the claim has 25, .*\(25 is in journal_for_symbol /);
+    expect(fix).toMatch(/Fix finding \d+ \(thesis j-005\): the claim has 18, .*\(18 is in .*dividends_between /);
+    // Both batches go back to the Analyst in round 2, because the fix names a journal id in each.
+    expect(analystCalls).toHaveLength(4);
+    expect(by(lines, "Analyst", "analyse").filter((line) => line.retry_count === 1)).toHaveLength(2);
+    expect(by(lines, "Evaluator", "accept")).toEqual([expect.objectContaining({ retry_count: 1 })]);
+    for (const call of analystCalls) expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+  });
+
+  it("drops a finding that fails the number check again after its fix, with a gap, when coverage does not need it", async () => {
+    // example_2's finding 8, written the same wrong way in rounds 1 and 2: the run keeps everything else and succeeds.
+    const sectorEight = (cites: string[]): Finding => ({
+      kind: "sector",
+      subject: "Pharmaceuticals & Chemicals",
+      claim: "The Pharmaceuticals & Chemicals index fell 3% over the week, 2.2 points behind DSEX.",
+      numbers: [],
+      cites,
+      verdict: null,
+      proposed_fix: null,
+      memory_ids: [],
+    });
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply);
+        const cites = (findings.find((finding) => finding.kind === "sector") ?? findings[0]).cites;
+        return { ...reply, findings: [...findings.filter((finding) => finding.kind !== "sector"), sectorEight(cites)] };
+      },
+    );
+    const result = await explainWeek("orch-drop-repeat");
+
+    expect(result.status).toBe("success");
+    expect(result.output?.rounds).toBe(2);
+    expect(result.output?.findings.some((finding) => finding.kind === "sector")).toBe(false);
+    expect(result.output?.gaps).toContain("The sector finding on Pharmaceuticals & Chemicals was left out: after the Evaluator's fix it still used figures that no cited row of this run holds.");
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "drop_finding")).toEqual([expect.objectContaining({ retry_count: 1, status: "rejected", input_summary: expect.stringContaining("sector Pharmaceuticals & Chemicals") })]);
+    expect(by(lines, "Evaluator", "reject")).toHaveLength(1);
+  });
+
   it("reconcile: a round-2 draft that drops an issue round 1 covered gets it back from code, and the review covers every issue", async () => {
     const analystCalls: CompleteOptions[] = [];
     const subjects = (reply: Reply) => findingsOf(reply).map((finding) => finding.subject);
