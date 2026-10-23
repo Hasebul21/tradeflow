@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConfigError, EMPTY_RESPONSE_RETRY_MAX_TOKENS, loadConfig, MODEL_TIMEOUT_CAP_MS } from "./config";
+import {
+  BRIEFING_TIMEOUT_DEFAULT_MS,
+  ConfigError,
+  EMPTY_RESPONSE_RETRY_MAX_TOKENS,
+  loadConfig,
+  MODEL_RETRY_BACKOFF_MS,
+  MODEL_TIMEOUT_CAP_MS,
+  ROUND_TIMEOUT_DEFAULT_MS,
+  RUN_TIMEOUT_DEFAULT_MS,
+} from "./config";
 
 // Made-up values only: no real endpoint, model id or key appears here.
 const BASE = "https://example.test/v1";
@@ -19,9 +28,9 @@ describe("limits and defaults", () => {
       QUERY_TIMEOUT_MS: 20000,
       MODEL_TIMEOUT_MS: 420000,
       MODEL_TIMEOUT_STRONG_MS: 420000,
-      ROUND_TIMEOUT_MS: 900000,
-      RUN_TIMEOUT_MS: 2400000,
-      BRIEFING_TIMEOUT_MS: 1200000,
+      ROUND_TIMEOUT_MS: 3060000,
+      RUN_TIMEOUT_MS: 6600000,
+      BRIEFING_TIMEOUT_MS: 13200000,
       MAX_CONCURRENT_CHILDREN: 2,
       MAX_CONCURRENT_RUNS: 2,
       MAX_ROWS_PER_QUERY: 50,
@@ -229,5 +238,28 @@ describe("Zetaris", () => {
     const env = { ZETARIS_REST_URL: "https://zetaris.test", ZETARIS_ORG_ID: "1", ZETARIS_API_KEY: "test-key" };
     expect(loadConfig(env, () => {}).zetaris).toMatchObject({ restUrl: "https://zetaris.test", orgId: "1", apiKey: "test-key" });
     expect(loadConfig({ ...env, ZETARIS_ORG_ID: "" }, () => {}).zetaris).toBeNull();
+  });
+});
+
+describe("round, run and briefing defaults fit their worst case", () => {
+  const minute = 60_000;
+
+  it("a round fits the Planner with one full retry, the Analyst's three calls, the Evaluator, the Writer and 60 s, in whole minutes", () => {
+    const worst = 2 * MODEL_TIMEOUT_CAP_MS + MODEL_RETRY_BACKOFF_MS + 3 * MODEL_TIMEOUT_CAP_MS + MODEL_TIMEOUT_CAP_MS + MODEL_TIMEOUT_CAP_MS + minute;
+    expect(worst).toBe(3_000_300);
+    expect(ROUND_TIMEOUT_DEFAULT_MS).toBe(3_060_000);
+    expect(ROUND_TIMEOUT_DEFAULT_MS).toBeGreaterThanOrEqual(worst);
+    expect(ROUND_TIMEOUT_DEFAULT_MS % minute).toBe(0);
+    // After one full Planner attempt, the backoff, the retry's worst case and the Analyst's reserve (llm.ts roomNeeded) still fit.
+    expect(ROUND_TIMEOUT_DEFAULT_MS - MODEL_TIMEOUT_CAP_MS).toBeGreaterThanOrEqual(MODEL_RETRY_BACKOFF_MS + 2 * MODEL_TIMEOUT_CAP_MS);
+  });
+
+  it("a run fits two full rounds, one more call and 60 s; a briefing fits two waves of whole runs", () => {
+    expect(RUN_TIMEOUT_DEFAULT_MS).toBe(6_600_000);
+    expect(RUN_TIMEOUT_DEFAULT_MS).toBeGreaterThanOrEqual(2 * ROUND_TIMEOUT_DEFAULT_MS + MODEL_TIMEOUT_CAP_MS + minute);
+    expect(BRIEFING_TIMEOUT_DEFAULT_MS).toBe(13_200_000);
+    expect(BRIEFING_TIMEOUT_DEFAULT_MS).toBeGreaterThanOrEqual(2 * RUN_TIMEOUT_DEFAULT_MS);
+    const cfg = loadConfig({}, () => {});
+    expect([cfg.ROUND_TIMEOUT_MS, cfg.RUN_TIMEOUT_MS, cfg.BRIEFING_TIMEOUT_MS]).toEqual([ROUND_TIMEOUT_DEFAULT_MS, RUN_TIMEOUT_DEFAULT_MS, BRIEFING_TIMEOUT_DEFAULT_MS]);
   });
 });

@@ -208,9 +208,9 @@ describe("AGENTS.md rule 3", () => {
   const agents = readFileSync(path.resolve("AGENTS.md"), "utf8");
   const rule = agents.split("\n").find((line) => line.startsWith("3. **Every external call**")) ?? "";
 
-  it("names BRIEFING_TIMEOUT_MS and keeps the 40 min a run", () => {
+  it("names BRIEFING_TIMEOUT_MS and keeps the 110 min a run", () => {
     expect(rule).toContain("a briefing may run up to BRIEFING_TIMEOUT_MS");
-    expect(rule).toContain("40 min a run");
+    expect(rule).toContain("110 min a run");
   });
 
   it("changes no other line: the diff against HEAD is empty or that one line with only those words added", () => {

@@ -66,6 +66,40 @@ const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 /** The longest one model call may run. Raised from 240000 on 23 Oct: the model is slow some days and a cold load takes minutes. */
 export const MODEL_TIMEOUT_CAP_MS = 420000;
 
+/** The wait before llm.ts's one transport retry (a timeout, a 429, a 5xx, a network error). */
+export const MODEL_RETRY_BACKOFF_MS = 300;
+
+const MINUTE_MS = 60_000;
+const upToMinute = (ms: number): number => Math.ceil(ms / MINUTE_MS) * MINUTE_MS;
+
+/**
+ * ROUND_TIMEOUT_MS by default: round 1's worst case, with every call at MODEL_TIMEOUT_CAP_MS (420 s). The round's
+ * deadline covers the Planner, the Analyst and the Evaluator, and the Writer, which runs inside the accepted round:
+ *   the Planner with one full retry      2 × 420 s + 0.3 s backoff = 840.3 s
+ *   the Analyst's three calls            (MAX_TOOL_ROUNDS 2 tool rounds, then the answer) 3 × 420 s = 1260 s
+ *   the Evaluator's scoring call         420 s
+ *   the Writer's call                    420 s
+ *   queries and code                     60 s
+ *   in all 3000.3 s, up to whole minutes: 51 min (3,060,000 ms).
+ * Raised from 900000 on 23 Oct so the Planner's retry fits: a plan built in code never passes the eval.
+ */
+export const ROUND_TIMEOUT_DEFAULT_MS = upToMinute(2 * MODEL_TIMEOUT_CAP_MS + MODEL_RETRY_BACKOFF_MS + 3 * MODEL_TIMEOUT_CAP_MS + 2 * MODEL_TIMEOUT_CAP_MS + MINUTE_MS);
+
+/**
+ * RUN_TIMEOUT_MS by default: two full rounds (2 × 51 min, the second with the Writer), one more model call (the
+ * Router before round 1, or the Writer after round 2's Evaluator) and 60 s to set up: 6120 + 420 + 60 = 6600 s,
+ * 110 min (6,600,000 ms). A third round runs only in the time that is left.
+ */
+export const RUN_TIMEOUT_DEFAULT_MS = upToMinute(2 * ROUND_TIMEOUT_DEFAULT_MS + MODEL_TIMEOUT_CAP_MS + MINUTE_MS);
+
+/**
+ * BRIEFING_TIMEOUT_MS by default: its three children run MAX_CONCURRENT_CHILDREN (2) at a time, so in two waves, and
+ * each child gets the briefing's time left as its RUN_TIMEOUT_MS when that is smaller. Two whole runs back to back give
+ * the last child its full run: 2 × 110 min = 220 min (13,200,000 ms). With MAX_CONCURRENT_CHILDREN 1 the third child
+ * gets only what is left.
+ */
+export const BRIEFING_TIMEOUT_DEFAULT_MS = upToMinute(2 * RUN_TIMEOUT_DEFAULT_MS);
+
 /** max_tokens for llm.ts's retries after a 502 "empty_response" (at least MAX_COMPLETION_TOKENS). */
 export const EMPTY_RESPONSE_RETRY_MAX_TOKENS = 32000;
 
@@ -103,9 +137,9 @@ const limitsSchema = z.object({
   QUERY_TIMEOUT_MS: positiveInt(20000),
   MODEL_TIMEOUT_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
   MODEL_TIMEOUT_STRONG_MS: positiveInt(MODEL_TIMEOUT_CAP_MS),
-  ROUND_TIMEOUT_MS: positiveInt(900000),
-  RUN_TIMEOUT_MS: positiveInt(2400000),
-  BRIEFING_TIMEOUT_MS: positiveInt(1200000),
+  ROUND_TIMEOUT_MS: positiveInt(ROUND_TIMEOUT_DEFAULT_MS),
+  RUN_TIMEOUT_MS: positiveInt(RUN_TIMEOUT_DEFAULT_MS),
+  BRIEFING_TIMEOUT_MS: positiveInt(BRIEFING_TIMEOUT_DEFAULT_MS),
   MAX_CONCURRENT_CHILDREN: positiveInt(2),
   MAX_CONCURRENT_RUNS: positiveInt(2),
   MAX_ROWS_PER_QUERY: positiveInt(50),

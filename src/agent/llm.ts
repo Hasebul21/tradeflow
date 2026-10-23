@@ -10,6 +10,7 @@ import {
   EMPTY_RESPONSE_RETRY_MAX_TOKENS,
   EMPTY_RESPONSE_RETRY_WAITS_MS,
   loadConfig,
+  MODEL_RETRY_BACKOFF_MS,
   MODEL_TIMEOUT_CAP_MS,
   STRUCTURED_REPLY_MAX_TRIES,
   type Config,
@@ -243,7 +244,7 @@ export function resetModelQuirks(): void {
   noReasoningSwitch.clear();
 }
 
-const BACKOFF_MS = 300;
+const BACKOFF_MS = MODEL_RETRY_BACKOFF_MS;
 const JSON_ONLY_SENTENCE = "Reply with the JSON object only.";
 const SOURCE_TIERS: Record<Tier, string> = { strong: "strong", main: "main", fast: "fast" };
 
@@ -917,9 +918,9 @@ async function sendWithRetry(
           // gets its one retry as a whole new attempt when the backoff and a whole model call (MODEL_TIMEOUT_CAP_MS)
           // still fit in the round. With reserveAfterMs (the Planner), the retry's worst case must also leave that much
           // of the round for the agents after it; otherwise the timeout stands at once and the caller falls back.
-          // With the defaults (a 900 s round, 420 s calls) a Planner timeout therefore goes straight to the code plan,
-          // on purpose: after one 420 s attempt, 480 s is left, under the 840.3 s a retry and the Analyst's call need,
-          // and the Analyst's time matters more than a second Planner try.
+          // With the defaults (a 51 min round, ROUND_TIMEOUT_DEFAULT_MS, sized for this) a Planner timeout gets its retry:
+          // after one 420 s attempt 2640 s is left, over the 840.3 s the retry and the Analyst's call need. With a short
+          // round the timeout goes straight to the code plan instead, on purpose: the Analyst's time matters more.
           if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= roomNeeded(state, BACKOFF_MS)) {
             transportRetried = true;
             state.retries += 1;

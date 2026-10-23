@@ -7,6 +7,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { BRIEFING_TIMEOUT_DEFAULT_MS, RUN_TIMEOUT_DEFAULT_MS } from "../src/agent/config";
 
 type Json = Record<string, unknown>;
 type Parameter = { name: string; in: string; required?: boolean; description?: string; schema?: Json };
@@ -125,7 +126,7 @@ function callRunReview(args: Json): Promise<CallToolResult> | CallToolResult {
   if (task !== undefined && task !== null && (typeof task !== "string" || !REVIEW_TASKS.includes(task))) {
     return text(`task must be one of ${REVIEW_TASKS.join(", ")}. An approval or a correction is made by the owner in the Explain page, never by a tool.`, true);
   }
-  const timeoutMs = (task === "briefing" ? msFromEnv("BRIEFING_TIMEOUT_MS", 1_200_000) : msFromEnv("RUN_TIMEOUT_MS", 600_000)) + RUN_MARGIN_MS;
+  const timeoutMs = (task === "briefing" ? msFromEnv("BRIEFING_TIMEOUT_MS", BRIEFING_TIMEOUT_DEFAULT_MS) : msFromEnv("RUN_TIMEOUT_MS", RUN_TIMEOUT_DEFAULT_MS)) + RUN_MARGIN_MS;
   const body = JSON.stringify({ ...(runId === undefined ? {} : { run_id: runId }), input });
   return request(`${baseUrl}/run`, { method: "POST", headers: { "content-type": "application/json" }, body }, timeoutMs, "The run may still be going: read GET /run/<run_id> for its trace.");
 }
