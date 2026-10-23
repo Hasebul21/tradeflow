@@ -17,6 +17,7 @@ import {
   type Config,
   type Tier,
 } from "./config";
+import { httpFetch } from "./http-fetch";
 import { BudgetExhaustedError } from "./run-state";
 import { complete as completeWithSampleModel } from "./sample-model";
 import type { Tracer, TraceInput } from "./trace";
@@ -408,6 +409,8 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
       baseURL: cfg.METERLESS_BASE_URL,
       defaultHeaders: { "meterless-app": "tradeflow", "meterless-scope": "user" },
       maxRetries: 0,
+      // Node's fetch would cut every attempt at 300 s; httpFetch leaves the timeout to the SDK and our deadline.
+      fetch: httpFetch,
     }),
     options,
     host: new URL(cfg.METERLESS_BASE_URL).hostname,
