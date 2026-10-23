@@ -199,6 +199,27 @@ export async function prepareThesisEvidence(args: { state: RunState; tracer: Tra
 }
 
 /**
+ * The findings an Analyst batch reply may keep. A thesis finding is dropped when its subject is not one of the batch's
+ * own journal ids, or when an earlier finding of the reply already covers that thesis (the prompt asks for one per
+ * thesis): a model sometimes writes findings for other batches' theses, or several for one, and they would pile up in
+ * the draft and in the next round's prompt. Findings of any other kind are kept.
+ */
+export function findingsOfBatch<T extends { kind: string; subject: string }>(batch: readonly { journal_id: string }[], findings: readonly T[]): { kept: T[]; dropped: T[] } {
+  const own = new Set(batch.map((thesis) => thesis.journal_id));
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  for (const finding of findings) {
+    if (finding.kind !== "thesis") kept.push(finding);
+    else if (own.has(finding.subject) && !seen.has(finding.subject)) {
+      seen.add(finding.subject);
+      kept.push(finding);
+    } else dropped.push(finding);
+  }
+  return { kept, dropped };
+}
+
+/**
  * The batches a retry runs: those holding a journal id the Evaluator's fix names (for example "j-013: no EPS row
  * cited"). A fix that names no known id reruns every batch.
  */

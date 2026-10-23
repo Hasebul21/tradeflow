@@ -26,7 +26,7 @@ import { dropRepeatFailures, keyOf, knownSubjects, mergeRevision, passesCodeChec
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
-import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, THESIS_BATCH_SIZE, type PreparedTheses } from "./thesis";
+import { batchesToRerun, findingsOfBatch, keepThesisSteps, prepareThesisEvidence, THESIS_BATCH_SIZE, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
 import { about as worldAbout, recordRun, type WorldAbout } from "./world";
 import { appendContribution, loadContributions } from "@/lib/data";
@@ -1042,7 +1042,19 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
               continue;
             }
             if (analysis.injection_seen) flags.injection = true;
-            const merged = round === 0 ? { findings: analysis.findings, gaps: [] } : revised(analysis.findings, analysis.retracted, thesis.found[index], `batch ${index}`);
+            const { kept, dropped } = findingsOfBatch(batch, analysis.findings);
+            if (dropped.length > 0) {
+              tracer.log({
+                agent_name: AGENT,
+                action: "findings_dropped",
+                input_summary: `batch ${index + 1} of ${thesis.prepared.batches.length}`,
+                output_summary: `dropped ${dropped.length} thesis ${dropped.length === 1 ? "finding" : "findings"} for theses outside the batch (${dropped.map((finding) => finding.subject).join(", ")})`,
+                target_agent: "Analyst",
+                status: "ok",
+                retry_count: round,
+              });
+            }
+            const merged = round === 0 ? { findings: kept, gaps: [] } : revised(kept, analysis.retracted, thesis.found[index], `batch ${index}`);
             thesis.found[index] = merged.findings;
             thesis.gapsBy[index] = [...new Set([...analysis.gaps, ...merged.gaps])];
             thesis.codeGapsBy[index] = [...new Set([...analysis.code_gaps, ...merged.gaps])];
