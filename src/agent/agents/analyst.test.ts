@@ -208,25 +208,61 @@ describe("the Analyst with the sample model", () => {
     expect(checkCitations(retry.findings, run.store)).toEqual({ ok: true, failures: [] });
   });
 
-  it("sends the prompt file as-is and one JSON user message with the task, question, as_of, trade, focus, memories, world, results, previous_findings and feedback", async () => {
+  it("on a retry, keeps in view every result a previous finding cites, from the store, with no query counted, and reads retracted", async () => {
+    const { run, lines } = runState();
+    const fundamentals = await run.query("fundamentals_latest", { symbol: "BXPHARMA", as_of: AS_OF });
+    const queriesBefore = run.usage.query_calls;
+    const previous = [{ ...finding("BXPHARMA", [fundamentals.run_query_id]), kind: "fundamentals" }];
+    const calls: CompleteOptions[] = [];
+    const retraction = { kind: "move", subject: "RENATA", why: "in line with its sector, so not worth a finding" };
+    const outcome = await analyse(request([step("week_moves")], { previous_findings: previous, feedback: "Explain GP.", flagged_findings: [] }), {
+      run,
+      complete: scripted([() => ({ ...done([]), retracted: [retraction] })], calls),
+    });
+
+    const shown = (JSON.parse(calls[0].user) as { results: { run_query_id: string; query_id: string }[] }).results;
+    expect(shown.map((result) => result.query_id)).toEqual(["week_moves", "fundamentals_latest"]);
+    expect(shown[1].run_query_id).toBe(fundamentals.run_query_id);
+    expect(run.usage.query_calls).toBe(queriesBefore + 1);
+    expect(outcome).toMatchObject({ ok: true, retracted: [retraction] });
+    const line = lines.find((entry) => entry.agent_name === "Analyst" && entry.action === "analyse");
+    expect(line?.input_summary).toContain("1 kept for the previous findings");
+    expect(line?.output_summary).toContain("1 retracted (move:RENATA)");
+    // Round 1 has no previous findings, so nothing is added, and a reply without retracted reads as none.
+    const first = await analyse(request([step("week_moves")]), { run: runState().run, complete: scripted([() => done([])]) });
+    expect(first).toMatchObject({ ok: true, retracted: [] });
+
+    // A kept result that would take the prompt past MAX_PROMPT_CHARS is left out, and the trace says so.
+    const limit = calls[0].system.length + calls[0].user.length - 1;
+    const small = runState({ config: loadConfig({ SAMPLE_MODE: "true", MAX_PROMPT_CHARS: String(limit) }, () => {}) });
+    const held = await small.run.query("fundamentals_latest", { symbol: "BXPHARMA", as_of: AS_OF });
+    const tight: CompleteOptions[] = [];
+    const cited = [{ ...previous[0], cites: [held.run_query_id] }];
+    await analyse(request([step("week_moves")], { previous_findings: cited, feedback: "Explain GP.", flagged_findings: [] }), { run: small.run, complete: scripted([() => done([])], tight) });
+    expect((JSON.parse(tight[0].user) as { results: { query_id: string }[] }).results.map((result) => result.query_id)).toEqual(["week_moves"]);
+    expect(tight[0].system.length + tight[0].user.length).toBeLessThanOrEqual(limit);
+    expect(small.lines.find((entry) => entry.action === "analyse")?.input_summary).toContain("1 left out for size");
+  });
+
+  it("sends the prompt file as-is and one JSON user message with the task, question, as_of, trade, focus, memories, world, results, previous_findings, feedback and flagged_findings", async () => {
     const calls: CompleteOptions[] = [];
     const { run } = runState();
     const previous = [finding("PORTFOLIO", ["q-old"])];
-    await analyse(request([step("week_moves")], { previous_findings: previous, feedback: "Explain GP." }), { run, complete: scripted([() => done([])], calls) });
+    await analyse(request([step("week_moves")], { previous_findings: previous, feedback: "Explain GP.", flagged_findings: [1] }), { run, complete: scripted([() => done([])], calls) });
     expect(calls).toHaveLength(1);
     expect(calls[0].system).toBe(readFileSync(path.join(__dirname, "../prompts/analyst.md"), "utf8"));
     expect(calls[0]).toMatchObject({ model: "main", json: true, agent: "Analyst" });
     const user = JSON.parse(calls[0].user) as Record<string, unknown>;
-    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "trade", "focus", "memories", "world", "results", "previous_findings", "feedback"]);
-    expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, trade: null, world: [], previous_findings: previous, feedback: "Explain GP." });
+    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "trade", "focus", "memories", "world", "results", "previous_findings", "feedback", "flagged_findings"]);
+    expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, trade: null, world: [], previous_findings: previous, feedback: "Explain GP.", flagged_findings: [1] });
     const results = user.results as { run_query_id: string; query_id: string; row_count: number; truncated: boolean; rows: unknown[] }[];
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ query_id: "week_moves", truncated: false });
     expect(results[0].rows).toHaveLength(results[0].row_count);
-    // Round 1: previous_findings and feedback are null.
+    // Round 1: previous_findings, feedback and flagged_findings are null.
     const first: CompleteOptions[] = [];
     await analyse(request([step("week_moves")]), { run: runState().run, complete: scripted([() => done([])], first) });
-    expect(JSON.parse(first[0].user)).toMatchObject({ previous_findings: null, feedback: null });
+    expect(JSON.parse(first[0].user)).toMatchObject({ previous_findings: null, feedback: null, flagged_findings: null });
     // The tools are the task's catalogue as function definitions.
     const tools = toolsFor("explain_week");
     expect(tools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(["week_moves", "sector_vs_stock", "announcements_between", "dividends_between", "fundamentals_latest", "journal_for_symbol", "rule_findings"]);

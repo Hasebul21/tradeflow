@@ -16,6 +16,7 @@ import type { RunState } from "../run-state";
 import type { TraceStatus } from "../trace";
 import type { PlannedStep, PlannerTrade } from "./planner";
 import type { ThesisEvidence } from "../thesis";
+import type { Retraction } from "../revision";
 
 const AGENT = "Analyst";
 const TARGET = "Evaluator";
@@ -37,15 +38,18 @@ export const analystFindingSchema = findingSchema.extend({
   proposed_fix: z.string().nullable().default(null),
   memory_ids: z.array(z.string()).default([]),
 });
+/** A previous finding the Analyst withdraws on purpose; code carries every other unflagged one into the new draft. */
+export const retractionSchema = z.object({ kind: z.string().min(1), subject: z.string().min(1), why: z.string().default("") });
 export const analystReplySchema = z.object({
   findings: z.array(analystFindingSchema),
   gaps: z.array(z.string()).default([]),
+  retracted: z.array(retractionSchema).default([]),
 });
 export type AnalystReply = z.infer<typeof analystReplySchema>;
 
 /** The reply's shape as prompts/analyst.md gives it, restated by llm.ts when it asks again after a bad reply. */
 export const ANALYST_REPLY_SHAPE =
-  '{"findings": [{"kind": "move", "subject": "<symbol, sector, PORTFOLIO, journal id, plan id or issue id>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}], "gaps": ["..."]}';
+  '{"findings": [{"kind": "move", "subject": "<symbol, sector, PORTFOLIO, journal id, plan id or issue id>", "claim": "...", "numbers": [{"value": 0, "label": "..."}], "cites": ["<run_query_id>"], "verdict": null, "proposed_fix": null, "memory_ids": []}], "gaps": ["..."], "retracted": []}';
 
 /** Why a parsed reply fails the Analyst schema (the first issue), or null; llm.ts asks again with it. */
 export function analystReplyProblem(json: Record<string, unknown>): string | null {
@@ -71,6 +75,8 @@ export type AnalysisRequest = {
   previous_findings?: readonly Finding[] | null;
   /** On a retry: the Evaluator's fix. Null in round 1. */
   feedback?: string | null;
+  /** On a retry: the previous findings the fix flags, by number counting from 1. Code keeps every other one. */
+  flagged_findings?: readonly number[] | null;
   /**
    * thesis_check: one batch of theses with their evidence tables. Code has run every query, so the Analyst gets these
    * instead of results and offers the model no tools.
@@ -92,6 +98,8 @@ export type AnalystInput = {
   results: ResultForModel[];
   previous_findings: Finding[] | null;
   feedback: string | null;
+  /** On a retry: the numbers (from 1) of the previous findings the feedback flags; null in round 1. */
+  flagged_findings: number[] | null;
   /** Only for thesis_check: the batch's theses, each with its evidence table. */
   theses?: ThesisEvidence[];
 };
@@ -136,7 +144,16 @@ type AnalysisBase = {
 };
 
 export type AnalysisOutcome =
-  | (AnalysisBase & { ok: true; findings: Finding[]; gaps: string[]; /** The gaps code wrote (codeGaps), a subset of `gaps`; the rest are the model's own words. */ code_gaps: string[]; injection_seen: boolean })
+  | (AnalysisBase & {
+      ok: true;
+      findings: Finding[];
+      gaps: string[];
+      /** The gaps code wrote (codeGaps), a subset of `gaps`; the rest are the model's own words. */
+      code_gaps: string[];
+      /** The previous findings the Analyst withdrew on purpose; empty in round 1. */
+      retracted: Retraction[];
+      injection_seen: boolean;
+    })
   | (AnalysisBase & { ok: false; error: AnalysisError });
 
 /** prompts/analyst.md as-is with its hash, read once (prompts.ts). */
@@ -231,10 +248,30 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     results,
     previous_findings: request.previous_findings === undefined || request.previous_findings === null ? null : [...request.previous_findings],
     feedback: request.feedback ?? null,
+    flagged_findings: request.flagged_findings === undefined || request.flagged_findings === null ? null : [...request.flagged_findings],
     ...(request.theses === undefined ? {} : { theses: [...request.theses] }),
   };
+  // On a retry, the results the previous findings cite stay in view even when this round's plan left their query
+  // out, so the Analyst can keep or fix those findings. They come from the run's store (no query runs, none is
+  // counted), and each is added only while the prompt stays within MAX_PROMPT_CHARS; one that does not fit is left
+  // out and counted in the trace (code still checks a kept finding against the full store).
+  let previousCited = 0;
+  let previousLeftOut = 0;
+  const systemChars = analystPromptVersion().text.length;
+  for (const id of new Set((request.previous_findings ?? []).flatMap((finding) => finding.cites))) {
+    const held = run.store[id];
+    if (held === undefined || seen.has(id)) continue;
+    const extra = trimmed(held);
+    if (systemChars + JSON.stringify(input).length + JSON.stringify(extra).length + 1 > cfg.MAX_PROMPT_CHARS) {
+      previousLeftOut += 1;
+      continue;
+    }
+    seen.set(id, held);
+    results.push(extra);
+    previousCited += 1;
+  }
   const inputSummary = capped(
-    `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${results.length} results (${results.reduce((n, r) => n + r.row_count, 0)} rows), ${request.theses === undefined ? "" : `${request.theses.length} theses, `}${skipped.length} skipped, ${input.memories.length} memories, ${input.world.length} world facts, previous_findings=${input.previous_findings === null ? "none" : input.previous_findings.length}, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
+    `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${results.length} results (${results.reduce((n, r) => n + r.row_count, 0)} rows${previousCited > 0 ? `, ${previousCited} kept for the previous findings` : ""}${previousLeftOut > 0 ? `, ${previousLeftOut} left out for size` : ""}), ${request.theses === undefined ? "" : `${request.theses.length} theses, `}${skipped.length} skipped, ${input.memories.length} memories, ${input.world.length} world facts, previous_findings=${input.previous_findings === null ? "none" : `${input.previous_findings.length}${input.flagged_findings === null || input.flagged_findings.length === 0 ? "" : ` (${input.flagged_findings.length} flagged)`}`}, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
   );
 
   // 2. The model, with the task's queries as tools; each tool call runs through the same cache and guard.
@@ -346,10 +383,11 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
   }
   const findings = parsed.data.findings;
   const gaps = [...parsed.data.gaps];
+  const retracted = parsed.data.retracted;
   const code_gaps = codeGaps(results, skipped);
   for (const gap of code_gaps) if (!gaps.includes(gap)) gaps.push(gap);
 
-  const guard = afterModel(AGENT, { findings, gaps }, input, tracer);
+  const guard = afterModel(AGENT, { findings, gaps, retracted }, input, tracer);
   if (!guard.ok) return fail({ type: "Blocked", message: guard.reason, recoverable: true }, "blocked");
 
   tracer.log({
@@ -357,7 +395,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     action: "analyse",
     input_summary: inputSummary,
     output_summary: capped(
-      `${findings.length} findings (${findings.map((f) => `${f.kind}:${f.subject}`).join(", ") || "none"}); ${gaps.length} gaps; ${toolCalls} tool calls in ${toolRounds} rounds; injection_seen=${guard.injection_seen}`,
+      `${findings.length} findings (${findings.map((f) => `${f.kind}:${f.subject}`).join(", ") || "none"}); ${gaps.length} gaps; ${retracted.length > 0 ? `${retracted.length} retracted (${retracted.map((r) => `${r.kind}:${r.subject}`).join(", ")}); ` : ""}${toolCalls} tool calls in ${toolRounds} rounds; injection_seen=${guard.injection_seen}`,
     ),
     target_agent: TARGET,
     status: "ok",
@@ -365,7 +403,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     retry_count: round,
     duration_ms: Date.now() - started,
   });
-  return { ...base, ok: true, findings, gaps, code_gaps, injection_seen: guard.injection_seen };
+  return { ...base, ok: true, findings, gaps, code_gaps, retracted, injection_seen: guard.injection_seen };
 }
 
 type ToolOutcome = { content: string; result?: QueryResult };

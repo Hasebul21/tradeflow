@@ -9,7 +9,7 @@
 // through trace.ts, memory.ts and queries.ts).
 import path from "node:path";
 import { analyse, type AnalysisOutcome } from "./agents/analyst";
-import { evaluate, type Scores } from "./agents/evaluator";
+import { evaluate, requiredFindings, type Scores } from "./agents/evaluator";
 import { defaultPlanFor, PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome, type PlanRequest } from "./agents/planner";
 import { route } from "./agents/router";
 import { DISCLAIMER, write } from "./agents/writer";
@@ -22,6 +22,7 @@ import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelNetworkError
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
+import { mergeRevision, type Retraction } from "./revision";
 import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
 import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
@@ -699,6 +700,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     let accepted: Draft | null = null;
     let feedback: string | null = null;
     let previous: Finding[] | null = null;
+    /** The findings of `previous` that the last rejection flagged; code carries every other one into the next draft. */
+    let flagged: ReadonlySet<Finding> = new Set();
     /** thesis_check: the evidence, the plan's focus and each batch's findings and gaps, kept across rounds. */
     let thesis: { prepared: PreparedTheses; focus: string; /** The planner_fallback gap, when code made the plan. */ note: string | null; found: (Finding[] | null)[]; gapsBy: string[][]; codeGapsBy: string[][] } | null = null;
     let stop: StopReason | null = null;
@@ -732,6 +735,45 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         stop_reason: reason,
       });
       return { kind: "needs_human", stop: reason, detail, draft, rounds: roundsRun() };
+    };
+
+    /** The numbers (from 1) of the findings in `prior` that the last rejection flagged, for the Analyst's input. */
+    const flaggedIn = (prior: readonly Finding[] | null): number[] | null =>
+      prior === null ? null : prior.flatMap((finding, index) => (flagged.has(finding) ? [index + 1] : []));
+
+    /**
+     * Revise, don't restart (revision.ts): on a retry, the Analyst's new findings merged with `prior`, the draft the
+     * Evaluator rejected. Every previous finding code keeps (carried, or restored because coverage requires it) and
+     * every retraction gets its own Orchestrator line, so the trace says which findings code put back and why.
+     */
+    const revised = (next: Finding[], retracted: readonly Retraction[], prior: readonly Finding[] | null): Finding[] => {
+      if (prior === null || prior.length === 0) return next;
+      const merged = mergeRevision({ task, previous: prior, flagged, next, retracted, required: requiredFindings(task, state.store, resolved.asOf), store: state.store, memories });
+      for (const gone of retracted) {
+        tracer.log({
+          agent_name: AGENT,
+          action: "retracted",
+          input_summary: capped(`round ${round + 1}: ${gone.kind} ${gone.subject}`),
+          output_summary: capped(`the Analyst retracted the previous ${gone.kind} finding on ${gone.subject}, so code does not carry it`),
+          target_agent: "Evaluator",
+          status: "ok",
+          why: capped(gone.why === "" ? "no reason given" : gone.why),
+          retry_count: round,
+        });
+      }
+      for (const entry of merged.kept) {
+        tracer.log({
+          agent_name: AGENT,
+          action: entry.how === "restored" ? "restore_finding" : "carry_forward",
+          input_summary: capped(`round ${round + 1}: previous finding ${entry.was} (${entry.finding.kind} ${entry.finding.subject}), missing from the Analyst's ${next.length} new findings`),
+          output_summary: capped(`${entry.how === "restored" ? "restored" : "carried forward"} by code, unchanged; the draft has ${merged.findings.length} findings`),
+          target_agent: "Evaluator",
+          status: "ok",
+          why: capped(entry.why),
+          retry_count: round,
+        });
+      }
+      return merged.findings;
     };
 
     /**
@@ -932,7 +974,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             if (stop !== null) break rounds;
             calling = "Analyst";
             const analysis = await analyse(
-              { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback },
+              { task, question, as_of: asOf, focus: thesis.focus, steps: [], theses: batch, memories, world, previous_findings: thesis.found[index], feedback: round === 0 ? null : feedback, flagged_findings: round === 0 ? null : flaggedIn(thesis.found[index]) },
               { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
             );
             modelIds.add(analysis.model.model_id);
@@ -942,7 +984,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
               continue;
             }
             if (analysis.injection_seen) flags.injection = true;
-            thesis.found[index] = analysis.findings;
+            thesis.found[index] = round === 0 ? analysis.findings : revised(analysis.findings, analysis.retracted, thesis.found[index]);
             thesis.gapsBy[index] = analysis.gaps;
             thesis.codeGapsBy[index] = analysis.code_gaps;
           }
@@ -963,7 +1005,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (stop !== null) break;
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
-            { task, question, as_of: asOf, trade, focus: task === "reconcile" ? RECONCILE_FOCUS : PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
+            { task, question, as_of: asOf, trade, focus: task === "reconcile" ? RECONCILE_FOCUS : PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, flagged_findings: flaggedIn(previous), noTools: true },
             { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
@@ -973,7 +1015,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             continue;
           }
           if (analysis.injection_seen) flags.injection = true;
-          findings = analysis.findings;
+          findings = revised(analysis.findings, analysis.retracted, previous);
           gaps = analysis.gaps;
           codeGaps = analysis.code_gaps;
           cutByQueryBudget = cutByBudget(fixed);
@@ -990,7 +1032,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (stop !== null) break;
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
-            { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, world, previous_findings: previous, feedback },
+            { task, question, as_of: asOf, trade: input.trade ?? null, focus: planned.focus, steps: planned.steps, memories, world, previous_findings: previous, feedback, flagged_findings: flaggedIn(previous) },
             { run: state, sampleMode, signal, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
@@ -1000,7 +1042,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             continue;
           }
           if (analysis.injection_seen) flags.injection = true;
-          findings = analysis.findings;
+          findings = revised(analysis.findings, analysis.retracted, previous);
           // A plan made in code is said in the review: its note is a gap code wrote.
           gaps = planned.note === null ? analysis.gaps : [...analysis.gaps, planned.note];
           codeGaps = planned.note === null ? analysis.code_gaps : [...analysis.code_gaps, planned.note];
@@ -1034,7 +1076,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         }
         feedback = verdict.fix !== "" ? verdict.fix : verdict.error === undefined ? "Revise the draft." : `The Evaluator could not score the draft (${verdict.error.type}): ${verdict.error.message}`;
         previous = findings;
-        revise(round, feedback, previous.length);
+        flagged = new Set(verdict.flagged.flatMap((number) => (findings[number - 1] === undefined ? [] : [findings[number - 1]])));
+        revise(round, feedback, previous.length, flagged.size);
       }
       if (stop !== null) return stopped(stop);
       if (accepted === null) return stopped("rounds", feedback ?? "no fix was recorded");
@@ -1249,7 +1292,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
   }
 
   /** Traced once per rejected round: what the next round's Planner and Analyst get. */
-  function revise(round: number, fix: string, previousFindings: number): void {
+  function revise(round: number, fix: string, previousFindings: number, flaggedFindings?: number): void {
+    const keeps = flaggedFindings === undefined || previousFindings === 0 ? "" : `; code keeps the ${previousFindings - flaggedFindings} the fix does not flag`;
     tracer.log({
       agent_name: AGENT,
       action: "revise",
@@ -1257,10 +1301,10 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       output_summary: capped(
         round + 1 < config.MAX_ROUNDS
           ? taskName === "pre_trade" || taskName === "reconcile"
-            ? `round ${round + 2}: the plan is fixed; the Analyst gets its ${previousFindings} previous findings and the fix`
+            ? `round ${round + 2}: the plan is fixed; the Analyst gets its ${previousFindings} previous findings and the fix${keeps}`
             : taskName === "thesis_check"
             ? `round ${round + 2}: the plan is reused; the Analyst reruns only the batches that hold a journal id the fix names, with their previous findings and the fix, and the other batches keep their ${previousFindings} findings`
-            : `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix`
+            : `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix${keeps}`
           : `no round left; the run returns needs_human with the best draft`,
       ),
       target_agent: round + 1 < config.MAX_ROUNDS ? (taskName === "thesis_check" || taskName === "pre_trade" || taskName === "reconcile" ? "Analyst" : "Planner") : null,

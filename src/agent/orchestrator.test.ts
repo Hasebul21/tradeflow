@@ -187,6 +187,106 @@ describe("the loop: revise, don't restart", () => {
     expect(result.usage.query_calls).toBe(by(lines, "Query", "query").filter((line) => line.status !== "error").length);
   });
 
+  it("example_2, 23 Oct: round 3 drops BXPHARMA while fixing a refused number; code restores it and the run succeeds in round 3", async () => {
+    // The live run: round 1 had no BXPHARMA finding (coverage); round 2 added it plus a sector finding 8 with 2.2 and
+    // 7259, which no cited row holds (citations); round 3 fixed finding 8 by leaving it out and lost BXPHARMA again.
+    const analystCalls: CompleteOptions[] = [];
+    const isBxpharma = (finding: Finding) => finding.subject === "BXPHARMA";
+    const sectorEight = (cites: string[]): Finding => ({
+      kind: "sector",
+      subject: "Pharmaceuticals & Chemicals",
+      claim: "The Pharmaceuticals & Chemicals index fell 3% over the week, 2.2 points behind DSEX, and cost the portfolio Tk 7259.",
+      numbers: [],
+      cites,
+      verdict: null,
+      proposed_fix: null,
+      memory_ids: [],
+    });
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply);
+        if (analystCalls.length === 1) return { ...reply, findings: findings.filter((finding) => !isBxpharma(finding)) };
+        if (analystCalls.length === 2) {
+          const cites = (findings.find((finding) => finding.kind === "sector") ?? findings[0]).cites;
+          return { ...reply, findings: [...findings.filter((finding) => finding.kind !== "sector"), sectorEight(cites)] };
+        }
+        return { ...reply, findings: findings.filter((finding) => !isBxpharma(finding) && finding.kind !== "sector") };
+      },
+      analystCalls,
+    );
+    const result = await run({ runId: "orch-example-2", task: "explain_week", input: { question: "Which of my rules are broken this week?", as_of: AS_OF }, sampleMode: true, config });
+
+    expect(result.status).toBe("success");
+    expect(result.output).toMatchObject({ rounds: 3, stop_reason: null, needs_human: false });
+    expect(result.output?.findings.some(isBxpharma)).toBe(true);
+    expect(result.output?.findings.some((finding) => finding.claim.includes("7259"))).toBe(false);
+    expect(result.output?.review_markdown).toContain("BXPHARMA");
+
+    const lines = trace(result);
+    const rejects = by(lines, "Evaluator", "reject");
+    expect(rejects.map((line) => [line.retry_count, line.why])).toEqual([
+      [0, BXPHARMA_FIX],
+      [1, expect.stringMatching(/^Fix finding \d+ \(sector Pharmaceuticals & Chemicals\): the claim has 2\.2, .*; the claim has 7259, .*; use only figures from the rows it cites\.$/)],
+    ]);
+    expect(rejects[1].why).not.toMatch(/more problem/);
+    expect(by(lines, "Evaluator", "accept")).toEqual([expect.objectContaining({ retry_count: 2, target_agent: "Writer" })]);
+
+    // Round 3's Analyst saw the round-2 draft, the full fix and which finding it flags.
+    expect(analystCalls).toHaveLength(3);
+    const third = JSON.parse(analystCalls[2].user) as { previous_findings: Finding[]; feedback: string; flagged_findings: number[] };
+    expect(third.feedback).toBe(rejects[1].why);
+    expect(third.flagged_findings).toEqual([third.previous_findings.findIndex((finding) => finding.kind === "sector") + 1]);
+    expect(third.previous_findings.some(isBxpharma)).toBe(true);
+    for (const call of analystCalls) expect(call.system.length + call.user.length).toBeLessThanOrEqual(config.MAX_PROMPT_CHARS);
+
+    // Code put the BXPHARMA findings back, each with its own line; the refused sector finding stays out.
+    const kept = lines.filter((line) => line.agent_name === "Orchestrator" && (line.action === "restore_finding" || line.action === "carry_forward"));
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.every((line) => line.retry_count === 2 && line.input_summary?.includes("BXPHARMA") && line.target_agent === "Evaluator")).toBe(true);
+    expect(by(lines, "Orchestrator", "restore_finding")).toEqual([expect.objectContaining({ why: expect.stringContaining("BXPHARMA is the largest move of the week") })]);
+    const restoredAt = lines.findIndex((line) => line.action === "restore_finding");
+    const acceptedAt = lines.findIndex((line) => line.agent_name === "Evaluator" && line.action === "accept");
+    expect(restoredAt).toBeLessThan(acceptedAt);
+    expect(by(lines, "Orchestrator", "revise").map((line) => line.output_summary)).toEqual([
+      expect.stringContaining("code keeps the"),
+      expect.stringContaining("code keeps the"),
+    ]);
+  });
+
+  it("reconcile: a round-2 draft that drops an issue round 1 covered gets it back from code, and the review covers every issue", async () => {
+    const analystCalls: CompleteOptions[] = [];
+    const subjects = (reply: Reply) => findingsOf(reply).map((finding) => finding.subject);
+    let firstIssue = "";
+    let lastIssue = "";
+    alter(
+      "Analyst",
+      () => true,
+      (reply) => {
+        const findings = findingsOf(reply).filter((finding) => finding.kind === "reconciliation");
+        if (analystCalls.length === 1) {
+          [firstIssue, lastIssue] = [findings[0].subject, findings.at(-1)!.subject];
+          return { ...reply, findings: findingsOf(reply).filter((finding) => finding.subject !== firstIssue) };
+        }
+        return { ...reply, findings: findingsOf(reply).filter((finding) => finding.subject !== lastIssue) };
+      },
+      analystCalls,
+    );
+    const result = await run({ runId: "orch-reconcile-keep", task: "reconcile", input: { as_of: AS_OF }, sampleMode: true, config });
+
+    expect(result.status).not.toBe("error");
+    expect(result.output?.rounds).toBe(2);
+    const lines = trace(result);
+    expect(by(lines, "Evaluator", "reject")).toEqual([expect.objectContaining({ retry_count: 0, why: expect.stringContaining(firstIssue) })]);
+    const reviewed = new Set(result.output?.findings.map((finding) => finding.subject));
+    expect(reviewed.has(firstIssue) && reviewed.has(lastIssue)).toBe(true);
+    expect(subjects({ findings: JSON.parse(analystCalls[1].user).previous_findings })).toContain(lastIssue);
+    expect(by(lines, "Orchestrator", "restore_finding")).toEqual([
+      expect.objectContaining({ retry_count: 1, input_summary: expect.stringContaining(lastIssue), why: expect.stringContaining(`reconciliation finding for issue ${lastIssue}`) }),
+    ]);
+  });
+
   it("stops with needs_human, stop_reason tokens and partial when MAX_TOKENS_PER_RUN is 1000", async () => {
     const result = await explainWeek("orch-tokens", { config: loadConfig({ MAX_TOKENS_PER_RUN: "1000" }) });
 

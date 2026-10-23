@@ -1,7 +1,8 @@
 // The Evaluator: judges the Analyst's draft. Code runs first, in this order: guards.checkCitations (every number is
 // in a cited row), guards.afterModel (no advice, every finding matches the schema), then coverage (the task's
-// required findings are there). Each failure is a rejection with a one-sentence fix written by code that the
-// Planner and the Analyst can act on; no model is called. A draft that passes goes to the fast model with
+// required findings are there). All three always run; any failure is a rejection with a fix written by code that
+// names every problem found, and the numbers of the findings it flags, so the Planner and the Analyst can act on all
+// of them in one round; no model is called. A draft that passes goes to the fast model with
 // prompts/evaluator.md as-is and one JSON user message (rule 7): the draft and only the rows it cites. The three
 // scores add up to a total out of 9; total / 9 rounded to two decimals is the trace's confidence (7 of 9 is 0.78);
 // 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's retries
@@ -102,8 +103,13 @@ export type EvaluateOutcome = {
   total: number | null;
   /** total / 9 rounded to two decimals; 0 when code rejected the draft or the reply was unusable; null when the score is unavailable. */
   confidence: number | null;
-  /** One instruction for the Planner and the Analyst; empty when accepted. */
+  /** The fix for the Planner and the Analyst, naming every problem found; empty when accepted. */
   fix: string;
+  /**
+   * The findings the rejection names, by number counting from 1: those a code check failed, or whose subject or
+   * number the model's fix names. Empty when accepted. orchestrator.ts carries every other finding into the next draft.
+   */
+  flagged: number[];
   code_checks: CodeCheck[];
   target_agent: RejectTarget | "Writer";
   model: {
@@ -222,8 +228,10 @@ export function coverage(task: Task, findings: readonly Finding[], store: Result
       const ids = [...new Set(results.flatMap((result) => result.rows.map((row) => str(row.issue_id))).filter((id) => id !== ""))];
       const missing = ids.filter((id) => !findings.some((finding) => finding.kind === "reconciliation" && finding.subject === id));
       if (missing.length > 0) {
-        const more = missing.length > 1 ? ` (and ${missing.length - 1} more)` : "";
-        return { ok: false, reason: `issue ${missing[0]} has no finding${more}`, fix: `Add a finding and a proposed fix for issue ${missing[0]}: it has no finding${more}.` };
+        // Every missing issue is named, so the Analyst sees all of them in one round.
+        const rest = missing.slice(1);
+        const nor = rest.length === 0 ? "" : ` (nor ${rest.length === 1 ? "does issue" : "do issues"} ${listed(rest)})`;
+        return { ok: false, reason: `issue ${missing[0]} has no finding${nor}`, fix: `Add a finding and a proposed fix for issue ${missing[0]}: it has no finding${nor}.` };
       }
       return { ok: true, reason: ids.length === 0 ? "the reconciliation has no difference to cover" : `every difference (${ids.join(", ")}) has a finding` };
     }
@@ -232,15 +240,60 @@ export function coverage(task: Task, findings: readonly Finding[], store: Result
   }
 }
 
+/** "A", "A and B", "A, B and C". */
+function listed(items: readonly string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+/**
+ * One finding the coverage check requires, as a predicate on a finding: its kind (null for any), its subject (null
+ * for any) and whether it needs a verdict. orchestrator.ts uses these to restore a required finding the Analyst
+ * dropped in a revision, so a draft never loses what coverage asks for.
+ */
+export type Requirement = { kind: string | null; subject: string | null; verdict: boolean; why: string };
+
+export const meetsRequirement = (finding: Finding, need: Requirement): boolean =>
+  (need.kind === null || finding.kind === need.kind) && (need.subject === null || finding.subject === need.subject) && (!need.verdict || finding.verdict !== null);
+
+/** The findings coverage() requires for the task, from this run's rows; empty when the evidence query never ran. */
+export function requiredFindings(task: Task, store: ResultStore, asOf: string): Requirement[] {
+  switch (task) {
+    case "explain_week": {
+      const largest = largestHolding(resultsOf(store, "week_moves", asOf).flatMap((result) => result.rows));
+      if (largest === undefined) return [];
+      const symbol = str(largest.symbol);
+      return [{ kind: null, subject: symbol, verdict: false, why: `${symbol} is the largest move of the week, and the coverage check requires a finding on it` }];
+    }
+    case "thesis_check": {
+      const ids = [...new Set(resultsOf(store, "journal_for_symbol", asOf).flatMap((result) => result.rows.map((row) => str(row.id))).filter((id) => id !== ""))];
+      return ids.map((id) => ({ kind: "thesis", subject: id, verdict: true, why: `the coverage check requires one thesis finding with a verdict for ${id}` }));
+    }
+    case "pre_trade":
+      return [{ kind: "pre_trade", subject: null, verdict: false, why: "the coverage check requires a pre_trade finding" }];
+    case "reconcile": {
+      const ids = [...new Set(resultsOf(store, "reconciliation").flatMap((result) => result.rows.map((row) => str(row.issue_id))).filter((id) => id !== ""))];
+      return ids.map((id) => ({ kind: "reconciliation", subject: id, verdict: false, why: `the coverage check requires a reconciliation finding for issue ${id}` }));
+    }
+    default:
+      return [];
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The fixes code writes for the first two checks.
 
+/** Every failure, grouped by finding in the draft's order: no problem is left out of the fix. */
 function citationFix(findings: readonly Finding[], failures: readonly { finding: number; problem: string }[]): string {
-  const first = failures[0];
-  const finding = findings[first.finding - 1];
-  const who = finding === undefined ? `finding ${first.finding}` : `finding ${first.finding} (${finding.kind} ${finding.subject})`;
-  const more = failures.length > 1 ? ` (and ${failures.length - 1} more ${failures.length === 2 ? "problem" : "problems"})` : "";
-  return `Fix ${who}: ${first.problem}; use only figures from the rows it cites${more}.`;
+  const byFinding = new Map<number, string[]>();
+  for (const failure of failures) byFinding.set(failure.finding, [...(byFinding.get(failure.finding) ?? []), failure.problem]);
+  return [...byFinding.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([number, problems]) => {
+      const finding = findings[number - 1];
+      const who = finding === undefined ? `finding ${number}` : `finding ${number} (${finding.kind} ${finding.subject})`;
+      return `Fix ${who}: ${problems.join("; ")}; use only figures from the rows it cites.`;
+    })
+    .join(" ");
 }
 
 function guardFix(reason: string): string {
@@ -316,13 +369,14 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
     });
   };
-  const rejectByCode = (check: CodeCheck): EvaluateOutcome => {
-    const fix = check.fix ?? "";
+  const rejectByCode = (failed: readonly CodeCheck[], flagged: number[]): EvaluateOutcome => {
+    // Every failed check's fix, in check order, so the Analyst sees every open problem in one round.
+    const fix = failed.map((check) => check.fix ?? "").filter((text) => text !== "").join(" ");
     tracer.log({
       agent_name: AGENT,
       action: "reject",
       input_summary: inputSummary,
-      output_summary: capped(`rejected by code (${check.check}): ${check.reason}; no model call`),
+      output_summary: capped(`rejected by code (${failed.map((check) => check.check).join(", ")}): ${failed.map((check) => check.reason).join("; ")}; no model call`),
       target_agent: target,
       status: "rejected",
       why: fix,
@@ -330,16 +384,17 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
       duration_ms: Date.now() - started,
     });
-    return { accepted: false, scores: null, total: 0, confidence: 0, fix, code_checks: checks, target_agent: target, model: null };
+    return { accepted: false, scores: null, total: 0, confidence: 0, fix, flagged, code_checks: checks, target_agent: target, model: null };
   };
 
+  // The three code checks always all run, in this order, before any model call: a draft that fails more than one is
+  // rejected once with every problem named.
   // 1. Every number is in a cited row of this run (or in a listed memory).
   const citations = checkCitations(findings, input.results, memories, tracer);
   const citationCheck: CodeCheck = citations.ok
     ? { check: "citations", ok: true, reason: "every finding cites a result of this run and every number is in the cited rows", fix: null }
     : { check: "citations", ok: false, reason: citations.reason, fix: citationFix(findings, citations.failures) };
   traceCheck(citationCheck);
-  if (!citationCheck.ok) return rejectByCode(citationCheck);
 
   // 2. No advice, every finding matches the schema, a verdict where the task needs one. The draft is the Analyst's reply.
   const guard = afterModel("Analyst", { findings, gaps }, { task: input.task }, tracer);
@@ -347,13 +402,21 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     ? { check: "guard", ok: true, reason: `the draft passes the reply guard${guard.injection_seen ? " (injection wording seen)" : ""}`, fix: null }
     : { check: "guard", ok: false, reason: guard.reason, fix: guardFix(guard.reason) };
   traceCheck(guardCheck);
-  if (!guardCheck.ok) return rejectByCode(guardCheck);
 
   // 3. The task's required findings are there.
   const covered = coverage(input.task, findings, input.results, input.as_of);
   const coverageCheck: CodeCheck = covered.ok ? { check: "coverage", ok: true, reason: covered.reason, fix: null } : { check: "coverage", ok: false, reason: covered.reason, fix: covered.fix };
   traceCheck(coverageCheck);
-  if (!coverageCheck.ok) return rejectByCode(coverageCheck);
+
+  const failed = [citationCheck, guardCheck, coverageCheck].filter((check) => !check.ok);
+  if (failed.length > 0) {
+    // The findings a check failed: the citation failures by number, and each finding the guard refuses on its own.
+    const flagged = new Set(citations.failures.map((failure) => failure.finding));
+    if (!guard.ok) {
+      for (const [index, finding] of findings.entries()) if (!afterModel("Analyst", { findings: [finding] }, { task: input.task }).ok) flagged.add(index + 1);
+    }
+    return rejectByCode(failed, [...flagged].sort((a, b) => a - b));
+  }
 
   // 4. The fast model scores the draft, seeing only the rows the findings cite.
   const user: EvaluatorInput = {
@@ -405,7 +468,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
       duration_ms: Date.now() - started,
     });
-    return { accepted: true, scores: null, total: null, confidence: null, fix: "", code_checks: checks, target_agent: "Writer", model: null };
+    return { accepted: true, scores: null, total: null, confidence: null, fix: "", flagged: [], code_checks: checks, target_agent: "Writer", model: null };
   }
   run?.afterModelCall(result);
   const model: NonNullable<EvaluateOutcome["model"]> = {
@@ -428,7 +491,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       retry_count: round,
       duration_ms: Date.now() - started,
     });
-    return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", code_checks: checks, target_agent: target, model, error };
+    return { accepted: false, scores: null, total: 0, confidence: 0, fix: "", flagged: [], code_checks: checks, target_agent: target, model, error };
   };
 
   const parsed = scoreSchema.safeParse(result.json ?? {});
@@ -458,5 +521,21 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
     retry_count: round,
     duration_ms: Date.now() - started,
   });
-  return { accepted, scores, total, confidence, fix, code_checks: checks, target_agent: accepted ? "Writer" : target, model };
+  return { accepted, scores, total, confidence, fix, flagged: accepted ? [] : namedIn(fix, findings), code_checks: checks, target_agent: accepted ? "Writer" : target, model };
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The findings a model's fix names, by number counting from 1: "finding 3", or the finding's subject as a whole word
+ * (BXPHARMA, j-013, Pharmaceuticals & Chemicals). A finding the fix does not name is kept into the next draft by code.
+ */
+export function namedIn(fix: string, findings: readonly Finding[]): number[] {
+  const numbers = new Set([...fix.matchAll(/\bfindings? (\d+)\b/gi)].map((match) => Number(match[1])));
+  const out: number[] = [];
+  for (const [index, finding] of findings.entries()) {
+    const subject = new RegExp(`(?<![A-Za-z0-9_-])${escaped(finding.subject)}(?![A-Za-z0-9_-])`);
+    if (numbers.has(index + 1) || subject.test(fix)) out.push(index + 1);
+  }
+  return out;
 }

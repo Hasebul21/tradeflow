@@ -8,7 +8,7 @@ import { loadQueryData, type QueryData } from "../queries";
 import { RunState } from "../run-state";
 import type { TraceInput, Tracer } from "../trace";
 import { analyse } from "./analyst";
-import { PASS_TOTAL, confidenceOf, coverage, evaluate, scoreSchema, type EvaluateInput } from "./evaluator";
+import { PASS_TOTAL, confidenceOf, coverage, evaluate, namedIn, requiredFindings, scoreSchema, type EvaluateInput } from "./evaluator";
 import { plan } from "./planner";
 
 // The seed data in data/, a fake tracer that keeps every line in memory, and the sample model unless a test stubs
@@ -80,15 +80,21 @@ describe("the Evaluator's code checks", () => {
   it("rejects a finding whose number is in no cited row, with a fix written by code, a code_check line and no model call", async () => {
     const { run } = runState();
     const moves = await run.query("week_moves", { as_of: AS_OF });
+    const bxpharma = finding("BXPHARMA", [moves.run_query_id]);
     const bad = finding("PORTFOLIO", [moves.run_query_id], [{ value: 98765.4, label: "loss" }], "The data shows the portfolio lost Tk 98765.4.");
     const { lines, tracer } = collector();
-    const outcome = await evaluate(input(run, [bad]), { tracer, run });
+    const outcome = await evaluate(input(run, [bad, bxpharma]), { tracer, run });
 
-    expect(outcome).toMatchObject({ accepted: false, scores: null, total: 0, confidence: 0, target_agent: "Planner", model: null });
+    expect(outcome).toMatchObject({ accepted: false, scores: null, total: 0, confidence: 0, target_agent: "Planner", model: null, flagged: [1] });
     expect(outcome.fix).toMatch(/^Fix finding 1 \(move PORTFOLIO\): the number 98765\.4 \(loss\) is not in the cited rows; use only figures from the rows it cites\.$/);
-    expect(outcome.code_checks).toEqual([{ check: "citations", ok: false, reason: expect.stringMatching(/98765\.4/), fix: outcome.fix }]);
+    expect(outcome.code_checks).toEqual([
+      { check: "citations", ok: false, reason: expect.stringMatching(/98765\.4/), fix: outcome.fix },
+      expect.objectContaining({ check: "guard", ok: true }),
+      expect.objectContaining({ check: "coverage", ok: true }),
+    ]);
     const checks = evaluatorLines(lines, "code_check");
-    expect(checks).toEqual([expect.objectContaining({ action: "code_check", status: "rejected", why: expect.stringMatching(/98765\.4/) })]);
+    expect(checks.map((line) => line.status)).toEqual(["rejected", "ok", "ok"]);
+    expect(checks[0]).toEqual(expect.objectContaining({ action: "code_check", status: "rejected", why: expect.stringMatching(/98765\.4/) }));
     expect(checks[0].input_summary).toContain("citations");
     const verdict = evaluatorLines(lines, "reject");
     expect(verdict).toEqual([expect.objectContaining({ target_agent: "Planner", status: "rejected", why: outcome.fix, confidence: 0 })]);
@@ -113,19 +119,22 @@ describe("the Evaluator's code checks", () => {
     expect(block?.why?.match(/finding (\d+)/)?.[1]).toBe(outcome.fix?.match(/finding (\d+)/)?.[1]);
   });
 
-  it("rejects a draft that tells the owner what to trade at the guard check, before coverage and the model", async () => {
+  it("rejects a draft that tells the owner what to trade at the guard check, before the model, and flags that finding", async () => {
     const { run } = runState();
     const moves = await run.query("week_moves", { as_of: AS_OF });
+    const good = finding("PORTFOLIO", [moves.run_query_id]);
     const bad = finding("BXPHARMA", [moves.run_query_id], [], "You should sell BXPHARMA now.");
     const { lines, tracer } = collector();
-    const outcome = await evaluate(input(run, [bad]), { tracer, run });
+    const outcome = await evaluate(input(run, [good, bad]), { tracer, run });
     expect(outcome.accepted).toBe(false);
     expect(outcome.code_checks.map((check) => [check.check, check.ok])).toEqual([
       ["citations", true],
       ["guard", false],
+      ["coverage", true],
     ]);
     expect(outcome.fix).toBe("Remove every sentence that tells the owner to buy, sell or hold; say only what the rows show.");
-    expect(evaluatorLines(lines, "code_check").map((line) => line.status)).toEqual(["ok", "rejected"]);
+    expect(outcome.flagged).toEqual([2]);
+    expect(evaluatorLines(lines, "code_check").map((line) => line.status)).toEqual(["ok", "rejected", "ok"]);
     expect(lines.filter((line) => line.agent_name === "Guard" && line.action === "block")).toHaveLength(1);
     expect(modelCalls(lines)).toHaveLength(0);
   });
@@ -173,6 +182,80 @@ describe("the Evaluator's code checks", () => {
     const all = issues.map((id) => ({ ...finding(id, [reconciliation.run_query_id]), kind: "reconciliation" }));
     expect(coverage("reconcile", all, run.store, AS_OF)).toMatchObject({ ok: true });
     expect(coverage("reconcile", all.slice(1), run.store, AS_OF)).toMatchObject({ ok: false, fix: expect.stringContaining(issues[0]) });
+  });
+});
+
+describe("the Evaluator's fix names every open problem", () => {
+  it("names both refused numbers of one finding and the coverage gap in one fix, with no 'more problem' cut", async () => {
+    // example_2 round 2 (23 Oct): finding 8 rounded -2.25 to 2.2 and -7259.4 to 7259. Here the draft also lacks BXPHARMA.
+    const { run } = runState();
+    const sectors = await run.query("sector_vs_stock", { as_of: AS_OF, sessions: 5 });
+    await run.query("week_moves", { as_of: AS_OF, sessions: 5 });
+    const sector = {
+      ...finding("Pharmaceuticals & Chemicals", [sectors.run_query_id], [{ value: -2.99, label: "sector change %" }], "The Pharmaceuticals & Chemicals index fell 2.99% over the week, 2.2 points behind DSEX, and cost the portfolio Tk 7259."),
+      kind: "sector",
+    };
+    const { lines, tracer } = collector();
+    const outcome = await evaluate(input(run, [finding("PORTFOLIO", [sectors.run_query_id]), sector]), { tracer, run });
+
+    expect(outcome.accepted).toBe(false);
+    expect(outcome.fix).toBe(
+      "Fix finding 2 (sector Pharmaceuticals & Chemicals): the claim has 2.2, which is not in its numbers or the cited rows; the claim has 7259, which is not in its numbers or the cited rows; use only figures from the rows it cites. Explain BXPHARMA: it is the largest move of the week and has no finding.",
+    );
+    expect(outcome.fix).not.toMatch(/more problem/);
+    expect(outcome.flagged).toEqual([2]);
+    expect(outcome.code_checks.map((check) => [check.check, check.ok])).toEqual([
+      ["citations", false],
+      ["guard", true],
+      ["coverage", false],
+    ]);
+    const reject = evaluatorLines(lines, "reject");
+    expect(reject).toEqual([expect.objectContaining({ why: outcome.fix })]);
+    expect(reject[0].output_summary).toMatch(/^rejected by code \(citations, coverage\)/);
+    expect(modelCalls(lines)).toHaveLength(0);
+  });
+
+  it("names a separate fix for each finding with a refused number, in the draft's order", async () => {
+    const { run } = runState();
+    const moves = await run.query("week_moves", { as_of: AS_OF });
+    const bad = (subject: string, value: number) => finding(subject, [moves.run_query_id], [{ value, label: "made-up" }]);
+    const outcome = await evaluate(input(run, [bad("BXPHARMA", 111.1), finding("GP", [moves.run_query_id]), bad("RENATA", 222.2)]), { tracer: collector().tracer, run });
+    expect(outcome.fix).toBe(
+      "Fix finding 1 (move BXPHARMA): the number 111.1 (made-up) is not in the cited rows; use only figures from the rows it cites. Fix finding 3 (move RENATA): the number 222.2 (made-up) is not in the cited rows; use only figures from the rows it cites.",
+    );
+    expect(outcome.flagged).toEqual([1, 3]);
+  });
+
+  it("names every reconciliation issue that has no finding, not just the first", async () => {
+    const { run } = runState();
+    const reconciliation = await run.query("reconciliation", {});
+    const issues = reconciliation.rows.map((row) => String(row.issue_id));
+    expect(issues.length).toBeGreaterThan(2);
+    const missing = coverage("reconcile", [], run.store, AS_OF);
+    expect(missing.ok).toBe(false);
+    for (const id of issues) expect(missing.ok ? "" : missing.fix).toContain(id);
+    expect(missing.ok ? "" : missing.fix).not.toMatch(/more\)/);
+  });
+
+  it("flags the findings a model's fix names by subject or number, and no other", () => {
+    const findings = [finding("PORTFOLIO", ["q"]), finding("BXPHARMA", ["q"]), finding("Pharmaceuticals & Chemicals", ["q"]), finding("GP", ["q"])];
+    expect(namedIn("Say why BXPHARMA fell and drop the GP claim.", findings)).toEqual([2, 4]);
+    expect(namedIn("Rewrite finding 1: it overstates the move.", findings)).toEqual([1]);
+    expect(namedIn("Compare Pharmaceuticals & Chemicals with DSEX.", findings)).toEqual([3]);
+    // A subject inside a longer word is not named: GPX is not GP.
+    expect(namedIn("Add a finding on GPX.", findings)).toEqual([]);
+  });
+
+  it("lists what coverage requires for each task, from this run's rows", async () => {
+    const { run } = runState();
+    expect(requiredFindings("explain_week", run.store, AS_OF)).toEqual([]);
+    await run.query("week_moves", { as_of: AS_OF });
+    expect(requiredFindings("explain_week", run.store, AS_OF)).toEqual([expect.objectContaining({ kind: null, subject: "BXPHARMA", verdict: false, why: expect.stringContaining("largest move") })]);
+    expect(requiredFindings("pre_trade", run.store, AS_OF)).toEqual([expect.objectContaining({ kind: "pre_trade", subject: null })]);
+    const reconciliation = await run.query("reconciliation", {});
+    expect(requiredFindings("reconcile", run.store, AS_OF).map((need) => need.subject)).toEqual(reconciliation.rows.map((row) => String(row.issue_id)));
+    const journal = await run.query("journal_for_symbol", { as_of: AS_OF, symbol: "GP" });
+    expect(requiredFindings("thesis_check", run.store, AS_OF)).toEqual(journal.rows.map((row) => expect.objectContaining({ kind: "thesis", subject: String(row.id), verdict: true })));
   });
 });
 
