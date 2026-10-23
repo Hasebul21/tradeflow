@@ -20,7 +20,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chainGroups, chainsFirst, parseConcurrency } from "./case-chains";
-import { evaluate, jobFor, listCases, runCaseHere, tableLines, writeResults, type EvalCase, type Outcome, type RunGroup } from "./eval-cases";
+import { evalExitCode, evaluate, jobFor, listCases, runCaseHere, tableLines, writeResults, type EvalCase, type Outcome, type RunGroup } from "./eval-cases";
 import { FIXTURES_DIR, makeFixtures } from "./make-fixtures";
 
 const ROOT = process.cwd();
@@ -153,10 +153,10 @@ async function main(argv: string[]): Promise<number> {
     } catch {
       host = "unknown";
     }
-    writeResults(RESULTS, rows, real, { commit, models: config.models, host, concurrency });
+    writeResults(RESULTS, rows, real, { commit, models: config.models, host, concurrency, failedGroups: errors });
     process.stdout.write(`wrote ${path.relative(ROOT, RESULTS)}\n`);
   }
-  return fails > 0 || errors.length > 0 ? 1 : 0;
+  return evalExitCode(rows, errors);
 }
 
 main(process.argv.slice(2)).then(

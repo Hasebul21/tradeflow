@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { memorySeen, retryAfterMs, runCliCase, runHttpCase, runLiveGroup, summaryLine, type LiveOutcome } from "./live-runner";
+import type { Settled } from "../src/agent/concurrency";
+import { caseKind, liveCases, liveExitCode, memorySeen, retryAfterMs, runCliCase, runHttpCase, runLiveGroup, summaryLine, type LiveCase, type LiveOutcome, type SpawnAgent } from "./live-runner";
 
 let server: http.Server | null = null;
 let tmp: string | null = null;
@@ -82,6 +83,72 @@ describe("runHttpCase", () => {
   });
 });
 
+describe("runHttpCase and stale traces", () => {
+  it("removes an old saved trace before the POST and reads no memory when this run's trace was not saved", { timeout: 15_000 }, async () => {
+    const reply = { status: 200, body: { run_id: "example_2", status: "success", output: { stop_reason: null }, usage: { model_calls: 4 } } };
+    const { base } = await stubServer([reply]);
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
+    writeFileSync(path.join(tmp, "example_2.trace.jsonl"), `${JSON.stringify({ agent_name: "Memory", action: "recall", output_summary: "by_tag=mem-1; by_query=none" })}\n`);
+    const outcome = await runHttpCase({ id: "example_2", body: { run_id: "example_2" } }, base, tmp, 10_000);
+    expect(outcome.note).toBe("trace not saved: GET /run/example_2 answered 404");
+    expect(outcome.memory).toBeNull();
+    expect(existsSync(path.join(tmp, "example_2.trace.jsonl"))).toBe(false);
+  });
+
+  it("names the type of a 429 that is not Busy and keeps its reply", { timeout: 15_000 }, async () => {
+    const { base } = await stubServer([{ status: 429, body: { status: "error", error: { type: "RateLimited", message: "x", recoverable: true } } }]);
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
+    const outcome = await runHttpCase({ id: "example_2", body: { run_id: "example_2" } }, base, tmp, 10_000);
+    expect(outcome.reply).not.toBeNull();
+    expect(outcome.note).toMatch(/^429 RateLimited/);
+  });
+});
+
+describe("caseKind and liveExitCode", () => {
+  const example1: LiveCase = { id: "example_1", body: {}, expect: { status: "success" } };
+  const errorCase: LiveCase = { id: "before-the-data", body: {}, expect: { status: "error", error_type: "InvalidInput" } };
+  const reply = (status: string, type?: string) => ({ run_id: "r", status, ...(type === undefined ? {} : { error: { type, message: "m", recoverable: false } }) });
+  const outcome = (id: string, body: Record<string, unknown> | null, http: number | null = 200): LiveOutcome => ({ id, http, reply: body, seconds: 0, busyRetries: 0, note: null });
+  const fulfilled: Settled<void> = { status: "fulfilled", value: undefined };
+  const tally = (cases: LiveCase[], outcomes: LiveOutcome[], settled: Settled<void>[] = cases.map(() => fulfilled)) =>
+    liveExitCode(cases, new Map(outcomes.map((item) => [item.id, item])), cases.map((item) => [item.id]), settled);
+
+  it("reads what each case expects from the repo's expectations", () => {
+    expect(liveCases(process.cwd(), true).find((item) => item.id === "before-the-data")?.expect).toEqual({ status: "error", error_type: "InvalidInput" });
+    expect(liveCases(process.cwd(), false).find((item) => item.id === "example_1")?.expect).toEqual({ status: "success" });
+  });
+
+  it("gives exit 1 for a 500 Timeout on example_1, and counts an expected InvalidInput as a result", () => {
+    const timeout = outcome("example_1", reply("error", "Timeout"), 500);
+    expect(caseKind(example1, timeout)).toBe("unexpected error");
+    expect(tally([example1], [timeout])).toMatchObject({ code: 1, byKind: { "unexpected error": ["example_1"] } });
+    const invalid = outcome("before-the-data", reply("error", "InvalidInput"), 400);
+    expect(caseKind(errorCase, invalid)).toBe("expected error");
+    expect(tally([errorCase], [invalid])).toMatchObject({ code: 0, byKind: { "expected error": ["before-the-data"] } });
+    expect(summaryLine(timeout, "unexpected error")).toContain("[unexpected error]");
+  });
+
+  it("gives exit 1 for an error of another type than the one expected, and for RateLimited", () => {
+    expect(tally([errorCase], [outcome("before-the-data", reply("error", "Internal"), 500)]).code).toBe(1);
+    expect(tally([example1], [outcome("example_1", reply("error", "RateLimited"), 500)]).code).toBe(1);
+  });
+
+  it("gives exit 1 for no reply, still Busy and a case not run, and 0 for results alone", () => {
+    expect(tally([example1], [outcome("example_1", null, null)]).code).toBe(1);
+    expect(tally([example1], [{ ...outcome("example_1", null, 429), note: "no result: still 429 Busy after waiting the full timeout" }]).byKind["no result"]).toEqual(["example_1"]);
+    expect(tally([example1], [outcome("example_1", reply("needs_human"))]).code).toBe(0);
+    expect(tally([example1], [outcome("example_1", reply("success"))]).code).toBe(0);
+  });
+
+  it("gives exit 1 for a missing id and for a rejected group, though every reply is a result", () => {
+    const second: LiveCase = { id: "example_2", body: {}, expect: { status: "success" } };
+    const missing = tally([example1, second], [outcome("example_1", reply("success"))]);
+    expect(missing).toMatchObject({ code: 1, missing: ["example_2"] });
+    const rejected = tally([example1], [outcome("example_1", reply("success"))], [{ status: "rejected", reason: new Error("boom") }]);
+    expect(rejected).toMatchObject({ code: 1, rejected: [{ ids: ["example_1"], reason: "boom" }] });
+  });
+});
+
 describe("retryAfterMs", () => {
   it("reads whole seconds, falls back to 5 s and never waits less than 1 s", () => {
     expect(retryAfterMs({ "retry-after": "3" })).toBe(3000);
@@ -103,7 +170,14 @@ describe("runLiveGroup", () => {
     }, (outcome) => recorded.push(outcome));
     expect(ran).toEqual(["example_3a", "example_3b"]);
     expect(recorded.map((outcome) => [outcome.id, outcome.reply === null])).toEqual([["example_3a", false], ["example_3b", true], ["example_7a", true]]);
-    expect(recorded[2].note).toBe("not run: example_3b in its chain got no result");
+    expect(recorded[2].note).toBe("not run: example_3b in its chain got no result or an unexpected error");
+  });
+
+  it("stops a chain after an unexpected error when told what counts", async () => {
+    const recorded: LiveOutcome[] = [];
+    const errorReply = { status: "error", error: { type: "Timeout" } };
+    await runLiveGroup(["example_3a", "example_3b"], async (id) => result(id, errorReply), (outcome) => recorded.push(outcome), (outcome) => outcome.reply?.status !== "error");
+    expect(recorded.map((outcome) => [outcome.id, outcome.reply === null])).toEqual([["example_3a", false], ["example_3b", true]]);
   });
 });
 
@@ -127,11 +201,41 @@ describe("runCliCase", () => {
     expect(outcome.note).toBe("no/such/fixture is missing: run npm run make-fixtures first");
   });
 
-  it("returns a copy that fails as an outcome with no reply", async () => {
+  it("returns a copy that really fails as an outcome with no reply, and never starts the agent", async () => {
     tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
-    writeFileSync(path.join(tmp, "fixture"), "a file, not a folder");
-    const outcome = await runCliCase({ id: "x", body: {}, dataDir: "fixture" }, tmp, path.join(tmp, "missing-out"), 1000);
+    mkdirSync(path.join(tmp, "fixture"));
+    writeFileSync(path.join(tmp, "fixture", "locked.json"), "{}");
+    chmodSync(path.join(tmp, "fixture", "locked.json"), 0o000);
+    let started = 0;
+    const spawnAgent: SpawnAgent = async () => {
+      started += 1;
+      return 0;
+    };
+    const outcome = await runCliCase({ id: "x", body: {}, dataDir: "fixture" }, tmp, tmp, 1000, { spawnAgent });
+    chmodSync(path.join(tmp, "fixture", "locked.json"), 0o600);
+    expect(started).toBe(0);
     expect(outcome.reply).toBeNull();
-    expect(outcome.note).toMatch(/^npm run agent (failed|wrote no result)/);
+    expect(outcome.note).toMatch(/^npm run agent failed: .*EACCES/);
+  });
+
+  it("never takes an old logs/ trace or an old saved trace for this run's", async () => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-live-"));
+    mkdirSync(path.join(tmp, "fixture"));
+    mkdirSync(path.join(tmp, "logs"));
+    mkdirSync(path.join(tmp, "out"));
+    const recall = `${JSON.stringify({ agent_name: "Memory", action: "recall", output_summary: "by_tag=mem-1; by_query=none" })}\n`;
+    writeFileSync(path.join(tmp, "logs", "trace-x.jsonl"), recall);
+    utimesSync(path.join(tmp, "logs", "trace-x.jsonl"), new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000));
+    writeFileSync(path.join(tmp, "out", "x.trace.jsonl"), recall);
+    const spawnAgent: SpawnAgent = async ({ outDir }) => {
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(path.join(outDir, "x.json"), JSON.stringify({ run_id: "x", status: "success" }));
+      return 0;
+    };
+    const outcome = await runCliCase({ id: "x", body: {}, dataDir: "fixture" }, tmp, path.join(tmp, "out"), 1000, { spawnAgent });
+    expect(outcome.reply).toEqual({ run_id: "x", status: "success" });
+    expect(outcome.memory).toBeNull();
+    expect(outcome.note).toBe("no trace from this run in logs/");
+    expect(existsSync(path.join(tmp, "out", "x.trace.jsonl"))).toBe(false);
   });
 });

@@ -128,6 +128,14 @@ export async function evaluate(
   return { rows: cases.map((item) => (item.skipped ? { id: item.id, verdict: "skipped", result: null, failed: [], seconds: 0 } : (rows.get(item.id) as Row))), errors };
 }
 
+/**
+ * The eval's exit code: 1 when any row failed (a check, a group that stopped, or a case with no result) or any group
+ * stopped, even one that reported every case first; else 0. Skipped and rate-limited rows do not fail it. Pure.
+ */
+export function evalExitCode(rows: readonly Row[], errors: readonly GroupError[]): 0 | 1 {
+  return rows.some((row) => row.verdict === "fail") || errors.length > 0 ? 1 : 0;
+}
+
 /** The Evaluator total, or "score unavailable" when the Evaluator accepted the draft unscored; never 0 for a missing score. */
 function totalCell(row: Row): string {
   const total = row.result?.output?.scores?.total;
@@ -174,8 +182,12 @@ function modelStats(runIds: string[]): { routed: string; cost: string } {
   return { routed: routed ?? "none", cost: costSeen ? `${cost.toFixed(6)} USD` : "unknown" };
 }
 
-/** `meta.concurrency` above 1 adds a "Concurrency" line to a real-model section; the sample section never has one. */
-export function writeResults(file: string, rows: Row[], real: boolean, meta: { commit: string; models: { strong?: string; main?: string; fast?: string }; host: string; concurrency?: number }): void {
+/**
+ * `meta.concurrency` above 1 adds a "Concurrency" line to a real-model section; the sample section never has one.
+ * `meta.failedGroups` adds a "Failed groups" line to any section, so a group that stopped after reporting every case
+ * still shows.
+ */
+export function writeResults(file: string, rows: Row[], real: boolean, meta: { commit: string; models: { strong?: string; main?: string; fast?: string }; host: string; concurrency?: number; failedGroups?: readonly GroupError[] }): void {
   const date = new Date().toISOString().slice(0, 10);
   const { routed, cost } = modelStats(rows.filter((row) => row.result !== null).map((row) => row.id));
   const totals = { pass: rows.filter((r) => r.verdict === "pass").length, fail: rows.filter((r) => r.verdict === "fail").length, skipped: rows.filter((r) => r.verdict === "skipped").length, limited: rows.filter((r) => r.verdict === "rate-limited").length };
@@ -191,6 +203,7 @@ export function writeResults(file: string, rows: Row[], real: boolean, meta: { c
     `- cost_usd (sum over every model call): ${cost}`,
     ...(real ? [`- Commit: ${meta.commit}`] : []),
     ...(real && (meta.concurrency ?? 1) > 1 ? [`- Concurrency: ${meta.concurrency}`] : []),
+    ...((meta.failedGroups ?? []).length > 0 ? [`- Failed groups: ${(meta.failedGroups ?? []).map((group) => `${group.ids.join(", ")} (${group.reason.replace(/\|/g, "/")})`).join("; ")}`] : []),
     `- Totals: ${totals.pass} passed, ${totals.fail} failed, ${totals.skipped} skipped${totals.limited > 0 ? `, ${totals.limited} rate-limited` : ""}`,
   ];
   const section = [heading, "", ...facts, "", ...tableLines(rows), ""].join("\n");

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunResult } from "../src/agent/orchestrator";
-import { evaluate, listCases, writeResults, type Checks, type EvalCase, type RunGroup } from "./eval-cases";
+import { evalExitCode, evaluate, listCases, writeResults, type Checks, type EvalCase, type Row, type RunGroup } from "./eval-cases";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const noChecks: Checks = { checkExpectation: () => [], universalChecks: () => [], tracePathChecks: () => [] };
@@ -129,5 +129,30 @@ describe("evaluate with concurrency 3", () => {
     expect(rows.map((row) => [row.id, row.verdict])).toEqual([["a", "pass"], ["b", "fail"], ["c", "pass"]]);
     expect(rows[1].failed).toEqual([{ name: "run", pass: false, detail: "no result: its group finished without running it" }]);
     expect(errors).toEqual([]);
+  });
+});
+
+describe("evalExitCode", () => {
+  const row = (id: string, verdict: Row["verdict"]): Row => ({ id, verdict, result: null, failed: [], seconds: 0 });
+
+  it("is 0 for passes, skips and rate limits with no stopped group", () => {
+    expect(evalExitCode([row("a", "pass"), row("b", "skipped"), row("c", "rate-limited")], [])).toBe(0);
+  });
+
+  it("is 1 for a failed check or a case with no result", () => {
+    expect(evalExitCode([row("a", "pass"), row("b", "fail")], [])).toBe(1);
+  });
+
+  it("is 1 for a group that stopped after reporting every case as a pass", () => {
+    expect(evalExitCode([row("a", "pass")], [{ ids: ["a"], reason: "exit code 1" }])).toBe(1);
+  });
+
+  it("adds a Failed groups line to the results section when a group stopped", () => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), "tradeflow-results-"));
+    const file = path.join(tmp, "RESULTS.md");
+    writeResults(file, [row("a", "pass")], false, { commit: "c", models: {}, host: "h", failedGroups: [{ ids: ["a", "b"], reason: "the eval worker stopped (exit code 1)" }] });
+    expect(readFileSync(file, "utf8")).toContain("- Failed groups: a, b (the eval worker stopped (exit code 1))");
+    writeResults(file, [row("a", "pass")], false, { commit: "c", models: {}, host: "h" });
+    expect(readFileSync(file, "utf8")).not.toContain("- Failed groups:");
   });
 });

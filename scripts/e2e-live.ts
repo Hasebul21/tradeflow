@@ -5,15 +5,18 @@
 // <dir>/<case>.trace.jsonl, and one line per case is printed: case, HTTP status, status, stop_reason, seconds, model
 // calls. A red-team case with a data_dir runs through npm run agent on a copy of its fixture instead. It never edits
 // the repo: the app writes its own logs/, and the runner writes only under <dir>. It checks nothing against the
-// expectations; npm run eval does that. Chains start first. A case with no result (no reply, or still 429 Busy after
-// the whole wait) stops the rest of its chain, which is marked not run. Each line also names the memory the run
-// recalled. After the run it prints every case again in case order. It exits 1 when a case has no result or was not
-// run, or a group stopped; an error reply is a result, because some red-team cases expect one. Loads .env through node --env-file for the limits; it never opens it. Runs
-// under tsx as CommonJS: async main(), no top-level await.
+// expectations in full; npm run eval does that. Chains start first. Each case is a result (success or needs_human),
+// an expected error (the error_type its expectation names with status "error"), an unexpected error (any other reply,
+// such as a 500 Timeout) or no result (no reply, still 429 Busy after the whole wait, or not run). A case that is
+// not a result or an expected error stops the rest of its chain. Each line also names the memory the run recalled.
+// After the run it prints every case again in case order. It exits 1 on any unexpected error, no result, missing
+// case or stopped group (liveExitCode in scripts/live-runner.ts). Ctrl-C stops its npm run agent children and removes
+// its temporary dirs. Loads .env through node --env-file for the limits; it never opens it. Runs under tsx as
+// CommonJS: async main(), no top-level await.
 import path from "node:path";
 import { loadConfig, type Config } from "../src/agent/config";
 import { chainGroups, chainsFirst, parseConcurrency, runChains } from "./case-chains";
-import { ensureDir, liveCases, runCliCase, runHttpCase, runLiveGroup, summaryLine, type LiveCase, type LiveOutcome } from "./live-runner";
+import { caseKind, counts, ensureDir, liveCases, liveExitCode, runCliCase, runHttpCase, runLiveGroup, stopLiveRuns, summaryLine, type LiveCase, type LiveOutcome } from "./live-runner";
 
 const ROOT = process.cwd();
 const USAGE = "Usage: npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam]";
@@ -80,8 +83,18 @@ async function main(): Promise<number> {
   const chains = groups.filter((group) => group.length > 1).map((group) => group.join(" -> "));
   process.stdout.write(`${cases.length} cases against ${args.base}, ${args.concurrency} at a time; chains first and in order: ${chains.join("; ") || "none"}. Each run may take up to ${Math.round(timeoutMs / 60_000)} min.\n`);
 
+  // On Ctrl-C or a kill, stop the npm run agent children and remove the temp dirs this runner made, then exit.
+  const stop = (signal: NodeJS.Signals): void => {
+    const stopped = stopLiveRuns(signal);
+    process.stderr.write(`\nStopped by ${signal}: ${stopped.children} agent runs stopped, ${stopped.dirs} temporary dirs removed. Runs already posted to the server keep running there.\n`);
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+
   const started = Date.now();
   const outcomes = new Map<string, LiveOutcome>();
+  const kindOf = (outcome: LiveOutcome) => caseKind(byId.get(outcome.id), outcome);
   let busySeen = false;
   const settled = await runChains(
     groups,
@@ -101,26 +114,27 @@ async function main(): Promise<number> {
         },
         (outcome) => {
           outcomes.set(outcome.id, outcome);
-          process.stdout.write(`${summaryLine(outcome)}\n`);
+          process.stdout.write(`${summaryLine(outcome, kindOf(outcome))}\n`);
         },
+        (outcome) => counts(kindOf(outcome)),
       ),
     args.concurrency,
   );
+  process.removeListener("SIGINT", stop);
+  process.removeListener("SIGTERM", stop);
 
-  settled.forEach((result, index) => {
-    if (result.status === "rejected") process.stdout.write(`The group ${groups[index].join(", ")} stopped: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}\n`);
-  });
-  const missing = cases.filter((item) => !outcomes.has(item.id)).map((item) => item.id);
-  const rejected = settled.filter((result) => result.status === "rejected").length;
+  const tally = liveExitCode(cases, outcomes, groups, settled);
   const ordered = cases.map((item) => outcomes.get(item.id)).filter((outcome): outcome is LiveOutcome => outcome !== undefined);
-  // An error reply is a result (some red-team cases expect InvalidInput); a case with no reply, a case not run and a
-  // stopped group fail the run.
-  const noReply = ordered.filter((outcome) => outcome.reply === null).length;
-  const errors = ordered.filter((outcome) => outcome.reply?.status === "error").length;
-  process.stdout.write(`\nIn case order:\n${ordered.map(summaryLine).join("\n")}\n`);
-  if (missing.length > 0) process.stdout.write(`No outcome for: ${missing.join(", ")}\n`);
-  process.stdout.write(`\n${cases.length} cases in ${((Date.now() - started) / 60_000).toFixed(1)} min; ${errors} error replies, ${noReply} with no reply or not run, ${missing.length} missing. Saved to ${args.out}\n`);
-  return noReply > 0 || missing.length > 0 || rejected > 0 ? 1 : 0;
+  process.stdout.write(`\nIn case order:\n${ordered.map((outcome) => summaryLine(outcome, kindOf(outcome))).join("\n")}\n\n`);
+  for (const group of tally.rejected) process.stdout.write(`The group ${group.ids.join(", ")} stopped: ${group.reason}\n`);
+  if (tally.missing.length > 0) process.stdout.write(`No outcome for: ${tally.missing.join(", ")}\n`);
+  if (tally.byKind["unexpected error"].length > 0) process.stdout.write(`Unexpected errors: ${tally.byKind["unexpected error"].join(", ")}\n`);
+  if (tally.byKind["no result"].length > 0) process.stdout.write(`No result or not run: ${tally.byKind["no result"].join(", ")}\n`);
+  process.stdout.write(
+    `${cases.length} cases in ${((Date.now() - started) / 60_000).toFixed(1)} min: ${tally.byKind.result.length} results, ${tally.byKind["expected error"].length} expected errors, ` +
+      `${tally.byKind["unexpected error"].length} unexpected errors, ${tally.byKind["no result"].length} no result or not run, ${tally.missing.length} missing. Exit ${tally.code}. Saved to ${args.out}\n`,
+  );
+  return tally.code;
 }
 
 main().then(
