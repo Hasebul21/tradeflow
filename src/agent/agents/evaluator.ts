@@ -533,6 +533,30 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       // goes to the Writer unscored, whichever batch failed. Any other error passes through as before.
       const noAnswer = error instanceof ModelHttpError && error.status === 502;
       if (!noAnswer && !(error instanceof BadJson)) throw error;
+      // A batch that already scored below the pass mark still rejects the draft: a later batch failing never turns that into an accept.
+      const failedBatches = chunkScores.filter((c) => c.total < PASS_TOTAL);
+      if (failedBatches.length > 0) {
+        const own: Scores = {
+          accuracy: Math.min(...chunkScores.map((c) => c.scores.accuracy)),
+          appropriateness: Math.min(...chunkScores.map((c) => c.scores.appropriateness)),
+          actionability: Math.min(...chunkScores.map((c) => c.scores.actionability)),
+        };
+        const total = own.accuracy + own.appropriateness + own.actionability;
+        const fix = combineBatchFixes(failedBatches.filter((c) => c.fix !== ""), cfg.MAX_FIX_CHARS) || fallbackFix(input.task, own);
+        tracer.log({
+          agent_name: AGENT,
+          action: "reject",
+          input_summary: inputSummary,
+          output_summary: capped(`accuracy=${own.accuracy} appropriateness=${own.appropriateness} actionability=${own.actionability} total=${total} of ${MAX_TOTAL}; a later batch got no score; fix: ${fix}`),
+          target_agent: target,
+          status: "rejected",
+          why: fix,
+          confidence: confidenceOf(total),
+          retry_count: round,
+          duration_ms: Date.now() - started,
+        });
+        return { accepted: false, scores: own, total, confidence: confidenceOf(total), fix, flagged: namedIn(fix, findings), code_checks: checks, target_agent: target, model };
+      }
       tracer.log({
         agent_name: AGENT,
         action: "score_unavailable",

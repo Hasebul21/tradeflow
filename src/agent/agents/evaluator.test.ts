@@ -503,6 +503,27 @@ describe("the Evaluator scoring a long draft in batches", () => {
     expect(outcome.fix).not.toBe("");
   });
 
+  it("still rejects when a batch already scored low and a later batch returns no answer (502)", async () => {
+    const { run, findings } = await longDraft(30);
+    const { lines, tracer } = collector();
+    const calls: CompleteOptions[] = [];
+    const weak = { accuracy: 1, appropriateness: 1, actionability: 1, fix: "Fix finding 2: too strong." };
+    const first = sequence([weak], calls);
+    const failing = async (options: CompleteOptions): Promise<CompleteResult> => {
+      if (calls.length === 1) {
+        calls.push(options);
+        throw new ModelHttpError("The fast model call failed twice: 502 empty_response", 502);
+      }
+      return first(options);
+    };
+    const outcome = await evaluate(input(run, findings, { task: "pre_trade" }), { tracer, run, batchAboveChars: 0, complete: failing });
+    expect(calls).toHaveLength(2);
+    expect(outcome).toMatchObject({ accepted: false, total: 3, target_agent: expect.any(String) });
+    expect(outcome.fix).toContain("finding 2");
+    expect(evaluatorLines(lines, "reject")).toHaveLength(1);
+    expect(evaluatorLines(lines, "score_unavailable")).toHaveLength(0);
+  });
+
   it("accepts unscored when any batch call returns no answer (502)", async () => {
     const { run, findings } = await longDraft(30);
     const { lines, tracer } = collector();
