@@ -8,4 +8,5 @@ Read AGENTS.md at the repo root before any change; it is the source of truth for
 - Never read, print or commit .env, keys or connection strings.
 - Work in small steps. Plan first for anything touching more than two files. Finish with `npm run check`, a one-line conventional commit message, and a line in BUILD-LOG.md.
 - Work fast and do only what the task needs: read only the files you need, run each verification once and move on when it passes, run npm run check once at the end (the pre-commit hook reruns it), never repeat a passing run, and keep reports short. Speed never skips a required test, check or self-check item.
+- Keep the main session clean. Hand long runs (real-model evals, the end-to-end check, the clean-clone and Docker checks), broad reads and reviews to a subagent (the reviewer or judge agent, or a general one) with a short brief: the goal, the files, what done means. Run long commands in the background, print only the lines a decision needs (pipe through tail or grep), and report findings, not logs.
 - When a task is done, stop and summarise the diff; don't start the next step on your own.
