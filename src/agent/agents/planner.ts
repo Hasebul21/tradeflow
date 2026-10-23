@@ -2,10 +2,12 @@
 // for each. It never runs a query and never answers the owner. The system prompt is prompts/planner.md as-is; the
 // user message is one JSON object (rule 7: data goes to the model as JSON, never into the system prompt). Each
 // step's query_id is checked against the task's catalogue and its params against that query's schema; an invalid
-// step is dropped and traced, never run. Server only (node:fs reads the prompt).
+// step is dropped and traced, never run. A reply with no valid step is asked for again by llm.ts (planReplyProblem);
+// when none can be read, the orchestrator uses defaultPlanFor, the task's default plan built in code. Server only (node:fs reads the prompt).
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { catalogueFor, memoriesForModel, type MemoryForModel, type Task } from "../context";
+import { defaultPlan } from "../default-plan";
 import { afterModel } from "../guards";
 import { complete as completeModel, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
@@ -108,6 +110,41 @@ export const planReplySchema = z.object({
   injection_seen: z.boolean().catch(false),
 });
 
+/** The reply's shape as prompts/planner.md gives it, restated by llm.ts when it asks again after a bad reply. */
+export const PLANNER_REPLY_SHAPE =
+  '{"focus": "<one sentence>", "steps": [{"query_id": "<id from the catalogue>", "params": {"as_of": "yyyy-mm-dd"}, "why": "<one short sentence>"}], "declined_advice": false, "injection_seen": false}';
+
+/**
+ * Why a parsed reply cannot be used as a plan, or null: it needs a steps list with at least one step that matches the
+ * step schema, names a query in the task's catalogue and passes that query's params schema. A plan with some valid
+ * steps passes; plan() drops the others and traces each, as before.
+ */
+export function planReplyProblem(json: Record<string, unknown>, allowed: ReadonlySet<string>): string | null {
+  const steps = json.steps;
+  if (!Array.isArray(steps)) return "steps must be a list of {query_id, params, why}";
+  if (steps.length === 0) return "steps is empty: plan at least one query from the catalogue";
+  const checked = steps.map((step, index) => checkStep(step, index, allowed));
+  if (checked.some((result) => result.ok)) return null;
+  const first = checked[0];
+  return `no step is valid; step 1: ${first.ok ? "valid" : first.dropped.reason}`;
+}
+
+/** The task's default plan (default-plan.ts) through the same step checks and MAX_PLAN_STEPS cut as a model's plan. */
+export function defaultPlanFor(request: PlanRequest, config?: Config): { focus: string; steps: PlannedStep[]; dropped: DroppedStep[] } {
+  const input = plannerInput(request, config);
+  const allowed = new Set(input.catalogue.map((entry) => entry.id));
+  const planned = defaultPlan({ task: input.task, as_of: input.as_of, trade: input.trade, feedback: input.feedback, catalogue: [...allowed] });
+  const steps: PlannedStep[] = [];
+  const dropped: DroppedStep[] = [];
+  planned.steps.forEach((step, index) => {
+    const checked = checkStep(step, index, allowed);
+    if (checked.ok) steps.push(checked.step);
+    else dropped.push(checked.dropped);
+  });
+  const max = config?.MAX_PLAN_STEPS ?? steps.length;
+  return { focus: planned.focus, steps: steps.slice(0, max), dropped };
+}
+
 /** prompts/planner.md as-is with its hash, read once (prompts.ts). */
 export function plannerPromptVersion(): PromptVersion {
   return promptVersion("planner");
@@ -180,12 +217,16 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
     `task=${input.task} as_of=${input.as_of} question ${input.question.length} chars, ${input.memories.length} memories, ${input.world.length} world facts, ${input.catalogue.length} queries, feedback=${input.feedback === null ? "none" : `${input.feedback.length} chars`}`,
   );
 
+  const allowed = new Set(input.catalogue.map((entry) => entry.id));
   const result = await (deps.complete ?? completeModel)({
     system: plannerPromptVersion().text,
     prompt_hash: plannerPromptVersion().prompt_hash,
     user: JSON.stringify(input),
     model: "strong",
     json: true,
+    // llm.ts asks again when the reply has no usable step, saying why and restating the shape.
+    validate: (json) => planReplyProblem(json, allowed),
+    replyShape: PLANNER_REPLY_SHAPE,
     agent: AGENT,
     tracer,
     config: cfg,
@@ -212,7 +253,6 @@ export async function plan(request: PlanRequest, deps: PlanDeps): Promise<PlanOu
   }
 
   // Drop invalid steps first, then cut to the limit, so a bad step never takes a valid one's place.
-  const allowed = new Set(input.catalogue.map((entry) => entry.id));
   const kept: PlannedStep[] = [];
   const dropped: DroppedStep[] = [];
   reply.steps.forEach((step, index) => {

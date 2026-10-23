@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DISCLAIMER } from "./agents/writer";
 import { checkExpectation, tracePathChecks, universalChecks, type TraceLine } from "./eval-checks";
+import { PLANNER_FALLBACK_LABEL } from "./labels";
 import type { RunOutput, RunResult } from "./orchestrator";
 
 const usage = { model_calls: 4, query_calls: 5, tokens_in: 10, tokens_out: 5, duration_ms: 12 };
@@ -115,6 +116,12 @@ describe("universalChecks", () => {
     const r = result({ stop_reason: "model_unavailable", partial: true, needs_human: true }, { status: "needs_human" });
     expect(failed(universalChecks(r))).toEqual(["model_unavailable: the model failed after the queries"]);
     expect(failed(checkExpectation(r, { status: "needs_human" }, false))).toEqual([]);
+  });
+
+  it("fails a successful result whose plan code built after the Planner's replies could not be read", () => {
+    const r = result({ gaps: [`${PLANNER_FALLBACK_LABEL} (week_moves, rule_findings); the review covers those, not a plan made for this question.`] });
+    expect(failed(universalChecks(r))).toEqual(["planner_fallback: the plan was built in code"]);
+    expect(failed(universalChecks(result({ gaps: ["dividends_between returned no rows."] })))).toEqual([]);
   });
 
   it("skips an error result", () => {

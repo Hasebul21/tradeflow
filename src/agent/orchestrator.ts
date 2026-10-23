@@ -10,15 +10,15 @@
 import path from "node:path";
 import { analyse, type AnalysisOutcome } from "./agents/analyst";
 import { evaluate, type Scores } from "./agents/evaluator";
-import { PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome } from "./agents/planner";
+import { defaultPlanFor, PlanBlockedError, plan, type PlannedStep, type PlannerTrade, type PlanOutcome, type PlanRequest } from "./agents/planner";
 import { route } from "./agents/router";
 import { DISCLAIMER, write } from "./agents/writer";
 import { BRIEFING_MIN_CHILD_MS, ConfigError, loadConfig, type Config, type Tier } from "./config";
 import { runWithLimit } from "./concurrency";
 import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
-import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
-import { failedCallUsage, ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
+import { MODEL_UNAVAILABLE_LABEL, PLANNER_FALLBACK_LABEL, STOP_REASONS } from "./labels";
+import { BadJson, failedCallUsage, ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
 import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
 import { register, release } from "./registry";
@@ -651,7 +651,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     let feedback: string | null = null;
     let previous: Finding[] | null = null;
     /** thesis_check: the evidence, the plan's focus and each batch's findings and gaps, kept across rounds. */
-    let thesis: { prepared: PreparedTheses; focus: string; found: (Finding[] | null)[]; gapsBy: string[][]; codeGapsBy: string[][] } | null = null;
+    let thesis: { prepared: PreparedTheses; focus: string; /** The planner_fallback gap, when code made the plan. */ note: string | null; found: (Finding[] | null)[]; gapsBy: string[][]; codeGapsBy: string[][] } | null = null;
     let stop: StopReason | null = null;
     let round = 0;
     /** The agent whose model call is running, so a model failure can name it. */
@@ -673,13 +673,17 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
       return { kind: "needs_human", stop: reason, detail, draft, rounds: roundsRun() };
     };
 
-    /** A model failure after the queries ran: the best draft so far, a review built in code, one fallback line. */
+    /**
+     * A model failure after the queries ran: the best draft so far, a review built in code, one fallback line. A
+     * BadJson here means the model answered on every try but no reply could be read, which the review says.
+     */
     const modelUnavailable = (error: ModelError): NeedsHuman => {
       const type = errorOf(error).type;
+      const unreadable = error instanceof BadJson;
       const ran = Object.values(state.store).map((result) => result.query_id);
       const detail = `${type} in the ${calling}'s call (${error.message}); ${ran.length} queries ran: ${ran.join(", ")}.`;
       const base = accepted ?? best ?? latest;
-      const gap = `The ${calling}'s model call failed (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
+      const gap = `The ${calling}'s ${unreadable ? "model replies could not be read" : "model call failed"} (${type}), so ${calling === "Writer" ? "no review was written" : "the draft was not completed or checked"}.`;
       const draft: Draft = { findings: base?.findings ?? [], gaps: [...(base?.gaps ?? []), gap], code_gaps: [...(base?.code_gaps ?? []), gap], scores: base?.scores ?? null, total: base?.total ?? null, round: base?.round ?? round };
       tracer.log({
         agent_name: AGENT,
@@ -692,12 +696,50 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         retry_count: Math.min(round, config.MAX_ROUNDS - 1),
         stop_reason: "model_unavailable",
       });
-      const summary = `${MODEL_UNAVAILABLE_LABEL}. The model did not answer (${type}, in the ${calling}'s step), so this draft comes from ${ran.length} query results. Nothing was reviewed or scored.`;
+      const summary = `${MODEL_UNAVAILABLE_LABEL}. The model ${unreadable ? "answered, but none of its replies could be read" : "did not answer"} (${type}, in the ${calling}'s step), so this draft comes from ${ran.length} query results. Nothing was reviewed or scored.`;
       const lines = [summary, "", `Queries that ran: ${ran.join(", ")}.`, ""];
       if (draft.findings.length === 0) lines.push("No findings were drafted before the model stopped answering.");
       for (const finding of draft.findings) lines.push(`- ${finding.claim} ${finding.cites.map((id) => `[q:${id}]`).join(" ")}`.trimEnd());
       lines.push("", `Not covered: ${draft.gaps.join("; ")}`, "", DISCLAIMER);
       return { kind: "needs_human", stop: "model_unavailable", detail, draft, rounds: roundsRun(), summary, review_markdown: lines.join("\n") };
+    };
+
+    /**
+     * The Planner's call, counted here (plan() has no run of its own, so every request it made is counted, failed or
+     * not). When its replies still cannot be read as a plan after llm.ts's tries (BadJson), code builds the task's
+     * default plan (default-plan.ts, through the Planner's own step checks), writes one Orchestrator "planner_fallback"
+     * line and the run carries on to the Analyst. `note` is the gap that says so in the review. Every other error,
+     * a 502 or a timeout included, passes through as before.
+     */
+    const planOrFallback = async (request: PlanRequest): Promise<{ focus: string; steps: PlannedStep[]; note: string | null }> => {
+      state.beforeModelCall();
+      calling = "Planner";
+      let planned: PlanOutcome;
+      try {
+        planned = await plan(request, { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round });
+      } catch (error) {
+        state.afterFailedModelCall(failedCallUsage(error));
+        if (!(error instanceof BadJson) || signal.aborted) throw error;
+        const fallback = defaultPlanFor(request, config);
+        const ids = fallback.steps.map((step) => step.query_id);
+        const note = `${PLANNER_FALLBACK_LABEL} (${ids.join(", ")}); the review covers those, not a plan made for this question.`;
+        tracer.log({
+          agent_name: AGENT,
+          action: "planner_fallback",
+          input_summary: capped(`round ${round + 1} of ${config.MAX_ROUNDS}; task=${request.task}; the Planner's call failed: BadJson`),
+          output_summary: capped(`${fallback.steps.length} steps planned in code, no model: ${ids.join(", ") || "none"}${fallback.dropped.length > 0 ? `; ${fallback.dropped.length} dropped` : ""}`),
+          target_agent: "Analyst",
+          status: "fallback",
+          why: `BadJson after the Planner's tries (${error.kind}: ${error.reason}); the plan: ${fallback.steps.map((step, index) => `${index + 1}. ${step.query_id}: ${step.why}`).join(" ")}`,
+          retry_count: round,
+        });
+        return { focus: fallback.focus, steps: fallback.steps, note };
+      }
+      state.afterModelCall(planned.model);
+      modelIds.add(planned.model.model_id);
+      if (planned.injection_seen) flags.injection = true;
+      if (planned.declined_advice) declineAdvice("flagged by the Planner");
+      return { focus: planned.focus, steps: planned.steps, note: null };
     };
 
     try {
@@ -789,25 +831,12 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           if (thesis === null) {
             stop = budgetStop(false);
             if (stop !== null) break;
-            state.beforeModelCall();
-            calling = "Planner";
-            const planned: PlanOutcome = await plan(
-              { task, question, as_of: asOf, trade: null, memories, world, feedback },
-              { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
-            ).catch((error: unknown): never => {
-              // plan() has no run of its own: a failed Planner call is counted here, every request it made.
-              state.afterFailedModelCall(failedCallUsage(error));
-              throw error;
-            });
-            state.afterModelCall(planned.model);
-            modelIds.add(planned.model.model_id);
-            if (planned.injection_seen) flags.injection = true;
-            if (planned.declined_advice) declineAdvice("flagged by the Planner");
+            const planned = await planOrFallback({ task, question, as_of: asOf, trade: null, memories, world, feedback });
             stop = budgetStop(true);
             if (stop !== null) break;
             const prepared = await prepareThesisEvidence({ state, tracer, asOf, steps: keepThesisSteps(planned.steps, tracer, round), round });
             thesisIds = prepared.theses.map(({ journal_id, symbol }) => ({ journal_id, symbol }));
-            thesis = { prepared, focus: planned.focus, found: prepared.batches.map(() => null), gapsBy: prepared.batches.map(() => []), codeGapsBy: prepared.batches.map(() => []) };
+            thesis = { prepared, focus: planned.focus, note: planned.note, found: prepared.batches.map(() => null), gapsBy: prepared.batches.map(() => []), codeGapsBy: prepared.batches.map(() => []) };
             tracer.log({
               agent_name: AGENT,
               action: "evidence_built",
@@ -853,8 +882,9 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             thesis.codeGapsBy[index] = analysis.code_gaps;
           }
           findings = thesis.found.flatMap((batchFindings) => batchFindings ?? []);
-          gaps = [...new Set([...thesis.prepared.gaps, ...thesis.gapsBy.flat()])];
-          codeGaps = [...new Set([...thesis.prepared.gaps, ...thesis.codeGapsBy.flat()])];
+          const planNote = thesis.note === null ? [] : [thesis.note];
+          gaps = [...new Set([...thesis.prepared.gaps, ...thesis.gapsBy.flat(), ...planNote])];
+          codeGaps = [...new Set([...thesis.prepared.gaps, ...thesis.codeGapsBy.flat(), ...planNote])];
           if (unusable !== null) {
             feedback = unusable;
             revise(round, feedback, findings.length);
@@ -883,23 +913,10 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           codeGaps = analysis.code_gaps;
           cutByQueryBudget = cutByBudget(fixed);
         } else {
-          // Planner. plan() has no run of its own, so its call is counted here.
+          // Planner, or the task's default plan when its replies cannot be read. Its call is counted in planOrFallback.
           stop = budgetStop(false);
           if (stop !== null) break;
-          state.beforeModelCall();
-          calling = "Planner";
-          const planned: PlanOutcome = await plan(
-            { task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback },
-            { tracer, config, sampleMode, signal, timeoutMs: timeLeft("strong"), roundDeadlineMs: roundDeadline(), modelCallsLeft: state.modelCallsLeft(), round },
-          ).catch((error: unknown): never => {
-            // plan() has no run of its own: a failed Planner call is counted here, every request it made.
-            state.afterFailedModelCall(failedCallUsage(error));
-            throw error;
-          });
-          state.afterModelCall(planned.model);
-          modelIds.add(planned.model.model_id);
-          if (planned.injection_seen) flags.injection = true;
-          if (planned.declined_advice) declineAdvice("flagged by the Planner");
+          const planned = await planOrFallback({ task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback });
 
           // Analyst. The query budget matters only when a planned step is not already in the cache.
           const needsQueries = planned.steps.some((step) => !state.isCached(step.query_id, step.params));
@@ -918,8 +935,9 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           }
           if (analysis.injection_seen) flags.injection = true;
           findings = analysis.findings;
-          gaps = analysis.gaps;
-          codeGaps = analysis.code_gaps;
+          // A plan made in code is said in the review: its note is a gap code wrote.
+          gaps = planned.note === null ? analysis.gaps : [...analysis.gaps, planned.note];
+          codeGaps = planned.note === null ? analysis.code_gaps : [...analysis.code_gaps, planned.note];
           // Stop with that draft instead of scoring it as complete.
           cutByQueryBudget = cutByBudget(planned.steps);
         }
@@ -1002,9 +1020,10 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         if (runLeft() <= 0) return stopped("run_timeout");
         if (roundLeft() <= 0) return stopped("round_timeout");
       }
-      // A provider 5xx (the 502 empty_response included) or a timeout that is not the round's or the run's, after
-      // at least one query result is held: keep the evidence and return a code-built draft, never an error.
-      const failedModel = (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500) || error instanceof ModelTimeout;
+      // A provider 5xx (the 502 empty_response included), a timeout that is not the round's or the run's, or replies
+      // that still could not be read after llm.ts's tries (BadJson: the Analyst's or the Writer's), after at least one
+      // query result is held: keep the evidence and return a code-built draft, never an error.
+      const failedModel = (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500) || error instanceof ModelTimeout || error instanceof BadJson;
       if (failedModel && Object.keys(state.store).length > 0) return modelUnavailable(error as ModelError);
       throw error;
     }

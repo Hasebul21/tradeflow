@@ -78,6 +78,13 @@ export const EMPTY_RESPONSE_MAX_TRIES = 3;
 /** The wait before try 2 and before try 3 of an empty_response retry; it comes out of the round's time left. */
 export const EMPTY_RESPONSE_RETRY_WAITS_MS: readonly number[] = [15000, 30000];
 
+/**
+ * Tries in total for one JSON model call whose reply does not parse or fails the agent's schema, when the caller passes
+ * the round's end (roundDeadlineMs). Each retry says what was wrong and restates the shape, and starts only while at
+ * least MODEL_TIMEOUT_CAP_MS of the round is left. Without the round's end, one retry, as before.
+ */
+export const STRUCTURED_REPLY_MAX_TRIES = 3;
+
 /** A briefing child starts only while at least this much of BRIEFING_TIMEOUT_MS is left; below it the child's section is skipped. */
 export const BRIEFING_MIN_CHILD_MS = 5000;
 

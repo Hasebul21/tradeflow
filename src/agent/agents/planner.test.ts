@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import type { CompleteOptions } from "../llm";
 import type { RecalledMemory } from "../memory";
 import type { TraceInput, Tracer } from "../trace";
-import { PlanBlockedError, plan, type PlanDeps } from "./planner";
+import { loadConfig } from "../config";
+import { defaultPlanFor, PlanBlockedError, plan, planReplyProblem, type PlanDeps } from "./planner";
 
 // A fake tracer keeps every line in memory: no test here writes a trace file. The sample model answers unless a
 // test stubs the model reply.
@@ -194,5 +195,36 @@ describe("the Planner on a stubbed reply", () => {
     expect(outcome.steps).toEqual([]);
     expect(outcome.declined_advice).toBe(true);
     expect(lines.filter((line) => line.action === "reply_without_steps")).toHaveLength(1);
+  });
+});
+
+describe("the Planner's reply check and its default plan", () => {
+  const allowed = new Set(["week_moves", "rule_findings"]);
+
+  it("passes a plan with at least one valid step, and names what is wrong otherwise", () => {
+    expect(planReplyProblem({ steps: [step("week_moves"), step("no_such_query")] }, allowed)).toBeNull();
+    expect(planReplyProblem({ focus: { question: "q" } }, allowed)).toBe("steps must be a list of {query_id, params, why}");
+    expect(planReplyProblem({ steps: [] }, allowed)).toBe("steps is empty: plan at least one query from the catalogue");
+    expect(planReplyProblem({ steps: [step("no_such_query")] }, allowed)).toBe("no step is valid; step 1: no_such_query is not in the task's catalogue");
+  });
+
+  it("asks llm.ts to check the reply and restate the shape", async () => {
+    const calls: CompleteOptions[] = [];
+    const { tracer } = collector();
+    await plan({ task: "explain_week", question: "Why?", as_of: AS_OF }, { tracer, sampleMode: true, complete: stub({ steps: [step("week_moves")] }, calls) });
+    expect(calls[0].validate?.({ steps: [] })).toBe("steps is empty: plan at least one query from the catalogue");
+    expect(calls[0].replyShape).toContain('"steps"');
+  });
+
+  it("builds the sample model's plan in code for explain_week, every step through the step checks", async () => {
+    const config = loadConfig({ SAMPLE_MODE: "true" }, () => {});
+    const fallback = defaultPlanFor({ task: "explain_week", question: "Why?", as_of: AS_OF }, config);
+    expect(fallback.dropped).toEqual([]);
+    expect(fallback.steps.map((s) => s.query_id)).toEqual(["week_moves", "sector_vs_stock", "announcements_between", "dividends_between", "rule_findings"]);
+    expect(fallback.steps[2].params).toMatchObject({ from: WEEK_START, to: AS_OF });
+    const { tracer } = collector();
+    const sample = await plan({ task: "explain_week", question: "Why?", as_of: AS_OF }, { tracer, sampleMode: true, config });
+    expect(fallback.steps).toEqual(sample.steps);
+    expect(fallback.focus).toBe(sample.focus);
   });
 });

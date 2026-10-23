@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadConfig } from "./config";
+import { loadConfig, MODEL_TIMEOUT_CAP_MS, STRUCTURED_REPLY_MAX_TRIES } from "./config";
 import {
   BadJson,
   complete,
+  failedCallUsage,
   ModelHttpError,
   ModelTimeout,
   NightshiftNotRunning,
@@ -12,6 +13,7 @@ import {
   Unauthorized,
   type CompleteOptions,
 } from "./llm";
+import { BudgetExhaustedError } from "./run-state";
 import { complete as sampleComplete } from "./sample-model";
 import type { TraceInput } from "./trace";
 
@@ -112,7 +114,10 @@ describe("complete with the openai client mocked", () => {
     const result = await complete({ ...base, json: true });
     expect(mocks.create).toHaveBeenCalledTimes(2);
     const [second] = mocks.create.mock.calls[1] as [{ messages: { role: string; content: string }[] }];
-    expect(second.messages.find((m) => m.role === "user")?.content).toContain("Reply with the JSON object only.");
+    // The original user message is sent unchanged; the request for JSON only is one more user message at the end.
+    expect(second.messages.find((m) => m.role === "user")?.content).toBe("Plan the week.");
+    expect(second.messages.at(-1)).toMatchObject({ role: "user" });
+    expect(second.messages.at(-1)?.content).toContain("Reply with the JSON object only.");
     expect(result.json).toEqual({ a: 1 });
     const line = traced("model_call")[0];
     expect(line.model_retries).toBe(1);
@@ -386,5 +391,114 @@ describe("complete: paths beyond the eleven cases", () => {
     expect(lines[0].usage?.tokens_in).toBeGreaterThan(0);
     expect(typeof lines[0].duration_ms).toBe("number");
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("parseJsonReply: sturdier reading before BadJson", () => {
+  it("reads a JSON object inside a code fence with prose around it", () => {
+    expect(parseJsonReply('Here is my plan:\n```json\n{"steps": [{"a": 1}]}\n```\nI hope this helps.')).toEqual({ steps: [{ a: 1 }] });
+  });
+
+  it("takes the outermost balanced object, not the last } in trailing prose", () => {
+    expect(parseJsonReply('{"a": {"b": "x}"}} and that is all {not json}')).toEqual({ a: { b: "x}" } });
+  });
+
+  it("skips a span in braces that is not JSON and reads the object after it", () => {
+    expect(parseJsonReply('I use {braces} sometimes. {"a": 1}')).toEqual({ a: 1 });
+  });
+
+  it("refuses a cut-off object, and never takes the nested object inside it for the reply", () => {
+    // The shape of example_2's Planner reply on 23 Oct 2026: the outer { is never closed.
+    const cut = '{"focus":{"Which rules are broken this week?":"Which rules are broken this week?"}';
+    const error = (() => {
+      try {
+        return parseJsonReply(cut);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(error).toBeInstanceOf(BadJson);
+    expect((error as BadJson).kind).toBe("parse");
+    expect((error as BadJson).reason).toBe("the JSON object is cut off: a { is never closed");
+  });
+
+  it("names an empty reply as its reason", () => {
+    expect(() => parseJsonReply("  ")).toThrow(/the reply is empty/);
+  });
+});
+
+describe("complete: structured retries within the round", () => {
+  const stepsOnly = (json: Record<string, unknown>) => (Array.isArray(json.steps) && json.steps.length > 0 ? null : "steps must be a non-empty list");
+  const inRound = (leftMs: number): CompleteOptions => ({ ...base, json: true, validate: stepsOnly, replyShape: '{"steps": [...]}', roundDeadlineMs: Date.now() + leftMs, timeoutMs: Math.min(MODEL_TIMEOUT_CAP_MS, leftMs) });
+  const userMessages = (call: number) => (mocks.create.mock.calls[call][0] as { messages: { role: string; content: string }[] }).messages.filter((m) => m.role === "user");
+
+  it("a reply that fails the schema twice, then a valid one: 3 requests, 2 model_retry lines that say what was wrong, model_calls 3", async () => {
+    mocks.create
+      .mockResolvedValueOnce(reply('{"focus": "x"}'))
+      .mockResolvedValueOnce(reply('{"steps": []}'))
+      .mockResolvedValueOnce(reply('{"steps": [1]}'));
+    const result = await complete(inRound(900000));
+    expect(result.json).toEqual({ steps: [1] });
+    expect(result.model_calls).toBe(3);
+    expect(mocks.create).toHaveBeenCalledTimes(3);
+    const retries = traced("model_retry");
+    expect(retries).toHaveLength(2);
+    expect(retries.every((line) => line.why === "reply failed the schema" && line.usage?.model_calls === 1)).toBe(true);
+    expect(retries[0].output_summary).toContain(`try 2 of ${STRUCTURED_REPLY_MAX_TRIES}`);
+    expect(retries[1].output_summary).toContain(`try 3 of ${STRUCTURED_REPLY_MAX_TRIES}`);
+    // Each retry keeps the original user message and adds one that names the problem and restates the shape.
+    const retry = userMessages(1);
+    expect(retry[0].content).toBe("Plan the week.");
+    expect(retry.at(-1)?.content).toContain("steps must be a non-empty list");
+    expect(retry.at(-1)?.content).toContain('The shape: {"steps": [...]}');
+    expect(traced("model_call")[0]).toMatchObject({ status: "ok", model_retries: 2, usage: { model_calls: 1 } });
+    expect(lines.reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(3);
+  });
+
+  it("three bad replies: BadJson of kind schema after 3 requests, all 3 counted on the error", async () => {
+    mocks.create.mockResolvedValue(reply('{"steps": "none"}'));
+    const error = await complete(inRound(900000)).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BadJson);
+    expect((error as BadJson).kind).toBe("schema");
+    expect(mocks.create).toHaveBeenCalledTimes(STRUCTURED_REPLY_MAX_TRIES);
+    expect(failedCallUsage(error).model_calls).toBe(STRUCTURED_REPLY_MAX_TRIES);
+  });
+
+  it("starts no structured retry with under MODEL_TIMEOUT_CAP_MS of the round left", async () => {
+    mocks.create.mockResolvedValue(reply("not json"));
+    const error = await complete(inRound(MODEL_TIMEOUT_CAP_MS - 1)).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BadJson);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(traced("model_retry")).toHaveLength(0);
+  });
+
+  it("starts no structured retry past modelCallsLeft: BudgetExhaustedError with the first request counted", async () => {
+    mocks.create.mockResolvedValue(reply("not json"));
+    const error = await complete({ ...inRound(900000), modelCallsLeft: 1 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BudgetExhaustedError);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(failedCallUsage(error).model_calls).toBe(1);
+  });
+
+  it("a timeout gets one retry as a whole new attempt when the round has room for a whole call", async () => {
+    const timeout = Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+    mocks.create.mockRejectedValueOnce(timeout).mockResolvedValueOnce(reply('{"steps": [1]}'));
+    // 900 ms left for the call: without the round's room the retry floor (one second) would refuse a retry.
+    const result = await complete({ ...inRound(900000), timeoutMs: 900 });
+    expect(result.json).toEqual({ steps: [1] });
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(traced("model_retry")).toMatchObject([{ why: "timeout", usage: { model_calls: 1 } }]);
+    // The retry got the tier's whole timeout again, not what was left of the first attempt.
+    const [, options] = mocks.create.mock.calls[1] as [unknown, { timeout: number }];
+    expect(options.timeout).toBeGreaterThan(MODEL_TIMEOUT_CAP_MS - 5000);
+  });
+
+  it("a timeout with under MODEL_TIMEOUT_CAP_MS of the round left is not retried: ModelTimeout after one request", async () => {
+    const timeout = Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+    mocks.create.mockRejectedValue(timeout);
+    const error = await complete({ ...inRound(MODEL_TIMEOUT_CAP_MS - 1), timeoutMs: 900 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelTimeout);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(traced("model_retry")).toHaveLength(0);
   });
 });

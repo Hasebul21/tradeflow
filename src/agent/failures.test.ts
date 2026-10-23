@@ -3,7 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadConfig } from "./config";
+import { loadConfig, STRUCTURED_REPLY_MAX_TRIES } from "./config";
 import { resetModelQuirks, type CompleteOptions, type CompleteResult } from "./llm";
 import { run, type RunResult } from "./orchestrator";
 import { complete as sampleComplete } from "./sample-model";
@@ -228,21 +228,24 @@ describe("no Meterless key: sample mode", () => {
 });
 
 describe("the model fails", () => {
-  it("retries a reply that is not JSON once, then returns a structured BadJson error", async () => {
+  it("a model whose every reply is not JSON: each call tries 3 times, the plan is made in code, and the run ends needs_human, never error", async () => {
     const config = realConfig();
     mocks.create.mockResolvedValue({ model: "test-strong", choices: [{ message: { role: "assistant", content: "not json" } }], usage: { prompt_tokens: 10, completion_tokens: 2 } });
 
     const { result, ms } = await timed(() => explainWeek(nextId("badjson"), config));
 
-    expect(result.status).toBe("error");
-    expect(result.output).toBeNull();
-    expect(result.error).toEqual({ type: "BadJson", message: expect.any(String), recoverable: false });
-    expect(result.error!.message.length).toBeGreaterThan(0);
-    expect(mocks.create).toHaveBeenCalledTimes(2);
+    // The Planner's 3 tries end in its fallback plan; the Analyst's 3 tries end the run with the model_unavailable fallback.
+    expect(result.status).toBe("needs_human");
+    expect(result.error).toBeNull();
+    expect(result.output).toMatchObject({ stop_reason: "model_unavailable", partial: true, findings: [] });
+    expect(mocks.create).toHaveBeenCalledTimes(2 * STRUCTURED_REPLY_MAX_TRIES);
+    expect(result.usage.model_calls).toBe(2 * STRUCTURED_REPLY_MAX_TRIES);
     const lines = trace(result);
-    expect(lines.filter((line) => line.action === "model_retry" && line.why === "unparseable JSON reply")).toHaveLength(1);
-    expect(lines.at(-1)).toMatchObject({ agent_name: "Orchestrator", action: "run_end", status: "error" });
-    console.log(`[failures] bad json twice: status=${result.status} error.type=${result.error!.type} ${ms} ms`);
+    expect(lines.filter((line) => line.action === "model_retry" && line.why === "unparseable JSON reply")).toHaveLength(2 * (STRUCTURED_REPLY_MAX_TRIES - 1));
+    expect(lines.filter((line) => line.action === "planner_fallback")).toHaveLength(1);
+    expect(lines.filter((line) => line.action === "model_unavailable_fallback")[0].why).toMatch(/BadJson from the Analyst/);
+    expect(lines.at(-1)).toMatchObject({ agent_name: "Orchestrator", action: "run_end", status: "needs_human", stop_reason: "model_unavailable" });
+    console.log(`[failures] bad json every time: status=${result.status} stop_reason=${result.output?.stop_reason} ${ms} ms`);
   }, 30000);
 
   it("returns NightshiftNotRunning for a refused connection, with no fallback and no sample reply", async () => {
@@ -338,5 +341,124 @@ describe("every run-ending limit ends in needs_human with its stop_reason", () =
     expect(result.usage.model_calls).toBeLessThanOrEqual(2);
     expect(trace(result).at(-1)).toMatchObject({ action: "run_end", status: "needs_human", stop_reason: "model_calls" });
     console.log(`[failures] model_calls: status=${result.status} stop_reason=${result.output?.stop_reason} ${ms} ms`);
+  }, 30000);
+});
+
+describe("replies that cannot be read: each agent recovers or falls back, and the run never ends status error", () => {
+  type Bad = (call: number, params: CreateParams) => Promise<string | null>;
+  const agentOf = (params: CreateParams) => /^You are the (Planner|Analyst|Evaluator|Writer) in/.exec(params.messages[0].content)?.[1] ?? "Memory";
+  const text = (content: string, params: CreateParams) => ({ model: params.model, choices: [{ message: { role: "assistant", content } }], usage: { prompt_tokens: 10, completion_tokens: 2 } });
+
+  /** Every agent gets the sample model's reply, except `agent`, whose reply on its call n is bad(n) when that is not null. */
+  function mockAgent(config: ReturnType<typeof realConfig>, agent: string, bad: Bad): () => number {
+    let calls = 0;
+    mocks.create.mockImplementation(async (params: CreateParams) => {
+      if (agentOf(params) === agent) {
+        calls += 1;
+        const content = await bad(calls, params);
+        if (content !== null) return text(content, params);
+      }
+      return sampleReply(params, config);
+    });
+    return () => calls;
+  }
+  const sampleText = async (params: CreateParams, config: ReturnType<typeof realConfig>) => (await sampleReply(params, config)).choices[0].message.content as string;
+  const by = (lines: TraceLine[], agent: string, action: string) => lines.filter((line) => line.agent_name === agent && line.action === action);
+  const modelCallsOnLines = (lines: TraceLine[]) => lines.filter((line) => line.action !== "run_end").reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0);
+  // The shape of example_2's Planner reply on 23 Oct 2026: an object keyed by the question, and the outer { never closed.
+  const CUT_OFF = '{"focus":{"Which rules are broken this week?":"Which rules are broken this week?"}';
+
+  it("a Planner reply that is valid JSON inside a code fence is parsed with no retry", async () => {
+    const config = realConfig();
+    const planner = mockAgent(config, "Planner", async (_call, params) => `Here is the plan:\n\`\`\`json\n${await sampleText(params, config)}\n\`\`\`\nDone.`);
+    const result = await explainWeek(nextId("fenced"), config);
+    expect(result.status).toBe("success");
+    expect(planner()).toBe(1);
+    const lines = trace(result);
+    expect(lines.filter((line) => line.action === "model_retry")).toHaveLength(0);
+    expect(by(lines, "Planner", "plan")[0].output_summary).toMatch(/^5 steps/);
+    expect(by(lines, "Orchestrator", "planner_fallback")).toHaveLength(0);
+  }, 30000);
+
+  it("a Planner reply that fails the schema twice, then a valid one: success, 3 model calls counted, 2 retry lines", async () => {
+    const config = realConfig();
+    const planner = mockAgent(config, "Planner", async (call) => (call === 1 ? `${CUT_OFF}}` : call === 2 ? '{"focus": "the week", "steps": []}' : null));
+    const result = await explainWeek(nextId("schema-twice"), config);
+    expect(result.status).toBe("success");
+    expect(planner()).toBe(3);
+    const lines = trace(result);
+    const retries = by(lines, "Planner", "model_retry");
+    expect(retries).toHaveLength(2);
+    expect(retries.every((line) => line.why === "reply failed the schema" && line.usage?.model_calls === 1)).toBe(true);
+    expect(by(lines, "Planner", "model_call")).toMatchObject([{ status: "ok", model_retries: 2, usage: { model_calls: 1 } }]);
+    // The Planner's 3 requests are 3 model calls in the run's usage, and the lines still add up to it.
+    expect([...retries, ...by(lines, "Planner", "model_call")].reduce((n, line) => n + (line.usage?.model_calls ?? 0), 0)).toBe(3);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
+    expect(by(lines, "Orchestrator", "planner_fallback")).toHaveLength(0);
+  }, 30000);
+
+  it("a Planner that never returns a valid plan: the default plan from code, one fallback line, and the run does not end error", async () => {
+    const config = realConfig();
+    const planner = mockAgent(config, "Planner", async () => CUT_OFF);
+    const result = await explainWeek(nextId("planner-fallback"), config);
+    expect(result.status).not.toBe("error");
+    expect(result.status).toBe("success");
+    expect(planner()).toBe(STRUCTURED_REPLY_MAX_TRIES);
+    const lines = trace(result);
+    const fallback = by(lines, "Orchestrator", "planner_fallback");
+    expect(fallback).toHaveLength(1);
+    expect(fallback[0]).toMatchObject({ status: "fallback", target_agent: "Analyst" });
+    expect(fallback[0].output_summary).toContain("week_moves, sector_vs_stock, announcements_between, dividends_between, rule_findings");
+    expect(fallback[0].why).toContain("BadJson");
+    // The plan is labelled as code's in the review's gaps, never passed off as the Planner's.
+    expect(result.output!.gaps.some((gap) => gap.startsWith("The Planner's model replies could not be read (BadJson)"))).toBe(true);
+    expect(by(lines, "Planner", "plan")).toHaveLength(0);
+    expect(lines.filter((line) => line.agent_name === "Query" && line.action === "query").length).toBeGreaterThan(0);
+    // Each finding cites only rows a query of this run returned.
+    const cited = new Set(result.output!.citations.map((citation) => citation.run_query_id));
+    for (const finding of result.output!.findings) for (const cite of finding.cites) expect(cited.has(cite)).toBe(true);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
+  }, 30000);
+
+  it("an Analyst that never returns valid output: needs_human with the model_unavailable fallback, and the trace says why", async () => {
+    const config = realConfig();
+    const analyst = mockAgent(config, "Analyst", async () => '{"findings": "none"}');
+    const result = await explainWeek(nextId("analyst-bad"), config);
+    expect(result.status).toBe("needs_human");
+    expect(analyst()).toBe(STRUCTURED_REPLY_MAX_TRIES);
+    expect(result.output).toMatchObject({ stop_reason: "model_unavailable", findings: [], partial: true });
+    expect(result.output!.summary).toContain("none of its replies could be read");
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "model_unavailable_fallback")[0].why).toMatch(/^BadJson from the Analyst's model call/);
+    expect(by(lines, "Analyst", "model_retry").every((line) => line.why === "reply failed the schema")).toBe(true);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
+  }, 30000);
+
+  it("an Evaluator that never returns valid output: the draft is accepted on the code checks (score_unavailable) and the run ends success", async () => {
+    const config = realConfig();
+    const evaluator = mockAgent(config, "Evaluator", async () => '{"accuracy": "high"}');
+    const result = await explainWeek(nextId("evaluator-bad"), config);
+    expect(result.status).toBe("success");
+    expect(evaluator()).toBe(STRUCTURED_REPLY_MAX_TRIES);
+    expect(result.output!.scores).toBeNull();
+    const lines = trace(result);
+    expect(by(lines, "Evaluator", "score_unavailable")).toMatchObject([{ status: "accepted", why: "the model's replies could not be read as a score; the code checks passed" }]);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
+  }, 30000);
+
+  it("a Writer that never returns valid output: needs_human with the accepted findings in a review built by code", async () => {
+    const config = realConfig();
+    const writer = mockAgent(config, "Writer", async () => "not json");
+    const result = await explainWeek(nextId("writer-bad"), config);
+    expect(result.status).toBe("needs_human");
+    expect(writer()).toBe(STRUCTURED_REPLY_MAX_TRIES);
+    const output = result.output!;
+    expect(output).toMatchObject({ stop_reason: "model_unavailable", partial: true });
+    expect(output.findings.length).toBeGreaterThan(0);
+    expect(output.gaps.join(" ")).toContain("The Writer's model replies could not be read (BadJson)");
+    expect(output.review_markdown.trimEnd().split("\n").at(-1)).toBe("This is a review of your own records, not financial advice.");
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "model_unavailable_fallback")[0].why).toMatch(/^BadJson from the Writer's model call/);
+    expect(modelCallsOnLines(lines)).toBe(result.usage.model_calls);
   }, 30000);
 });

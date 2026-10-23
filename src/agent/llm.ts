@@ -11,6 +11,7 @@ import {
   EMPTY_RESPONSE_RETRY_WAITS_MS,
   loadConfig,
   MODEL_TIMEOUT_CAP_MS,
+  STRUCTURED_REPLY_MAX_TRIES,
   type Config,
   type Tier,
 } from "./config";
@@ -58,6 +59,14 @@ export type CompleteOptions = {
    * the error is rethrown at once: never retried, never a fallback); in sample mode it is checked before the reply.
    */
   signal?: AbortSignal;
+  /**
+   * json calls only: checks the parsed reply against the agent's schema and returns a short reason when it fails, null
+   * when it passes. A reply that fails is retried like one that does not parse; a reply with tool calls is not checked.
+   * Sample mode never calls it: the sample model builds each reply to its schema.
+   */
+  validate?: (json: Record<string, unknown>) => string | null;
+  /** json calls only: the reply's shape in one line, restated in the message that asks again after a bad reply. */
+  replyShape?: string;
 };
 
 export type ToolCallResult = {
@@ -107,13 +116,22 @@ export class ModelError extends Error {
   }
 }
 export class PromptTooLarge extends ModelError {}
+/**
+ * A reply that could not be used: it holds no JSON object ("parse"), or its object fails the agent's schema
+ * ("schema"). `reason` says what was wrong in a few words; it is what a retry tells the model.
+ */
 export class BadJson extends ModelError {
   /** The first 200 characters of the reply. */
   readonly reply: string;
-  constructor(reply: string) {
+  readonly reason: string;
+  readonly kind: "parse" | "schema";
+  constructor(reply: string, reason = "", kind: "parse" | "schema" = "parse") {
     const excerpt = reply.slice(0, 200);
-    super(`The model reply is not a JSON object. Start of the reply: ${JSON.stringify(excerpt)}`);
+    const what = kind === "schema" ? "does not match the reply schema" : "is not a JSON object";
+    super(`The model reply ${what}${reason === "" ? "" : ` (${reason})`}. Start of the reply: ${JSON.stringify(excerpt)}`);
     this.reply = excerpt;
+    this.reason = reason;
+    this.kind = kind;
   }
 }
 export class Unauthorized extends ModelError {}
@@ -132,22 +150,55 @@ export class ModelHttpError extends ModelError {
 // ---------------------------------------------------------------------------------------------------------------
 // parseJsonReply
 
-/** Removes <think> blocks and Markdown fences, then parses from the first "{" to the last "}". Throws BadJson. */
+/**
+ * The index of the "}" that closes the "{" at `start`, skipping braces inside JSON strings; -1 when it never closes
+ * (the reply was cut off).
+ */
+function closingBrace(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (inString) {
+      if (char === "\\") i += 1;
+      else if (char === '"') inString = false;
+    } else if (char === '"') {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Removes <think> blocks and Markdown fences, then takes the outermost balanced {...} spans in order (prose or a fence
+ * around the object is fine) and returns the first that parses as a JSON object. A nested object is never taken
+ * for the reply. Throws BadJson, with what was wrong as its reason.
+ */
 export function parseJsonReply(text: string): Record<string, unknown> {
   const cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/```[A-Za-z0-9_-]*/g, "")
     .trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new BadJson(text);
-  try {
-    const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
-    if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
-  } catch {
-    // falls through to BadJson
+  if (cleaned === "") throw new BadJson(text, "the reply is empty");
+  let start = cleaned.indexOf("{");
+  if (start === -1) throw new BadJson(text, "the reply holds no {...} object");
+  while (start !== -1) {
+    const end = closingBrace(cleaned, start);
+    if (end === -1) throw new BadJson(text, "the JSON object is cut off: a { is never closed");
+    try {
+      const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+    } catch {
+      // Not JSON (prose in braces, or a malformed object): try the next outermost span.
+    }
+    start = cleaned.indexOf("{", end + 1);
   }
-  throw new BadJson(text);
+  throw new BadJson(text, "no {...} span in the reply parses as JSON");
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -334,28 +385,36 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
     lastRequested = answered.requested;
 
     let json: Record<string, unknown> | null | undefined;
-    if (answered.message.toolCalls === undefined && options.json === true) {
-      try {
-        json = parseJsonReply(answered.message.text);
-      } catch (first) {
-        if (!(first instanceof BadJson)) throw first;
-        // With under a second left there is no time for another request: the first error stands.
-        if (timeLeftMs(state) < RETRY_FLOOR_MS) throw first;
-        state.retries += 1;
-        options.tracer?.log({
-          ...baseLine(),
-          action: "model_retry",
-          output_summary: "the reply is empty or not JSON; asking once more (that reply counted as a model call)",
-          status: "retry",
-          usage: countAttemptOnLine(state),
-          why: "unparseable JSON reply",
-          model: answered.requested,
-        });
-        // The retry stays on the model that answered: no second fallback.
-        const again = await callTier(state, answered.tier, `${options.user}\n\n${JSON_ONLY_SENTENCE}`);
-        answered = { ...answered, message: again.message };
-        json = parseJsonReply(again.message.text);
+    // A reply that does not parse, or fails the caller's schema, is asked for again: up to STRUCTURED_REPLY_MAX_TRIES
+    // tries when the caller passed the round's end, else one retry. Each retry is traced and counted as a model call.
+    const maxTries = options.roundDeadlineMs === undefined ? 2 : STRUCTURED_REPLY_MAX_TRIES;
+    for (let tries = 1; answered.message.toolCalls === undefined && options.json === true; tries += 1) {
+      const bad = structuralProblem(answered.message.text, options.validate);
+      if (bad.json !== undefined) {
+        json = bad.json;
+        break;
       }
+      const problem = bad.error;
+      const correction = retryMessage(problem, options.replyShape);
+      if (tries >= maxTries || !structuredRetryFits(state, promptChars + correction.length)) throw problem;
+      state.retries += 1;
+      options.tracer?.log({
+        ...baseLine(),
+        action: "model_retry",
+        output_summary: scrub(
+          `${problem.kind === "schema" ? "the reply fails the schema" : "the reply is empty or not JSON"} (${problem.reason}); try ${tries + 1} of ${maxTries}, saying what was wrong (that reply counted as a model call)`,
+          cfg,
+        ),
+        status: "retry",
+        usage: countAttemptOnLine(state),
+        why: problem.kind === "schema" ? "reply failed the schema" : "unparseable JSON reply",
+        model: answered.requested,
+      });
+      // The retry stays on the model that answered: no second fallback. The original messages stay as they were; the
+      // correction is one more user message at the end.
+      renewDeadlineInRound(state, answered.tier);
+      const again = await callTier(state, answered.tier, options.user, [{ role: "user", content: correction }]);
+      answered = { ...answered, message: again.message };
     }
 
     const message = answered.message;
@@ -461,7 +520,8 @@ async function callWithFallback(state: CallState, tier: Tier, user: string): Pro
   }
 }
 
-async function callTier(state: CallState, tier: Tier, user: string): Promise<{ message: ParsedMessage; requested: string }> {
+/** `tail`: messages after the history, such as the correction a structured retry sends. */
+async function callTier(state: CallState, tier: Tier, user: string, tail: HistoryMessage[] = []): Promise<{ message: ParsedMessage; requested: string }> {
   const { options, cfg } = state;
   const requested = cfg.models[tier];
   if (requested === undefined) throw new ConfigError(`NEMOTRON_MODEL_${SOURCE_TIERS[tier].toUpperCase()} is empty.`);
@@ -470,6 +530,7 @@ async function callTier(state: CallState, tier: Tier, user: string): Promise<{ m
     { role: "system", content: options.system },
     { role: "user", content: user },
     ...(options.history ?? []),
+    ...tail,
   ];
   const response = await sendWithRetry(state, tier, requested, messages);
 
@@ -616,6 +677,43 @@ function uncounted(state: CallState): number {
 /** No retry is made with less than this left before the deadline: the retry would time out at once. */
 const RETRY_FLOOR_MS = 1000;
 
+/** The parsed reply, or the BadJson that says why it cannot be used: it does not parse, or `validate` refuses it. */
+function structuralProblem(text: string, validate: CompleteOptions["validate"]): { json: Record<string, unknown>; error?: undefined } | { json?: undefined; error: BadJson } {
+  let json: Record<string, unknown>;
+  try {
+    json = parseJsonReply(text);
+  } catch (error) {
+    if (error instanceof BadJson) return { error };
+    throw error;
+  }
+  const reason = validate?.(json) ?? null;
+  return reason === null ? { json } : { error: new BadJson(text, reason.slice(0, 300), "schema") };
+}
+
+/** The user message a structured retry adds: what was wrong, briefly, and the shape again. Code text, never reply text. */
+function retryMessage(problem: BadJson, shape: string | undefined): string {
+  const what = problem.kind === "schema" ? `Your last reply did not match the required shape: ${problem.reason}.` : `Your last reply could not be read as JSON: ${problem.reason}.`;
+  return `${what} ${JSON_ONLY_SENTENCE}${shape === undefined ? "" : ` The shape: ${shape}`}`;
+}
+
+/**
+ * Whether a structured retry may start: its prompt stays within MAX_PROMPT_CHARS, and with the round's end given, at
+ * least MODEL_TIMEOUT_CAP_MS of the round is left (a whole call fits); without it, at least a second of this call's time.
+ */
+function structuredRetryFits(state: CallState, promptChars: number): boolean {
+  if (promptChars > state.cfg.MAX_PROMPT_CHARS) return false;
+  const roundEnd = state.options.roundDeadlineMs;
+  return roundEnd === undefined ? timeLeftMs(state) >= RETRY_FLOOR_MS : roundEnd - Date.now() >= MODEL_TIMEOUT_CAP_MS;
+}
+
+/** With the round's end given, a retry gets a whole attempt again, inside the round; without it, the call's deadline stands. */
+function renewDeadlineInRound(state: CallState, tier: Tier): void {
+  const roundEnd = state.options.roundDeadlineMs;
+  if (roundEnd === undefined) return;
+  const tierTimeout = tier === "strong" ? state.cfg.MODEL_TIMEOUT_STRONG_MS : state.cfg.MODEL_TIMEOUT_MS;
+  state.deadline = Date.now() + Math.min(tierTimeout, roundEnd - Date.now());
+}
+
 /** The time left before the caller's deadline; Infinity when the caller set none. */
 function timeLeftMs(state: CallState): number {
   return state.deadline === undefined ? Infinity : state.deadline - Date.now();
@@ -711,8 +809,7 @@ async function sendWithRetry(
               });
               await sleep(wait, options.signal);
               // The retry gets a whole attempt again, inside the round.
-              const tierTimeout = tier === "strong" ? cfg.MODEL_TIMEOUT_STRONG_MS : cfg.MODEL_TIMEOUT_MS;
-              state.deadline = Date.now() + Math.min(tierTimeout, options.roundDeadlineMs - Date.now());
+              renewDeadlineInRound(state, tier);
               continue;
             }
             const tries = `${emptyTries} ${emptyTries === 1 ? "try" : "tries"} failed with HTTP 502 empty_response`;
@@ -724,6 +821,16 @@ async function sendWithRetry(
           }
           const why =
             failure.kind === "timeout" ? "timeout" : failure.kind === "network" ? "network error" : `HTTP ${failure.kind === "rate_limit" ? 429 : failure.status}`;
+          // A timeout used the whole attempt, so the call's own deadline has passed. With the round's end given, it
+          // gets its one retry as a whole new attempt when a whole model call (MODEL_TIMEOUT_CAP_MS) still fits in the round.
+          if (failure.kind === "timeout" && !transportRetried && options.roundDeadlineMs !== undefined && options.roundDeadlineMs - Date.now() >= MODEL_TIMEOUT_CAP_MS) {
+            transportRetried = true;
+            state.retries += 1;
+            retryTrace(why);
+            await sleep(BACKOFF_MS, options.signal);
+            renewDeadlineInRound(state, tier);
+            continue;
+          }
           // One retry, unless the caller's deadline leaves under a second: that retry would only time out.
           if (!transportRetried && timeLeftMs(state) >= RETRY_FLOOR_MS) {
             transportRetried = true;

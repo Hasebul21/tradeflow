@@ -1,6 +1,7 @@
 // The offline stand-in for Nightshift. Deterministic code: no network, no clock in the content, no stored answers.
 // It dispatches on the agent parameter of complete(), never on the system text, and builds each reply only from the
 // facts in the user message. Each agent's own step refines its rule here as that agent's file is added.
+import { defaultPlan } from "./default-plan";
 import type { AgentName, CompleteOptions, CompleteResult } from "./llm";
 import { proposedFix } from "./reconcile-fix";
 
@@ -27,12 +28,6 @@ function parseUser(user: string): Obj {
   }
 }
 
-/** yyyy-mm-dd minus a number of days, in UTC. An unparseable date comes back unchanged. */
-function minusDays(ymd: string, days: number): string {
-  const time = Date.parse(`${ymd}T00:00:00Z`);
-  return Number.isNaN(time) ? ymd : new Date(time - days * 86_400_000).toISOString().slice(0, 10);
-}
-
 /** One decimal place, rounding the magnitude, as guards.checkCitations does: -2.25 is -2.3, not -2.2. */
 const round1 = (value: number): number => Math.sign(value) * (Math.round(Math.abs(value) * 10) / 10);
 
@@ -48,79 +43,20 @@ const INJECTION = /ignore (all |any )?(previous|prior) instructions|you are now\
 const DATE_TAG = /^\d{4}-\d{2}-\d{2}$/;
 
 // ---------------------------------------------------------------------------------------------------------------
-// Planner
-
-type Step = { query_id: string; params: Obj; why: string };
-
-const MAX_STEPS = 5;
-
-function planSteps(task: string, asOf: string, trade: Obj | null): Step[] {
-  const weekStart = minusDays(asOf, 7);
-  switch (task) {
-    case "thesis_check":
-      return [
-        { query_id: "journal_for_symbol", params: { as_of: asOf }, why: "Every journal thesis with its exit condition." },
-        { query_id: "week_moves", params: { as_of: asOf }, why: "The week's moves per holding, with the portfolio total." },
-      ];
-    case "pre_trade":
-      return [
-        {
-          query_id: "what_if",
-          params: { as_of: asOf, symbol: trade?.symbol ?? null, side: trade?.side ?? null, quantity: trade?.quantity ?? null, price: trade?.price ?? null },
-          why: "What the trade would do to the weights and the rules.",
-        },
-        { query_id: "journal_for_symbol", params: { as_of: asOf, symbol: trade?.symbol ?? null }, why: "The owner's thesis for the symbol." },
-        { query_id: "rule_findings", params: { as_of: asOf }, why: "The owner's rules as they stand today." },
-      ];
-    case "reconcile":
-      return [{ query_id: "reconciliation", params: {}, why: "Every difference between the broker and bank files and the ledger." }];
-    default:
-      return [
-        { query_id: "week_moves", params: { as_of: asOf }, why: "The week's moves per holding, with the portfolio total." },
-        { query_id: "sector_vs_stock", params: { as_of: asOf }, why: "Each sector index against DSEX, to tell sector moves from stock moves." },
-        { query_id: "announcements_between", params: { from: weekStart, to: asOf }, why: "Announcements behind any stock-specific move." },
-        { query_id: "dividends_between", params: { from: weekStart, to: asOf }, why: "Dividends and bonus shares in the week, behind any fall around a record date." },
-        { query_id: "rule_findings", params: { as_of: asOf }, why: "Which of the owner's rules the week broke." },
-      ];
-  }
-}
+// Planner: the task's default plan (default-plan.ts, shared with the orchestrator's Planner fallback), plus the two flags.
 
 function planner(input: Obj): Obj {
-  const task = str(input.task) || "explain_week";
-  const asOf = str(input.as_of);
-  const trade = isObj(input.trade) ? input.trade : null;
   const memories = objs(input.memories);
-  const catalogue = objs(input.catalogue).map((entry) => str(entry.id));
-  const feedback = str(input.feedback);
-
-  let steps = planSteps(task, asOf, trade);
-
-  // Rounds 2 and 3: a symbol the Evaluator named gets its fundamentals, so the plan answers the feedback.
-  const named = feedback.match(/\b[A-Z][A-Z0-9]{2,}\b/g) ?? [];
-  const symbol = named.find((token) => token !== "DSEX" && token !== "BDT");
-  if (symbol !== undefined && !steps.some((step) => step.query_id === "fundamentals_latest")) {
-    const extra: Step = { query_id: "fundamentals_latest", params: { symbol, as_of: asOf }, why: `${symbol}'s latest quarters, which the Evaluator asked for.` };
-    const rules = steps.findIndex((step) => step.query_id === "rule_findings");
-    steps = rules === -1 ? [...steps, extra] : [...steps.slice(0, rules), extra, ...steps.slice(rules)];
-    // Five at most: the dividends step gives way, rule_findings stays.
-    if (steps.length > MAX_STEPS) steps = steps.filter((step) => step.query_id !== "dividends_between");
-  }
-
-  // Only ids the catalogue offers, when the input has one.
-  if (catalogue.length > 0) steps = steps.filter((step) => catalogue.includes(step.query_id));
-
-  const focus =
-    task === "thesis_check"
-      ? `Whether the evidence to ${asOf} settles each of the owner's theses.`
-      : task === "pre_trade"
-        ? `What the proposed trade would change, as of ${asOf}.`
-        : task === "reconcile"
-          ? "Where the broker and bank files differ from the ledger."
-          : `Why the portfolio moved in the week to ${asOf}, each holding against its sector index.${symbol === undefined ? "" : ` Cover ${symbol}.`}`;
-
+  const { focus, steps } = defaultPlan({
+    task: str(input.task) || "explain_week",
+    as_of: str(input.as_of),
+    trade: isObj(input.trade) ? input.trade : null,
+    feedback: str(input.feedback),
+    catalogue: objs(input.catalogue).map((entry) => str(entry.id)),
+  });
   return {
     focus,
-    steps: steps.slice(0, MAX_STEPS),
+    steps,
     declined_advice: ADVICE_QUESTION.test(str(input.question)),
     injection_seen: memories.some((memory) => INJECTION.test(str(memory.content))),
   };

@@ -4,14 +4,15 @@
 // Planner and the Analyst can act on; no model is called. A draft that passes goes to the fast model with
 // prompts/evaluator.md as-is and one JSON user message (rule 7): the draft and only the rows it cites. The three
 // scores add up to a total out of 9; total / 9 rounded to two decimals is the trace's confidence (7 of 9 is 0.78);
-// 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's one retry
-// (a ModelHttpError 502), the draft is accepted on the code checks alone, with no score: action "score_unavailable".
+// 7 or more is accepted and goes to the Writer. When the fast model returns no answer even after llm.ts's retries
+// (a ModelHttpError 502), or none of its replies can be read as a score after llm.ts's tries (BadJson), the draft is
+// accepted on the code checks alone, with no score: action "score_unavailable".
 // Server only (node:fs reads the prompt).
 import { z } from "zod";
 import { loadConfig, type Config } from "../config";
 import { citedResults, citedResultsForSubjects, memoriesForModel, type MemoryForModel, type ResultForModel, type ResultStore, type Task } from "../context";
 import { afterModel, checkCitations, type Finding } from "../guards";
-import { complete as completeModel, failedCallUsage, ModelHttpError, type CompleteOptions, type CompleteResult } from "../llm";
+import { BadJson, complete as completeModel, failedCallUsage, ModelHttpError, type CompleteOptions, type CompleteResult } from "../llm";
 import { promptVersion, type PromptVersion } from "../prompts";
 import type { RecalledMemory } from "../memory";
 import type { QueryId, QueryResult, Row } from "../queries";
@@ -35,6 +36,17 @@ export const rejectTarget = (task: Task): RejectTarget => (PLANNED_TASKS.include
 const score = z.number().int().min(0).max(3);
 export const scoreSchema = z.object({ accuracy: score, appropriateness: score, actionability: score, fix: z.string().catch("") });
 export type Scores = { accuracy: number; appropriateness: number; actionability: number };
+
+/** The reply's shape as prompts/evaluator.md gives it, restated by llm.ts when it asks again after a bad reply. */
+export const EVALUATOR_REPLY_SHAPE = '{"accuracy": 0, "appropriateness": 0, "actionability": 0, "fix": ""}, each score a whole number from 0 to 3';
+
+/** Why a parsed reply fails the Evaluator schema (the first issue), or null; llm.ts asks again with it. */
+export function scoreReplyProblem(json: Record<string, unknown>): string | null {
+  const parsed = scoreSchema.safeParse(json);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  return `${issue.path.join(".") || "reply"}: ${issue.message}`;
+}
 
 /** What the orchestrator hands the Evaluator: the draft and the run's result store. */
 export type EvaluateInput = {
@@ -271,7 +283,8 @@ type Call = NonNullable<EvaluateDeps["complete"]>;
  * one verdict line, action "reject" (the fix in why, target_agent Planner for a planned task, else Analyst) or
  * "accept" (target_agent Writer), with confidence. A draft that passes the code checks is scored by the fast model;
  * the three scores go to output_summary and total / 9 to confidence. A ModelHttpError 502 from the scoring call
- * (no answer after llm.ts's one retry) accepts the draft on the code checks alone: one "score_unavailable" line,
+ * (no answer after llm.ts's retries), or a BadJson (no reply readable as a score after its tries), accepts the draft
+ * on the code checks alone: one "score_unavailable" line,
  * scores, total and confidence null. Other model errors from llm.ts and BudgetExhaustedError from the run state pass
  * through; a reply that fails the schema or the guard is an `error` on the outcome, never a crash.
  */
@@ -362,6 +375,8 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       user: JSON.stringify(user),
       model: "fast",
       json: true,
+      validate: scoreReplyProblem,
+      replyShape: EVALUATOR_REPLY_SHAPE,
       agent: AGENT,
       tracer,
       config: cfg,
@@ -374,9 +389,11 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
   } catch (error) {
     // A failed scoring call still counts: every request it made is a model call.
     run?.afterFailedModelCall(failedCallUsage(error));
-    // The model returned no answer even after llm.ts's retries (its model_call line says why). The three code
-    // checks passed, so the draft goes to the Writer unscored. Any other error passes through as before.
-    if (!(error instanceof ModelHttpError) || error.status !== 502) throw error;
+    // The model returned no answer even after llm.ts's retries (a 502), or its replies still could not be read as a
+    // score after llm.ts's tries (BadJson); its model_call line says why. The three code checks passed, so the draft
+    // goes to the Writer unscored. Any other error passes through as before.
+    const noAnswer = error instanceof ModelHttpError && error.status === 502;
+    if (!noAnswer && !(error instanceof BadJson)) throw error;
     tracer.log({
       agent_name: AGENT,
       action: "score_unavailable",
@@ -384,7 +401,7 @@ export async function evaluate(input: EvaluateInput, arg: Tracer | EvaluateDeps)
       output_summary: capped(`no score: ${error.message}; accepted on the code checks alone (citations, guard, coverage)`),
       target_agent: "Writer",
       status: "accepted",
-      why: "the model returned no answer; the code checks passed",
+      why: noAnswer ? "the model returned no answer; the code checks passed" : "the model's replies could not be read as a score; the code checks passed",
       confidence: null,
       retry_count: round,
       duration_ms: Date.now() - started,

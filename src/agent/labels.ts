@@ -3,6 +3,9 @@
 /** Opens the summary and the review of a run that ended model_unavailable; the Explain page shows the same words. */
 export const MODEL_UNAVAILABLE_LABEL = "Draft built by code: the model was unavailable after the queries ran";
 
+/** Opens the gap a run carries when its plan was built in code because the Planner's replies could not be read. */
+export const PLANNER_FALLBACK_LABEL = "The Planner's model replies could not be read (BadJson), so code planned this task's standard queries";
+
 /** Every code a run can stop with when it ends needs_human. orchestrator.ts builds StopReason from this list, so a new code is added here first. */
 export const STOP_REASONS = ["rounds", "query_calls", "model_calls", "tokens", "round_timeout", "run_timeout", "writer_rejected", "model_unavailable", "cancelled"] as const;
 export type StopReasonCode = (typeof STOP_REASONS)[number];

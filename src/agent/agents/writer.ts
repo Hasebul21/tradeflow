@@ -118,6 +118,17 @@ export const writerReplySchema = z.object({
 });
 export type WriterReply = z.infer<typeof writerReplySchema>;
 
+/** The reply's shape as prompts/writer.md gives it, restated by llm.ts when it asks again after a bad reply. */
+export const WRITER_REPLY_SHAPE = '{"summary": "...", "review_markdown": "...", "memory_note": "..."}, each a non-empty string';
+
+/** Why a parsed reply fails the Writer schema (the first issue), or null; llm.ts asks again with it. */
+export function writerReplyProblem(json: Record<string, unknown>): string | null {
+  const parsed = writerReplySchema.safeParse(json);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  return `${issue.path.join(".") || "reply"}: ${issue.message}`;
+}
+
 export type WriteOutcome = {
   ok: boolean;
   summary: string;
@@ -387,6 +398,8 @@ export async function write(input: WriteInput, arg: Tracer | WriteDeps): Promise
         user: JSON.stringify(user),
         model: "strong",
         json: true,
+        validate: writerReplyProblem,
+        replyShape: WRITER_REPLY_SHAPE,
         agent: AGENT,
         tracer,
         config: cfg,
