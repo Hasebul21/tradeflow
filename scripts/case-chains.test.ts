@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CASE_CHAINS, chainGroups, chainsFirst, parseConcurrency, parseOnly, runChains, selectCases } from "./case-chains";
+import { CASE_CHAINS, CASE_DEPENDS, chainGroups, chainsFirst, parseConcurrency, parseOnly, runChains, selectCases } from "./case-chains";
 import { listCases } from "./eval-cases";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -34,10 +34,24 @@ describe("--only: parseOnly and selectCases", () => {
     expect(parseOnly("example_2,,example_4").error).toMatch(/empty case id/);
   });
 
-  it("runs example_3a, example_3b and example_7a before example_7b, in chain order", () => {
+  it("runs example_3a and example_7a before example_7b, in chain order, and only example_3a before example_7a", () => {
     const selected = selectCases(ALL_IDS, ["example_7b"]);
-    expect(selected).toEqual({ ids: ["example_3a", "example_3b", "example_7a", "example_7b"], error: null });
-    expect(chainGroups(selected.ids)).toEqual([["example_3a", "example_3b", "example_7a", "example_7b"]]);
+    expect(selected).toEqual({ ids: ["example_3a", "example_7a", "example_7b"], error: null });
+    expect(chainGroups(selected.ids)).toEqual([["example_3a", "example_7a", "example_7b"]]);
+    expect(selectCases(ALL_IDS, ["example_7a"]).ids).toEqual(["example_3a", "example_7a"]);
+    expect(selectCases(ALL_IDS, ["example_3b"]).ids).toEqual(["example_3a", "example_3b"]);
+    expect(selectCases(ALL_IDS, ["example_3b", "example_7b"]).ids).toEqual(["example_3a", "example_3b", "example_7a", "example_7b"]);
+  });
+
+  it("declares each dependency earlier in the same chain, so the chain order satisfies it", () => {
+    for (const [id, needs] of Object.entries(CASE_DEPENDS)) {
+      const chain = CASE_CHAINS.find((members) => members.includes(id)) as readonly string[];
+      expect(chain).toBeDefined();
+      for (const needed of needs) {
+        expect(chain.indexOf(needed)).toBeGreaterThanOrEqual(0);
+        expect(chain.indexOf(needed)).toBeLessThan(chain.indexOf(id));
+      }
+    }
   });
 
   it("runs only the named cases with --no-chain-deps, and a case in no chain alone", () => {
@@ -55,8 +69,9 @@ describe("--only: parseOnly and selectCases", () => {
     expect(selected.error).toMatch(/^Unknown case id for --only: example_99\./);
   });
 
-  it("brings only the chain members that exist", () => {
-    expect(selectCases(["a", "c", "x"], ["c"], true, [["a", "b", "c"]]).ids).toEqual(["a", "c"]);
+  it("follows dependencies to the end and brings only the cases that exist", () => {
+    expect(selectCases(["a", "b", "c", "x"], ["c"], true, { c: ["b"], b: ["a"] }).ids).toEqual(["a", "b", "c"]);
+    expect(selectCases(["a", "c", "x"], ["c"], true, { c: ["b"], b: ["a"] }).ids).toEqual(["c"]);
   });
 });
 

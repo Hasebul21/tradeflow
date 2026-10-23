@@ -3,10 +3,12 @@
 // timeout the SDK is given: in the 23 Oct live run every model attempt that timed out stopped at about 301 s, so
 // MODEL_TIMEOUT_CAP_MS (420 s) never applied. Here the SDK's timeout and the caller's AbortSignal decide alone.
 // Server only. It covers what the SDK sends for a chat completion: a string or URL, a method, headers, a string or
-// byte body, and a signal. No keep-alive: each request opens and closes its own connection.
+// byte body, and a signal. No keep-alive: each request opens and closes its own connection. A gzip, deflate or br
+// reply is decoded; a redirect is refused, naming its Location, because a model API never redirects a POST.
 import http from "node:http";
 import https from "node:https";
-import { Readable } from "node:stream";
+import { pipeline, Readable } from "node:stream";
+import zlib from "node:zlib";
 
 const httpAgent = new http.Agent({ keepAlive: false });
 const httpsAgent = new https.Agent({ keepAlive: false });
@@ -29,6 +31,15 @@ function bodyOf(body: RequestInit["body"]): string | Uint8Array | undefined {
   if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
   if (body instanceof URLSearchParams) return body.toString();
   throw new TypeError("httpFetch sends only a string or byte body.");
+}
+
+/** The decoder for a Content-Encoding: null for none, undefined for one this fetch cannot decode. */
+function decoderFor(encoding: string): zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress | null | undefined {
+  if (encoding === "" || encoding === "identity") return null;
+  if (encoding === "gzip" || encoding === "x-gzip") return zlib.createGunzip();
+  if (encoding === "deflate") return zlib.createInflate();
+  if (encoding === "br") return zlib.createBrotliDecompress();
+  return undefined;
 }
 
 function headersOf(raw: readonly string[]): Headers {
@@ -62,7 +73,7 @@ export function httpFetch(input: string | URL | Request, init: RequestInit = {})
     return Promise.reject(error);
   }
   const headers = new Headers(init.headers);
-  // Ask for no compression: this fetch does not decode it.
+  // Ask for no compression; a server that compresses anyway is decoded below.
   if (!headers.has("accept-encoding")) headers.set("accept-encoding", "identity");
   if (body !== undefined && !headers.has("content-length")) headers.set("content-length", String(Buffer.byteLength(body)));
   const isHttps = url.protocol === "https:";
@@ -94,19 +105,48 @@ export function httpFetch(input: string | URL | Request, init: RequestInit = {})
         response.destroy();
         return;
       }
-      settled = true;
       incoming = response;
+      const fail = (cause: unknown) => {
+        done();
+        response.destroy();
+        settled = true;
+        reject(new TypeError("fetch failed", { cause }));
+      };
       const status = response.statusCode ?? 0;
+      if (status >= 300 && status < 400 && status !== 304) {
+        const location = response.headers.location ?? "no Location header";
+        fail(new Error(`HTTP ${status} redirect to ${location}: httpFetch does not follow redirects`));
+        return;
+      }
+      const headers = headersOf(response.rawHeaders);
       const empty = NO_BODY.has(status) || request.method === "HEAD";
+      let body: Readable = response;
+      if (!empty) {
+        const encoding = (response.headers["content-encoding"] ?? "").trim().toLowerCase();
+        const decoder = decoderFor(encoding);
+        if (decoder === undefined) {
+          fail(new Error(`Content-Encoding ${JSON.stringify(encoding)} is not one httpFetch decodes (gzip, deflate, br)`));
+          return;
+        }
+        if (decoder !== null) {
+          // pipeline passes an error or an abort on the response to the decoder, and so to the body stream.
+          body = pipeline(response, decoder, () => {});
+          headers.delete("content-encoding");
+          headers.delete("content-length");
+        }
+      }
+      let built: Response;
+      try {
+        built = new Response(empty ? null : (Readable.toWeb(body) as ReadableStream<Uint8Array>), { status, statusText: response.statusMessage ?? "", headers });
+      } catch (error) {
+        // A status Response refuses, such as 600.
+        fail(error);
+        return;
+      }
       if (empty) response.resume();
       response.on("close", done);
-      resolve(
-        new Response(empty ? null : (Readable.toWeb(response) as ReadableStream<Uint8Array>), {
-          status,
-          statusText: response.statusMessage ?? "",
-          headers: headersOf(response.rawHeaders),
-        }),
-      );
+      settled = true;
+      resolve(built);
     });
     request.on("error", (error) => {
       done();

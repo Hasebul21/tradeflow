@@ -23,10 +23,10 @@ describe("limits and defaults", () => {
     expect(cfg).toMatchObject({
       MAX_ROUNDS: 3,
       MAX_QUERY_CALLS: 20,
-      MAX_MODEL_CALLS: 52,
+      MAX_MODEL_CALLS: 54,
       MAX_PLAN_STEPS: 5,
       MAX_TOOL_ROUNDS: 2,
-      MAX_TOKENS_PER_RUN: 610000,
+      MAX_TOKENS_PER_RUN: 630000,
       QUERY_TIMEOUT_MS: 20000,
       MODEL_TIMEOUT_MS: 420000,
       MODEL_TIMEOUT_STRONG_MS: 420000,
@@ -49,11 +49,11 @@ describe("limits and defaults", () => {
   });
 
   it("sizes MAX_MODEL_CALLS for 3 rounds with every try, and MAX_TOKENS_PER_RUN for that many typical calls", () => {
-    // Router 1 + 3 rounds × (Planner 3 + Analyst 3 × 3 + Evaluator 3) + Writer 2 × 3.
-    expect(MAX_MODEL_CALLS_DEFAULT).toBe(1 + 3 * (3 + 9 + 3) + 6);
-    expect(MAX_MODEL_CALLS_DEFAULT).toBe(52);
-    // 52 × 11,652 = 605,904, up to whole 10,000s.
-    expect(MAX_TOKENS_PER_RUN_DEFAULT).toBe(610000);
+    // Router 3 + 3 rounds × (Planner 3 + Analyst 3 × 3 + Evaluator 3) + Writer 2 × 3.
+    expect(MAX_MODEL_CALLS_DEFAULT).toBe(3 + 3 * (3 + 9 + 3) + 6);
+    expect(MAX_MODEL_CALLS_DEFAULT).toBe(54);
+    // 54 × 11,652 = 629,208, up to whole 10,000s.
+    expect(MAX_TOKENS_PER_RUN_DEFAULT).toBe(630000);
   });
 
   it("clamps a model timeout above 420000 to 420000", () => {

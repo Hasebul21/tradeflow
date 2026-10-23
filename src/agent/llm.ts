@@ -976,8 +976,10 @@ async function sendWithRetry(
           }
           const times = transportRetried ? "twice" : "once, with no time left for a retry";
           if (failure.kind === "timeout") {
-            const timedOut = timeouts >= 3 ? `${timeouts} times` : timeouts === 2 ? "twice" : times;
-            throw new ModelTimeout(`The ${tier} model call timed out ${timedOut} (${timeout} ms at most for the attempt).`);
+            // Counts real timeouts only: a 429 or 5xx retry before a timeout is not one.
+            const count = timeouts === 1 ? "once" : timeouts === 2 ? "twice" : `${timeouts} times`;
+            const why = timeouts >= TIMEOUT_MAX_TRIES ? "" : ", with no time left for a retry";
+            throw new ModelTimeout(`The ${tier} model call timed out ${count}${why} (${timeout} ms at most for the attempt).`);
           }
           if (failure.kind === "rate_limit") throw new RateLimited(`The ${tier} model call was rate limited (HTTP 429) ${times}.`);
           if (failure.kind === "network") throw new ModelNetworkError(`The ${tier} model call failed ${times} (network): ${scrub(failure.message, cfg)}`);

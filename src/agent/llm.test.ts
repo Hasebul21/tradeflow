@@ -609,6 +609,15 @@ describe("complete: structured retries within the round", () => {
     expect(mocks.create).toHaveBeenCalledTimes(2);
   });
 
+  it("counts only real timeouts in the message: a 429, its retry, then a timeout is 'timed out once'", async () => {
+    const timeout = Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
+    mocks.create.mockRejectedValueOnce(Object.assign(new Error("429 Too Many Requests"), { status: 429 })).mockRejectedValueOnce(timeout);
+    const error = await complete({ ...base, timeoutMs: 5000 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelTimeout);
+    expect((error as Error).message).toContain("timed out once, with no time left for a retry");
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
   it("with reserveAfterMs (the Planner), a timeout is retried only when its worst case still leaves that much of the round", async () => {
     const timeout = () => Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" });
     // 900 s left: the retry's worst case (420 s) still leaves 480 s, over the 420 s reserve, so it is retried.

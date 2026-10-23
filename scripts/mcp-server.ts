@@ -1,13 +1,15 @@
 // MCP server over stdio: npm run mcp (or npx tsx scripts/mcp-server.ts, as .mcp.json does).
 // At start it reads /api/openapi.json from TRADEFLOW_URL (default http://localhost:8000) and registers one tool per
 // operation, named <method>_<path with every run of other characters as one _> (GET /api/portfolio is
-// get_api_portfolio). Each call is a fetch to the running app with a 30 s timeout. One more tool, run_review, posts
+// get_api_portfolio). Each call is a request to the running app through httpFetch (no 300 s cut) with a 30 s timeout. One more tool, run_review, posts
 // to /run. Stdout carries the protocol and nothing else: log to stderr only, and don't import src/agent/config.ts.
 // Uses the SDK's low-level Server so every OpenAPI schema goes out unchanged. Runs under tsx as CommonJS.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { BRIEFING_TIMEOUT_DEFAULT_MS, RUN_TIMEOUT_DEFAULT_MS } from "../src/agent/config";
+import { httpFetch } from "../src/agent/http-fetch";
+import { request as sendRequest, text } from "./mcp-request";
 
 type Json = Record<string, unknown>;
 type Parameter = { name: string; in: string; required?: boolean; description?: string; schema?: Json };
@@ -91,20 +93,8 @@ const runReviewTool: Tool = {
   },
 };
 
-const text = (value: string, isError = false): CallToolResult => ({ content: [{ type: "text", text: value }], ...(isError ? { isError: true } : {}) });
-
-/** One fetch with a timeout. A failure becomes an error result: a tool call never throws. */
-async function request(url: string, init: RequestInit, timeoutMs: number, onTimeout: string): Promise<CallToolResult> {
-  try {
-    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-    const body = await response.text();
-    return response.ok ? text(body) : text(`HTTP ${response.status}: ${body}`, true);
-  } catch (error) {
-    const name = error instanceof Error ? error.name : "";
-    if (name === "TimeoutError" || name === "AbortError") return text(`No reply within ${timeoutMs} ms. ${onTimeout}`, true);
-    return text(`Could not reach ${baseUrl}: ${error instanceof Error ? error.message : String(error)}. Start the app with npm run dev -- -p 8000.`, true);
-  }
-}
+/** One request to the app with a timeout, through httpFetch (scripts/mcp-request.ts). */
+const request = (url: string, init: RequestInit, timeoutMs: number, onTimeout: string) => sendRequest(url, init, timeoutMs, onTimeout, baseUrl);
 
 function callRoute(route: Route, args: Json): Promise<CallToolResult> | CallToolResult {
   const missing = route.required.filter((name) => args[name] === undefined || args[name] === null);
@@ -134,7 +124,7 @@ function callRunReview(args: Json): Promise<CallToolResult> | CallToolResult {
 async function main(): Promise<void> {
   let doc: OpenApi;
   try {
-    const response = await fetch(`${baseUrl}/api/openapi.json`, { signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
+    const response = await httpFetch(`${baseUrl}/api/openapi.json`, { signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     doc = (await response.json()) as OpenApi;
   } catch (error) {

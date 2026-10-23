@@ -1,6 +1,6 @@
 // npm run e2e:live -- --out <dir> [--concurrency N] [--base http://localhost:8000] [--redteam] [--only id1,id2 [--no-chain-deps]]
 // Runs every input_examples/*.json (or, with --redteam, every case in evals/redteam/cases.json) against the running
-// app, or with --only just the named cases, each with the cases its chain runs before it unless --no-chain-deps
+// app, or with --only just the named cases, each with the earlier cases it reads (CASE_DEPENDS) unless --no-chain-deps
 // (selectCases in scripts/case-chains.ts; an unknown id is an error): POST <base>/run per case, chains in order (scripts/case-chains.ts), at most N cases at once. A 429 Busy is
 // retried after Retry-After. Each reply goes to <dir>/<case>.json and its trace (GET <base>/run/<run_id>) to
 // <dir>/<case>.trace.jsonl, and one line per case is printed: case, HTTP status, status, stop_reason, seconds, model
@@ -102,7 +102,7 @@ async function main(): Promise<number> {
     const keep = new Set(selected.ids);
     cases = allCases.filter((item) => keep.has(item.id));
     const added = selected.ids.filter((id) => !args.only?.includes(id));
-    if (added.length > 0) process.stdout.write(`--only ${args.only.join(",")}: also running ${added.join(", ")}, which their chain runs first (--no-chain-deps to skip them).\n`);
+    if (added.length > 0) process.stdout.write(`--only ${args.only.join(",")}: also running ${added.join(", ")}, which they read (--no-chain-deps to skip them).\n`);
   }
   ensureDir(args.out);
   const byId = new Map(cases.map((item) => [item.id, item]));

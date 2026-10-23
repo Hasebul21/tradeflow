@@ -1,6 +1,7 @@
 // httpFetch against a stub server on an ephemeral port of 127.0.0.1: no real model and no network.
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import zlib from "node:zlib";
 import OpenAI from "openai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { httpFetch } from "./http-fetch";
@@ -26,6 +27,31 @@ const server = http.createServer((request, response) => {
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(value));
     };
+    const encoded = /^\/(gzip|deflate|br)$/.exec(request.url ?? "");
+    if (encoded !== null) {
+      const raw = Buffer.from(JSON.stringify({ encoded: encoded[1] }));
+      const packed = encoded[1] === "gzip" ? zlib.gzipSync(raw) : encoded[1] === "deflate" ? zlib.deflateSync(raw) : zlib.brotliCompressSync(raw);
+      response.writeHead(200, { "content-type": "application/json", "content-encoding": encoded[1], "content-length": String(packed.length) });
+      response.end(packed);
+      return;
+    }
+    if (request.url === "/status-600") {
+      response.writeHead(600, { "content-type": "text/plain" });
+      response.end("odd");
+      return;
+    }
+    if (request.url === "/redirect") {
+      response.writeHead(307, { location: "https://elsewhere.example.test/v1" });
+      response.end();
+      return;
+    }
+    if (request.url === "/drip" || request.url === "/cut") {
+      // Headers and the first part of the body, then nothing (/drip) or a cut connection (/cut).
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write('{"part": ');
+      if (request.url === "/cut") setTimeout(() => response.socket?.destroy(), 100);
+      return;
+    }
     if (request.url === "/echo") json(200, { method: request.method, body: JSON.parse(body) });
     else if (request.url === "/bad-gateway") json(502, { error: { message: "empty_response" } });
     else if (request.url === "/slow") setTimeout(() => json(200, { slow: true }), 2000);
@@ -109,6 +135,46 @@ describe("httpFetch", () => {
     expect(ms).toBeGreaterThanOrEqual(1900);
     expect(await (value as Response).json()).toEqual({ slow: true });
   }, 10000);
+
+  it("decodes a gzip, deflate or br reply and drops Content-Encoding and Content-Length", async () => {
+    for (const encoding of ["gzip", "deflate", "br"]) {
+      const response = await httpFetch(`${base}/${encoding}`, { method: "GET" });
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("content-length")).toBeNull();
+      expect(await response.json()).toEqual({ encoded: encoding });
+    }
+  });
+
+  it("rejects a status Response refuses (600) with TypeError fetch failed and the RangeError as cause", async () => {
+    const { error } = await timed(() => httpFetch(`${base}/status-600`, { method: "GET" }));
+    expect(error).toBeInstanceOf(TypeError);
+    expect((error as Error).message).toBe("fetch failed");
+    expect((error as Error & { cause: unknown }).cause).toBeInstanceOf(RangeError);
+  });
+
+  it("refuses a redirect, naming its Location", async () => {
+    const { error } = await timed(() => httpFetch(`${base}/redirect`, { method: "POST", body: "{}" }));
+    expect(error).toBeInstanceOf(TypeError);
+    expect((error as Error & { cause: Error }).cause.message).toBe("HTTP 307 redirect to https://elsewhere.example.test/v1: httpFetch does not follow redirects");
+  });
+
+  it("ends a body that is still streaming with an AbortError when aborted mid-body", async () => {
+    const controller = new AbortController();
+    const response = await httpFetch(`${base}/drip`, { method: "GET", signal: controller.signal });
+    expect(response.status).toBe(200);
+    setTimeout(() => controller.abort(), 100);
+    const { error, ms } = await timed(() => response.text());
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it("errors the body when the connection is cut mid-body", async () => {
+    const response = await httpFetch(`${base}/cut`, { method: "GET" });
+    expect(response.status).toBe(200);
+    const { error, ms } = await timed(() => response.text());
+    expect(error).toBeInstanceOf(Error);
+    expect(ms).toBeLessThan(1000);
+  });
 
   it("rejects a refused connection with TypeError fetch failed and the socket error as cause", async () => {
     const closed = http.createServer();
