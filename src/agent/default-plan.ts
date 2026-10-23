@@ -1,7 +1,8 @@
 // Each open task's default plan, built in code from the input facts only: the standard named queries the task needs
 // and, on rounds 2 and 3, the latest quarters of a symbol the Evaluator's fix names. Two callers share it, so the plan
 // is written once: the sample model's Planner (sample mode) and the orchestrator's Planner fallback, used when the real
-// Planner's reply still could not be read after llm.ts's tries. No network, no clock, no stored answer.
+// Planner's call fails after llm.ts gives up (BadJson, a 5xx, a timeout, a 429 or a network error). No network, no
+// clock, no stored answer.
 
 type Obj = Record<string, unknown>;
 

@@ -272,19 +272,38 @@ const PLANNER_FALLBACK_WORDS = {
   bad_json: "its replies could not be read",
   upstream: "the model service returned an error",
   timeout: "the model call timed out",
+  rate_limited: "the model service was busy and refused the call",
+  network: "the model service could not be reached",
 } as const;
 
 /**
- * Why the Planner's failed call gets the code plan, or null when it must pass through. llm.ts has already spent its
- * own retries when it throws: the structured tries for BadJson, the empty_response tries for a 502, the one retry
- * for a timeout. A timeout counts only while the round and the run still have time (`timeLeft`); otherwise the loop
- * ends with round_timeout or run_timeout. `code` is the trace's cause: bad_json, upstream_<status> or timeout.
+ * A model failure that llm.ts gave up on and a fallback may stand in for: BadJson after its structured tries, a 5xx
+ * after its empty_response or transport retry, a timeout or a 429 after its one retry, or a ModelHttpError with no
+ * HTTP status (a reset connection, a DNS failure, a socket refused mid-run) after its one retry. Never Unauthorized,
+ * NightshiftNotRunning (Nightshift not started), PromptTooLarge, a 4xx other than 429, a cancel or a spent budget.
+ */
+function isModelFailure(error: unknown): boolean {
+  return (
+    error instanceof BadJson ||
+    error instanceof ModelTimeout ||
+    error instanceof RateLimited ||
+    (error instanceof ModelHttpError && (error.status === undefined || error.status >= 500))
+  );
+}
+
+/**
+ * Why the Planner's failed call gets the code plan, or null when it must pass through: a model failure llm.ts gave up
+ * on (isModelFailure). A timeout counts only while the round and the run still have time (`timeLeft`); otherwise the
+ * loop ends with round_timeout or run_timeout. `code` is the trace's cause: bad_json, upstream_<status>, timeout,
+ * rate_limited or network.
  */
 export function plannerFallbackCause(error: unknown, timeLeft: boolean): { kind: keyof typeof PLANNER_FALLBACK_WORDS; code: string; detail: string } | null {
+  if (!isModelFailure(error)) return null;
   if (error instanceof BadJson) return { kind: "bad_json", code: "bad_json", detail: `${error.kind}: ${error.reason}` };
-  if (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500) return { kind: "upstream", code: `upstream_${error.status}`, detail: error.message };
-  if (error instanceof ModelTimeout && timeLeft) return { kind: "timeout", code: "timeout", detail: error.message };
-  return null;
+  if (error instanceof ModelTimeout) return timeLeft ? { kind: "timeout", code: "timeout", detail: error.message } : null;
+  if (error instanceof RateLimited) return { kind: "rate_limited", code: "rate_limited", detail: error.message };
+  const http = error as ModelHttpError;
+  return http.status === undefined ? { kind: "network", code: "network", detail: http.message } : { kind: "upstream", code: `upstream_${http.status}`, detail: http.message };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -360,7 +379,14 @@ function betterDraft(draft: Draft, best: Draft): boolean {
 }
 
 /** total is null when the Evaluator accepted the draft unscored (score_unavailable). */
-type Draft = { findings: Finding[]; gaps: string[]; /** The gaps code wrote, a subset of gaps: the only gap text whose figures the Writer may repeat. */ code_gaps: string[]; scores: Scores | null; total: number | null; round: number };
+type Draft = { findings: Finding[]; gaps: string[]; /** The gaps code wrote, a subset of gaps: the only gap text whose figures the Writer may repeat. */ code_gaps: string[]; scores: Scores | null; total: number | null; round: number; /** True when no draft existed and this one only carries the code plan's gap. */ planOnly?: true };
+
+/** How a stop or cancel line names the draft the run returns. */
+function draftWords(draft: Draft | null): string {
+  if (draft === null) return "no draft";
+  if (draft.planOnly === true) return "no draft; plan from code";
+  return `the best draft (${draft.findings.length} findings, ${draft.total === null ? "score unavailable" : `total ${draft.total}`})`;
+}
 
 /** What the loop ends with, before the reply is built. `rounds` is the round accepted in, or the rounds run. */
 type NeedsHuman = { kind: "needs_human"; stop: StopReason; detail: string; draft: Draft | null; rounds: number; summary?: string; review_markdown?: string };
@@ -472,7 +498,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         agent_name: AGENT,
         action: "cancelled",
         input_summary: capped(where),
-        output_summary: capped(`cancelled: the run returns needs_human with ${draft === null ? "no draft" : `the best draft (${draft.findings.length} findings, ${draft.total === null ? "score unavailable" : `total ${draft.total}`})`}; nothing is remembered or recorded`),
+        output_summary: capped(`cancelled: the run returns needs_human with ${draftWords(draft)}; nothing is remembered or recorded`),
         status: "needs_human",
         why: "cancelled by the owner",
         retry_count: Math.max(0, rounds - 1),
@@ -685,7 +711,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
     const bestDraft = (): Draft | null => {
       const draft = accepted ?? best ?? latest;
       if (planNote === null || (draft?.gaps ?? []).includes(planNote)) return draft;
-      if (draft === null) return { findings: [], gaps: [planNote], code_gaps: [planNote], scores: null, total: null, round };
+      if (draft === null) return { findings: [], gaps: [planNote], code_gaps: [planNote], scores: null, total: null, round, planOnly: true };
       return { ...draft, gaps: [...draft.gaps, planNote], code_gaps: [...draft.code_gaps, planNote] };
     };
     const roundsRun = () => Math.min(round + 1, config.MAX_ROUNDS);
@@ -696,7 +722,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         agent_name: AGENT,
         action: "stop",
         input_summary: `round ${roundsRun()} of ${config.MAX_ROUNDS}`,
-        output_summary: capped(`${reason}: ${detail}; the run returns needs_human with ${draft === null ? "no draft" : `the best draft (${draft.findings.length} findings, ${draft.total === null ? "score unavailable" : `total ${draft.total}`})`}`),
+        output_summary: capped(`${reason}: ${detail}; the run returns needs_human with ${draftWords(draft)}`),
         status: "needs_human",
         why: reason,
         retry_count: Math.min(round, config.MAX_ROUNDS - 1),
@@ -738,8 +764,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
 
     /**
      * The Planner's call, counted here (plan() has no run of its own, so every request it made is counted, failed or
-     * not). When it still fails after llm.ts's own retries (plannerFallbackCause: replies that cannot be read, a 5xx
-     * such as the 502 empty_response, or a timeout that is not the round's or the run's), code builds the task's
+     * not). When it still fails after llm.ts gives up (plannerFallbackCause: replies that cannot be read, a 5xx such
+     * as the 502 empty_response, a timeout that is not the round's or the run's, a 429 or a network error), code builds the task's
      * default plan (default-plan.ts, through the Planner's own step checks), writes one Orchestrator "planner_fallback"
      * line with the cause in its why, and the run carries on to the Analyst. `note` is the gap that says so in the
      * review. Every other error (Unauthorized, NightshiftNotRunning, a spent budget, a cancel) passes through.
@@ -764,7 +790,7 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           output_summary: capped(`${fallback.steps.length} steps planned in code, no model: ${ids.join(", ") || "none"}${fallback.dropped.length > 0 ? `; ${fallback.dropped.length} dropped` : ""}`),
           target_agent: "Analyst",
           status: "fallback",
-          why: `${cause.code} after llm.ts's retries (${cause.detail}); the plan: ${fallback.steps.map((step, index) => `${index + 1}. ${step.query_id}: ${step.why}`).join(" ")}`,
+          why: `${cause.code} after llm.ts gave up (${cause.detail}); the plan: ${fallback.steps.map((step, index) => `${index + 1}. ${step.query_id}: ${step.why}`).join(" ")}`,
           retry_count: round,
         });
         planNote = note;
@@ -949,7 +975,8 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
           codeGaps = analysis.code_gaps;
           cutByQueryBudget = cutByBudget(fixed);
         } else {
-          // Planner, or the task's default plan when its replies cannot be read. Its call is counted in planOrFallback.
+          // Planner, or the task's default plan when its call fails after llm.ts gives up (BadJson, a 5xx, a timeout,
+          // a 429 or a network error). Its call is counted in planOrFallback.
           stop = budgetStop(false);
           if (stop !== null) break;
           const planned = await planOrFallback({ task, question, as_of: asOf, trade: input.trade ?? null, memories, world, feedback });
@@ -1056,11 +1083,10 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
         if (runLeft() <= 0) return stopped("run_timeout");
         if (roundLeft() <= 0) return stopped("round_timeout");
       }
-      // A provider 5xx (the 502 empty_response included), a timeout that is not the round's or the run's, or replies
-      // that still could not be read after llm.ts's tries (BadJson: the Analyst's or the Writer's), after at least one
+      // A model failure llm.ts gave up on (isModelFailure: a 5xx, the 502 empty_response included, a timeout that is not
+      // the round's or the run's, a 429, a network error, or replies that still could not be read), after at least one
       // query result is held: keep the evidence and return a code-built draft, never an error.
-      const failedModel = (error instanceof ModelHttpError && error.status !== undefined && error.status >= 500) || error instanceof ModelTimeout || error instanceof BadJson;
-      if (failedModel && Object.keys(state.store).length > 0) return modelUnavailable(error as ModelError);
+      if (isModelFailure(error) && Object.keys(state.store).length > 0) return modelUnavailable(error as ModelError);
       throw error;
     }
   }

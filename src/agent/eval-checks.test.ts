@@ -119,12 +119,10 @@ describe("universalChecks", () => {
   });
 
   it("fails a successful result whose plan code built after the Planner failed, whatever the cause", () => {
-    for (const cause of ["its replies could not be read", "the model service returned an error", "the model call timed out"]) {
+    for (const cause of ["its replies could not be read", "the model service returned an error", "the model call timed out", "the model service was busy and refused the call", "the model service could not be reached"]) {
       const r = result({ gaps: [`${PLANNER_FALLBACK_LABEL} (${cause}; queries: week_moves, rule_findings); the review covers those, not a plan made for this question.`] });
       expect(failed(universalChecks(r))).toEqual(["planner_fallback: the plan was built in code"]);
     }
-    const r = result({ gaps: [`${PLANNER_FALLBACK_LABEL} (the model call timed out; queries: week_moves); the review covers those.`] });
-    expect(failed(universalChecks(r))).toEqual(["planner_fallback: the plan was built in code"]);
     expect(failed(universalChecks(result({ gaps: ["dividends_between returned no rows."] })))).toEqual([]);
   });
 

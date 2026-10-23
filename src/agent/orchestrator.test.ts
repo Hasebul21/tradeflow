@@ -7,7 +7,8 @@ import { DISCLAIMER } from "./agents/writer";
 import { loadConfig } from "./config";
 import type { Finding } from "./guards";
 import { PLANNER_FALLBACK_LABEL } from "./labels";
-import { BadJson, ModelHttpError, ModelTimeout, Unauthorized, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
+import { BadJson, ModelHttpError, ModelTimeout, NightshiftNotRunning, PromptTooLarge, RateLimited, Unauthorized, type AgentName, type CompleteOptions, type CompleteResult } from "./llm";
+import { BudgetExhaustedError } from "./run-state";
 import { asksForAdvice, plannerFallbackCause, run, type RunResult } from "./orchestrator";
 import type { TraceLine } from "./trace";
 
@@ -507,7 +508,7 @@ describe("a model that fails after the queries ran", () => {
     const fallback = by(lines, "Orchestrator", "planner_fallback");
     expect(fallback).toHaveLength(1);
     expect(fallback[0]).toMatchObject({ status: "fallback", target_agent: "Analyst" });
-    expect(fallback[0].why).toMatch(/^upstream_502 after llm.ts's retries/);
+    expect(fallback[0].why).toMatch(/^upstream_502 after llm\.ts gave up/);
     expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (the model service returned an error; queries: week_moves,`))).toBe(true);
     // The failed Planner call is counted, and no Planner plan line was written: the plan is code's.
     expect(by(lines, "Planner", "model_call")[0]).toMatchObject({ status: "error", usage: { model_calls: 1 } });
@@ -525,7 +526,7 @@ describe("a model that fails after the queries ran", () => {
     expect(result.status).toBe("success");
     const fallback = by(trace(result), "Orchestrator", "planner_fallback");
     expect(fallback).toHaveLength(1);
-    expect(fallback[0].why).toMatch(/^timeout after llm.ts's retries/);
+    expect(fallback[0].why).toMatch(/^timeout after llm\.ts gave up/);
     expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (the model call timed out;`))).toBe(true);
   });
 
@@ -545,15 +546,98 @@ describe("a model that fails after the queries ran", () => {
     expect(lines.at(-1)).toMatchObject({ action: "run_end", status: "needs_human", stop_reason: "model_unavailable" });
   });
 
-  it("plannerFallbackCause: bad_json, upstream_<status> and timeout fall back; a timeout with no time left, a 4xx and Unauthorized do not", () => {
+  it("plannerFallbackCause: bad_json, upstream_<status>, timeout, rate_limited and network fall back; a timeout with no time left, a 4xx, Unauthorized, NightshiftNotRunning, PromptTooLarge and a spent budget do not", () => {
     expect(plannerFallbackCause(new BadJson("x", "the reply is empty"), true)).toMatchObject({ kind: "bad_json", code: "bad_json" });
     expect(plannerFallbackCause(new ModelHttpError("502 empty_response", 502), true)).toMatchObject({ kind: "upstream", code: "upstream_502" });
     expect(plannerFallbackCause(new ModelHttpError("503", 503), true)).toMatchObject({ code: "upstream_503" });
     expect(plannerFallbackCause(new ModelTimeout("timed out"), true)).toMatchObject({ kind: "timeout", code: "timeout" });
     expect(plannerFallbackCause(new ModelTimeout("timed out"), false)).toBeNull();
     expect(plannerFallbackCause(new ModelHttpError("not found", 404), true)).toBeNull();
-    expect(plannerFallbackCause(new ModelHttpError("network", undefined), true)).toBeNull();
+    expect(plannerFallbackCause(new ModelHttpError("400", 400), true)).toBeNull();
+    // A ModelHttpError with no HTTP status is a reset connection, a DNS failure or a socket refused mid-run.
+    expect(plannerFallbackCause(new ModelHttpError("The main model call failed twice: read ECONNRESET", undefined), true)).toMatchObject({ kind: "network", code: "network" });
+    expect(plannerFallbackCause(new RateLimited("The strong model call was rate limited (HTTP 429) twice."), true)).toMatchObject({ kind: "rate_limited", code: "rate_limited" });
     expect(plannerFallbackCause(new Unauthorized("401"), true)).toBeNull();
+    expect(plannerFallbackCause(new NightshiftNotRunning("Nightshift not running"), true)).toBeNull();
+    expect(plannerFallbackCause(new PromptTooLarge("too large"), true)).toBeNull();
+    expect(plannerFallbackCause(new BudgetExhaustedError("max_model_calls", "spent"), true)).toBeNull();
+  });
+
+  it("a Planner 429 and then an Analyst network error: the code plan with cause rate_limited, then needs_human with model_unavailable", async () => {
+    stubs.override = async (options) => {
+      if (options.agent === "Planner") throw new RateLimited("The strong model call was rate limited (HTTP 429) twice.");
+      if (options.agent === "Analyst") throw new ModelHttpError("The main model call failed twice: read ECONNRESET", undefined);
+      return null;
+    };
+    const result = await explainWeek("orch-planner-429-analyst-network");
+    expect(result.status).toBe("needs_human");
+    expect(result.error).toBeNull();
+    expect(result.output).toMatchObject({ stop_reason: "model_unavailable", partial: true });
+    expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (the model service was busy and refused the call;`))).toBe(true);
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "planner_fallback")[0].why).toMatch(/^rate_limited after llm\.ts gave up/);
+    expect(by(lines, "Orchestrator", "model_unavailable_fallback")[0].why).toMatch(/^ModelHttpError from the Analyst's model call/);
+  });
+
+  it("a Planner 429 alone gets the code plan and the run ends success", async () => {
+    stubs.override = async (options) => {
+      if (options.agent !== "Planner") return null;
+      throw new RateLimited("The strong model call was rate limited (HTTP 429) twice.");
+    };
+    const result = await explainWeek("orch-planner-429");
+    expect(result.status).toBe("success");
+    expect(by(trace(result), "Orchestrator", "planner_fallback")).toHaveLength(1);
+  });
+
+  const lateFailure = (error: Error, waitMs: number) => async (options: CompleteOptions): Promise<CompleteResult | null> => {
+    if (options.agent !== "Planner") return null;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    throw error;
+  };
+
+  it("a Planner 502 that arrives after the round's limit ends as round_timeout, with the fallback gap on the result", async () => {
+    stubs.override = lateFailure(new ModelHttpError("The strong model call failed: 3 tries failed with HTTP 502 empty_response", 502), 700);
+    const result = await explainWeek("orch-planner-502-round-timeout", { config: loadConfig({ SAMPLE_MODE: "true", ROUND_TIMEOUT_MS: "500" }, () => {}) });
+    expect(result.status).toBe("needs_human");
+    expect(result.output).toMatchObject({ stop_reason: "round_timeout", partial: true, findings: [] });
+    expect(result.output!.gaps.some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))).toBe(true);
+    const lines = trace(result);
+    expect(by(lines, "Orchestrator", "planner_fallback")).toHaveLength(1);
+    expect(by(lines, "Orchestrator", "stop")[0].output_summary).toContain("no draft; plan from code");
+    expect(by(lines, "Analyst")).toHaveLength(0);
+  });
+
+  it("a Planner BadJson that arrives after the run's limit ends as run_timeout, with the fallback gap on the result", async () => {
+    stubs.override = lateFailure(new BadJson("not json", "the reply holds no {...} object"), 3200);
+    const result = await explainWeek("orch-planner-badjson-run-timeout", { config: loadConfig({ SAMPLE_MODE: "true", RUN_TIMEOUT_MS: "3000" }, () => {}) });
+    expect(result.status).toBe("needs_human");
+    expect(result.output).toMatchObject({ stop_reason: "run_timeout", partial: true, findings: [] });
+    expect(result.output!.gaps.some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))).toBe(true);
+    expect(by(trace(result), "Orchestrator", "stop")[0].output_summary).toContain("no draft; plan from code");
+  }, 15000);
+
+  it("a Planner failure with MAX_MODEL_CALLS already spent ends with stop_reason model_calls", async () => {
+    // The failed 502 call is the run's one model call: the code plan stands in, and the budget stop comes before the Analyst.
+    stubs.override = async (options) => {
+      if (options.agent !== "Planner") return null;
+      throw new ModelHttpError("The strong model call failed: 3 tries failed with HTTP 502 empty_response", 502);
+    };
+    const result = await explainWeek("orch-planner-502-model-calls", { config: loadConfig({ SAMPLE_MODE: "true", MAX_MODEL_CALLS: "1" }, () => {}) });
+    expect(result.status).toBe("needs_human");
+    expect(result.output).toMatchObject({ stop_reason: "model_calls", partial: true });
+    expect(result.usage.model_calls).toBe(1);
+    expect(result.output!.gaps.some((gap) => gap.startsWith(PLANNER_FALLBACK_LABEL))).toBe(true);
+    expect(by(trace(result), "Analyst", "model_call")).toHaveLength(0);
+
+    // A budget the Planner's own call found spent is no fallback case: the run stops on it, with no planner_fallback line.
+    stubs.override = async (options) => {
+      if (options.agent !== "Planner") return null;
+      throw new BudgetExhaustedError("max_model_calls", "The run's model budget is spent: 1 request of this call used the last of it, so no retry was sent.");
+    };
+    const spent = await explainWeek("orch-planner-budget-spent");
+    expect(spent.status).toBe("needs_human");
+    expect(spent.output).toMatchObject({ stop_reason: "model_calls" });
+    expect(by(trace(spent), "Orchestrator", "planner_fallback")).toHaveLength(0);
   });
 });
 

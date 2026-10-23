@@ -410,7 +410,7 @@ describe("replies that cannot be read: each agent recovers or falls back, and th
     expect(fallback).toHaveLength(1);
     expect(fallback[0]).toMatchObject({ status: "fallback", target_agent: "Analyst" });
     expect(fallback[0].output_summary).toContain("week_moves, sector_vs_stock, announcements_between, dividends_between, rule_findings");
-    expect(fallback[0].why).toMatch(/^bad_json after llm.ts's retries \(parse: the JSON object is cut off/);
+    expect(fallback[0].why).toMatch(/^bad_json after llm\.ts gave up \(parse: the JSON object is cut off/);
     // The plan is labelled as code's in the review's gaps, never passed off as the Planner's.
     expect(result.output!.gaps.some((gap) => gap.startsWith(`${PLANNER_FALLBACK_LABEL} (its replies could not be read; queries: week_moves,`))).toBe(true);
     expect(by(lines, "Planner", "plan")).toHaveLength(0);
