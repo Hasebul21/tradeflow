@@ -299,7 +299,7 @@ describe("runQuery", () => {
     expect(QUERIES.what_if.sql).toBeUndefined();
   });
 
-  it("runs the queries that have no sql() yet locally with source local", async () => {
+  it("sends the three statements added with the reconciliation agent to Zetaris, one call each", async () => {
     for (const [id, params] of [
       ["dividends_between", { from: "2026-09-01", to: AS_OF }],
       ["rule_findings", { as_of: AS_OF }],
@@ -308,10 +308,19 @@ describe("runQuery", () => {
       const fetchImpl = fetchOf(() => json({ data: [] }));
       const { lines, tracer } = collector();
       const result = await runQuery({ query_id: id, params, runId: "t", tracer, config, sampleMode: false, data: d, zetaris: clientOf(fetchImpl) });
-      expect(result.source).toBe("local");
-      expect(fetchImpl).not.toHaveBeenCalled();
-      expect(lines[0].input_summary).toContain("source=local");
+      expect(result.source).toBe("zetaris");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(lines[0].input_summary).toContain("source=zetaris sql: ");
     }
+  });
+
+  it("runs what_if locally, with the reason in the trace", async () => {
+    const fetchImpl = fetchOf(() => json({ data: [] }));
+    const { lines, tracer } = collector();
+    const result = await runQuery({ query_id: "what_if", params: { symbol: "EBL", side: "buy", quantity: 100, as_of: AS_OF }, runId: "t", tracer, config, sampleMode: false, data: d, zetaris: clientOf(fetchImpl) });
+    expect(result.source).toBe("local");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(lines[0].why).toMatch(/what_if has no sql\(\)/);
   });
 
   it("answers an unknown symbol the same in sample mode and with Zetaris: no SQL is sent", async () => {
@@ -376,12 +385,15 @@ describe("sql()", () => {
     announcements_between: { from: "2026-09-24", to: AS_OF, symbol: "BXPHARMA" },
     fundamentals_latest: { symbol: "BXPHARMA", as_of: AS_OF },
     journal_for_symbol: { as_of: AS_OF, symbol: "GP" },
+    dividends_between: { from: "2026-01-01", to: AS_OF },
+    rule_findings: { as_of: AS_OF },
+    reconciliation: {},
   };
   const withSql = (Object.keys(QUERIES) as QueryId[]).filter((id) => QUERIES[id].sql);
   const tables = new Set(readFileSync(path.join(process.cwd(), "docs", "zetaris-tables.txt"), "utf8").split("\n").filter(Boolean));
 
-  it("exists for the five first queries, and not for the rest", () => {
-    expect(withSql.sort()).toEqual(["announcements_between", "fundamentals_latest", "journal_for_symbol", "sector_vs_stock", "week_moves"]);
+  it("exists for every query but what_if", () => {
+    expect(withSql.sort()).toEqual(["announcements_between", "dividends_between", "fundamentals_latest", "journal_for_symbol", "reconciliation", "rule_findings", "sector_vs_stock", "week_moves"]);
   });
 
   it("is one statement with no trailing semicolon, and only qualified tables that SHOW DATASOURCE TABLES listed", () => {
@@ -399,10 +411,12 @@ describe("sql()", () => {
   it("selects exactly the columns it declares, in order", () => {
     for (const id of withSql) {
       const q = QUERIES[id];
-      const sql = q.sql!(PARAMS[id], d);
+      const full = q.sql!(PARAMS[id], d);
+      // A statement with WITH blocks declares its columns in the last top-level SELECT; the blocks before it have their own.
+      const sql = full.startsWith("WITH") ? full.slice(full.lastIndexOf("\nSELECT ")) : full;
       let last = -1;
       for (const column of q.sqlColumns!) {
-        const at = sql.search(new RegExp(`(?:\\bAS\\s+${column}\\b|[\\s.,]${column}\\s*(?:,|\\n|FROM|\\bAS\\b))`));
+        const at = sql.search(new RegExp(`(?:\\bAS\\s+\`?${column}\`?\\b|[\\s.,\`]${column}\`?\\s*(?:,|\\n|FROM|\\bAS\\b))`));
         expect(at, `${id}.${column}`).toBeGreaterThan(-1);
         expect(at, `${id}.${column} is out of order`).toBeGreaterThan(last);
         last = at;

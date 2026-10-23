@@ -1,8 +1,8 @@
 "use server";
 
 // Server actions for the Explain page. Each one runs the orchestrator in-process through runRequest and sends
-// input.task explicitly. None of them saves a trade or changes the ledger. They never throw: a failure is an
-// error result.
+// input.task explicitly. None of them saves a trade; only approveFix changes the ledger, by the owner's approval
+// of one reconciliation proposal, applied by code. They never throw: a failure is an error result.
 import type { RunResult } from "@/agent/orchestrator";
 import { runRequest } from "@/agent/request";
 
@@ -31,4 +31,13 @@ export async function runPreTrade(runId: string, asOf: string | null, choice: Pr
 
 export async function sendCorrection(runId: string, reviewRunId: string, text: string, wrongMemoryIds: string[] = []): Promise<RunResult> {
   return send(runId, { task: "feedback", review_run_id: reviewRunId, text, wrong_memory_ids: wrongMemoryIds });
+}
+
+export async function runReconcile(runId: string, asOf: string | null): Promise<RunResult> {
+  return send(runId, { task: "reconcile", ...asOfField(asOf) });
+}
+
+/** The owner approves one proposal of a reconcile review; code applies it from the current rows, never the review's text. */
+export async function approveFix(runId: string, reviewRunId: string, issueId: string): Promise<RunResult> {
+  return send(runId, { task: "reconcile_approve", review_run_id: reviewRunId, issue_id: issueId });
 }

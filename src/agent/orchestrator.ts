@@ -17,16 +17,19 @@ import { TASKS, type Task } from "./context";
 import { injectionIn, type Finding } from "./guards";
 import { MODEL_UNAVAILABLE_LABEL, STOP_REASONS } from "./labels";
 import { failedCallUsage, ModelError, ModelHttpError, ModelTimeout, RateLimited, type AgentName } from "./llm";
-import { learnCorrection, recall, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
+import { learnCorrection, MemoryBlockedError, recall, rememberDecision, seedOwnerContext, withMiner, type RecalledMemory } from "./memory";
 import { branchOnWhatIf, fixedPlan, PRE_TRADE_FOCUS, resolveTrade, type PreTradeEscalation } from "./pre-trade";
-import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource } from "./queries";
+import { QueryBlockedError, QueryError, type QueryId, type QueryResult, type QuerySource, type Row } from "./queries";
+import { APPROVE_REFUSED, canApply, editFor, proposalsFrom, proposedFix, reconcilePlan, RECONCILE_FOCUS, ZETARIS_STALE, type LedgerEdit, type Proposal } from "./reconcile-fix";
 import { BudgetExhaustedError, RunState, type Usage } from "./run-state";
 import { batchesToRerun, keepThesisSteps, prepareThesisEvidence, type PreparedTheses } from "./thesis";
 import { isRunId, startRun, type Tracer } from "./trace";
 import { about as worldAbout, recordRun, type WorldAbout } from "./world";
+import { appendContribution, loadContributions } from "@/lib/data";
 import type { Rules } from "@/lib/data-types";
 import { buildPortfolioView, resolveAsOf } from "@/lib/portfolio-view";
 import { readJson } from "@/lib/store";
+import { appendTransaction, loadTransactions } from "@/lib/transactions";
 
 const AGENT = "Orchestrator";
 const GUARD = "Guard";
@@ -34,9 +37,11 @@ const SUMMARY_CHARS = 200;
 
 
 /** The tasks this loop runs today; later steps add the others. */
-const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check", "pre_trade"];
+const SUPPORTED: readonly Task[] = ["explain_week", "thesis_check", "pre_trade", "reconcile"];
 /** The owner's correction to a review: stored in H-MEM by code, with no Planner and no loop. */
 const FEEDBACK = "feedback";
+/** The owner's approval of one reconciliation fix: applied by code from the current rows, with no model. */
+const APPROVE = "reconcile_approve";
 
 // ---------------------------------------------------------------------------------------------------------------
 // The request and the reply.
@@ -53,6 +58,7 @@ export type RunInput = {
   text?: string;
   /** feedback only: the ids of recalled memories the owner says were wrong; each gets hmem.feedback(id, "wrong"). */
   wrong_memory_ids?: string[];
+  /** reconcile_approve only: the issue_id of the reconciliation row the owner approves. */
   issue_id?: string;
 };
 
@@ -107,6 +113,10 @@ export type RunOutput = {
   escalation?: PreTradeEscalation | null;
   /** feedback only: the ids of the memories the correction added. */
   memory_ids_added?: string[];
+  /** reconcile only: one proposal per difference, built by code from the reconciliation rows, each awaiting approval. */
+  proposals?: Proposal[];
+  /** reconcile_approve only: what the approval did; null when nothing was written. */
+  applied?: { issue_id: string; edit: LedgerEdit; memory_id: string | null } | null;
 };
 
 export type ThesisVerdict = { journal_id: string; symbol: string; verdict: string; cites: string[] };
@@ -309,6 +319,8 @@ type Outcome =
   | NeedsHuman
   /** feedback: the correction was stored; no draft, no Writer. */
   | { kind: "feedback"; summary: string; memory_ids_added: string[] }
+  /** reconcile_approve: one fix applied by code (success), or nothing written and the owner told why (needs_human). */
+  | { kind: "approval"; status: "success" | "needs_human"; summary: string; applied: NonNullable<RunOutput["applied"]> | null }
   | { kind: "error"; error: RunError };
 
 /**
@@ -360,6 +372,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
   let thesisIds: { journal_id: string; symbol: string }[] = [];
   /** pre_trade: what the what_if rows decided in code. */
   let preTrade: { new_findings: string[]; escalation: PreTradeEscalation | null } | null = null;
+  /** reconcile: the reconciliation result the proposals are built from. */
+  let reconciliation: QueryResult | null = null;
   const modelIds = new Set<string>();
 
   const declineAdvice = (by: string) => {
@@ -409,15 +423,15 @@ export async function run(options: RunOptions): Promise<RunResult> {
   // The run, start to finish. Throws only what the catch above turns into an error reply.
   async function execute(): Promise<Outcome> {
     const invalid = (message: string): Outcome => ({ kind: "error", error: { type: "InvalidInput", message, recoverable: false } });
-    if (taskName === FEEDBACK) {
+    if (taskName === FEEDBACK || taskName === APPROVE) {
       if (input === null || typeof input !== "object") return invalid("The input must be an object.");
-      return feedbackRun();
+      return taskName === FEEDBACK ? feedbackRun() : approveRun();
     }
     if (typeof taskName !== "string" || !TASKS.includes(taskName as Task)) {
-      return invalid(`Unknown task ${JSON.stringify(taskName)}; the tasks are ${[...TASKS, FEEDBACK].join(", ")}.`);
+      return invalid(`Unknown task ${JSON.stringify(taskName)}; the tasks are ${[...TASKS, FEEDBACK, APPROVE].join(", ")}.`);
     }
     const task = taskName as Task;
-    if (!SUPPORTED.includes(task)) return invalid(`Task ${JSON.stringify(task)} is not supported yet; this loop runs ${[...SUPPORTED, FEEDBACK].join(", ")}.`);
+    if (!SUPPORTED.includes(task)) return invalid(`Task ${JSON.stringify(task)} is not supported yet; this loop runs ${[...SUPPORTED, FEEDBACK, APPROVE].join(", ")}.`);
     if (input === null || typeof input !== "object") return invalid("The input must be an object.");
     if (input.question !== undefined && input.question !== null && typeof input.question !== "string") return invalid("The question must be a string.");
     if (input.as_of !== undefined && input.as_of !== null && typeof input.as_of !== "string") return invalid("as_of must be a date as YYYY-MM-DD.");
@@ -603,6 +617,41 @@ export async function run(options: RunOptions): Promise<RunResult> {
           ...(preTrade.escalation === null ? {} : { escalation_rule: preTrade.escalation.rule }),
         });
       }
+      // reconcile is a fixed chain too: code runs reconciliation (Zetaris, with the local fallback), then plans the
+      // journal of each symbol a trade difference names. The Planner is not called; a rejection goes to the Analyst.
+      if (task === "reconcile") {
+        tracer.log({
+          agent_name: AGENT,
+          action: "fixed_plan",
+          input_summary: capped(`task=reconcile as_of=${asOf}`),
+          output_summary: "no Planner call: reconciliation first, then journal_for_symbol for each symbol a trade difference names",
+          target_agent: "Analyst",
+          status: "ok",
+          why: "1. reconciliation: every difference between the ledger and the broker and bank files. 2. journal_for_symbol: the owner's journal for each symbol a trade difference names.",
+        });
+        stop = budgetStop(true);
+        if (stop !== null) return stopped(stop);
+        try {
+          reconciliation = await state.query("reconciliation", {});
+        } catch (error) {
+          if (error instanceof QueryBlockedError) return invalid(error.reason);
+          throw error;
+        }
+        const planned = reconcilePlan(reconciliation.rows, asOf, config.MAX_PLAN_STEPS);
+        fixed = planned.steps;
+        const ids = reconciliation.rows.map((row) => String(row.issue_id));
+        tracer.log({
+          agent_name: AGENT,
+          action: "branch",
+          input_summary: capped(`reconciliation ${reconciliation.run_query_id} source=${reconciliation.source}`),
+          output_summary: capped(
+            `${ids.length} differences (${ids.join(", ") || "none"}); ${fixed.length} steps: ${fixed.map((step) => (step.query_id === "journal_for_symbol" ? `journal_for_symbol ${String(step.params.symbol)}` : step.query_id)).join(", ")}${planned.left_out.length > 0 ? `; no room for the journals of ${planned.left_out.join(", ")}` : ""}`,
+          ),
+          target_agent: "Analyst",
+          status: "ok",
+          why: "decided in code from the reconciliation rows, never by a model",
+        });
+      }
 
       // 4. The loop.
       rounds: for (round = 0; round < config.MAX_ROUNDS; round += 1) {
@@ -685,14 +734,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
             revise(round, feedback, findings.length);
             continue;
           }
-        } else if (task === "pre_trade" && trade !== null) {
+        } else if ((task === "pre_trade" && trade !== null) || task === "reconcile") {
           // No Planner: the plan is fixed, so a rejection goes to the Analyst with its previous findings and the fix.
           // The steps come from the cache after round 0, and the Analyst is offered no tools.
           stop = budgetStop(fixed.some((step) => !state.isCached(step.query_id, step.params)));
           if (stop !== null) break;
           calling = "Analyst";
           const analysis: AnalysisOutcome = await analyse(
-            { task, question, as_of: asOf, trade, focus: PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
+            { task, question, as_of: asOf, trade, focus: task === "reconcile" ? RECONCILE_FOCUS : PRE_TRADE_FOCUS, steps: fixed, memories, world, previous_findings: previous, feedback, noTools: true },
             { run: state, sampleMode, timeoutMs: timeLeft("main"), roundDeadlineMs: roundDeadline(), round },
           );
           modelIds.add(analysis.model.model_id);
@@ -803,7 +852,9 @@ export async function run(options: RunOptions): Promise<RunResult> {
         return { ...stopped("writer_rejected", detail), summary: written.summary, review_markdown: written.review_markdown };
       }
       const done = { summary: written.summary, review_markdown: written.review_markdown, draft: accepted, rounds: accepted.round + 1 };
-      return { kind: preTrade?.escalation ? "escalated" : "success", ...done };
+      // A reconciliation with differences waits for the owner's approval of each proposal, as an escalated trade does.
+      const awaitsOwner = preTrade?.escalation != null || (task === "reconcile" && (reconciliation?.rows.length ?? 0) > 0);
+      return { kind: awaitsOwner ? "escalated" : "success", ...done };
     } catch (error) {
       // A budget an agent found spent, or a timeout that was the round's or the run's, ends as needs_human.
       if (error instanceof BudgetExhaustedError) return stopped(error.stop_reason === "max_tokens" ? "tokens" : "model_calls", error.message);
@@ -849,6 +900,78 @@ export async function run(options: RunOptions): Promise<RunResult> {
       summary: `Stored your correction to the review of ${learned.as_of} as ${learned.memory_ids_added.join(", ")}; later reviews recall it by tag.`,
       memory_ids_added: learned.memory_ids_added,
     };
+  }
+
+  /**
+   * reconcile_approve: the owner approves one proposal. Code reruns the reconciliation query's local() on the files as
+   * they are now (source "local", traced), takes the row with the issue_id and applies its edit through src/lib:
+   * appendContribution for a bank deposit missing from the contributions, appendTransaction for a broker trade missing
+   * from the ledger. The fix never comes from the review run's text or trace; review_run_id is only traced. A manual
+   * check writes nothing. It writes only when canApply() allows; then the decision is stored through
+   * guards.beforeRemember with kind "decision".
+   */
+  async function approveRun(): Promise<Outcome> {
+    const fail = (message: string): Outcome => ({ kind: "error", error: { type: "InvalidInput", message, recoverable: false } });
+    if (typeof input.review_run_id !== "string" || input.review_run_id.trim() === "") return fail("review_run_id is required for reconcile_approve: the run id of the reconcile review the proposal came from.");
+    if (typeof input.issue_id !== "string" || input.issue_id.trim() === "") return fail("issue_id is required for reconcile_approve: the issue_id of the proposal you approve.");
+    const reviewRunId = input.review_run_id.trim();
+    const issueId = input.issue_id.trim();
+    tracer.log({
+      agent_name: AGENT,
+      action: "run_start",
+      input_summary: capped(`task=reconcile_approve review_run_id=${reviewRunId} issue_id=${issueId}`),
+      output_summary: "no model and no loop: code finds the issue in the current reconciliation rows and applies its fix",
+      status: "ok",
+    });
+    if (!canApply()) {
+      tracer.log({
+        agent_name: AGENT,
+        action: "approval_refused",
+        input_summary: capped(`issue_id=${issueId} review_run_id=${reviewRunId}`),
+        output_summary: "nothing written: the data dir is the repo's own data/",
+        status: "needs_human",
+        why: "fixes are applied only in Docker (NODE_ENV production) or with TRADEFLOW_DATA_DIR set to a copy of data/",
+      });
+      return { kind: "approval", status: "needs_human", summary: `${APPROVE_REFUSED} Nothing was written.`, applied: null };
+    }
+
+    const state = new RunState({ runId, tracer, config, sampleMode, localReason: "reconcile_approve reads the files as they are now, never Zetaris" });
+    run = state;
+    const current = await state.query("reconciliation", {});
+    const row: Row | undefined = current.rows.find((candidate) => String(candidate.issue_id) === issueId);
+    if (row === undefined) {
+      tracer.log({ agent_name: AGENT, action: "approval_refused", input_summary: capped(`issue_id=${issueId}`), output_summary: capped(`not an open difference now; open: ${current.rows.map((r) => String(r.issue_id)).join(", ") || "none"}`), status: "error", why: "the issue is not in the current reconciliation rows" });
+      return fail(`Issue ${issueId} is not an open difference in the current data (already applied, or unknown); nothing was written.`);
+    }
+    const [transactions, contributions] = await Promise.all([loadTransactions(), loadContributions()]);
+    const edit = editFor(row, { transactionIds: transactions.map((t) => t.id), contributionIds: contributions.map((c) => c.id) });
+    if (edit.op === "manual_check") {
+      tracer.log({ agent_name: AGENT, action: "approval", input_summary: capped(`issue_id=${issueId} kind=${String(row.kind)} review_run_id=${reviewRunId}`), output_summary: capped(`nothing written: ${edit.reason}`), status: "needs_human", why: "a commission difference, a ledger trade with no broker row or a contribution with no bank deposit is checked by the owner, not applied" });
+      return { kind: "approval", status: "needs_human", summary: `Issue ${issueId} is a ${edit.reason}. Code applies no fix for it; check it against your own records. Nothing was written.`, applied: null };
+    }
+
+    const writeStarted = Date.now();
+    if (edit.op === "add_contribution") await appendContribution(edit.row);
+    else await appendTransaction(edit.row);
+    const fix = proposedFix(row);
+    const what = edit.op === "add_contribution" ? `contribution ${edit.row.id}` : `transaction ${edit.row.id}`;
+    tracer.log({
+      agent_name: AGENT,
+      action: "approval",
+      input_summary: capped(`issue_id=${issueId} kind=${String(row.kind)} review_run_id=${reviewRunId}`),
+      output_summary: capped(`applied: ${fix}, as ${what}`),
+      status: "ok",
+      why: "the owner approved it; code built the edit from the current reconciliation row, never from model text",
+      duration_ms: Date.now() - writeStarted,
+    });
+    let memoryId: string | null = null;
+    try {
+      memoryId = await rememberDecision({ content: `The owner approved the reconciliation fix for ${issueId}: ${fix}, written as ${what}.`, task: "reconcile", issueId, reviewRunId, tracer });
+    } catch (error) {
+      if (!(error instanceof MemoryBlockedError)) throw error;
+      // beforeRemember wrote its Guard line; the fix stays applied.
+    }
+    return { kind: "approval", status: "success", summary: `Applied the fix for ${issueId}: ${fix}, as ${what}. ${ZETARIS_STALE}`, applied: { issue_id: issueId, edit, memory_id: memoryId } };
   }
 
   /** World Model facts about the holdings and the trade's symbol. A failure is traced and gives an empty list. */
@@ -906,14 +1029,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
       input_summary: `round ${round + 1} of ${config.MAX_ROUNDS} rejected`,
       output_summary: capped(
         round + 1 < config.MAX_ROUNDS
-          ? taskName === "pre_trade"
+          ? taskName === "pre_trade" || taskName === "reconcile"
             ? `round ${round + 2}: the plan is fixed; the Analyst gets its ${previousFindings} previous findings and the fix`
             : taskName === "thesis_check"
             ? `round ${round + 2}: the plan is reused; the Analyst reruns only the batches that hold a journal id the fix names, with their previous findings and the fix, and the other batches keep their ${previousFindings} findings`
             : `round ${round + 2}: the Planner gets the fix as feedback and the Analyst its ${previousFindings} previous findings and the fix`
           : `no round left; the run returns needs_human with the best draft`,
       ),
-      target_agent: round + 1 < config.MAX_ROUNDS ? (taskName === "thesis_check" || taskName === "pre_trade" ? "Analyst" : "Planner") : null,
+      target_agent: round + 1 < config.MAX_ROUNDS ? (taskName === "thesis_check" || taskName === "pre_trade" || taskName === "reconcile" ? "Analyst" : "Planner") : null,
       status: "retry",
       why: fix,
       retry_count: round,
@@ -923,6 +1046,27 @@ export async function run(options: RunOptions): Promise<RunResult> {
   function reply(outcome: Outcome, usage: RunUsage): RunResult {
     const base = { run_id: runId, task: taskName, agents, usage, trace_id: runId, log_file: logFile, execution_time_seconds: seconds() };
     if (outcome.kind === "error") return { ...base, status: "error", output: null, error: outcome.error };
+    if (outcome.kind === "approval") {
+      const output: RunOutput = {
+        summary: outcome.summary,
+        review_markdown: `${outcome.summary}\n\n${DISCLAIMER}`,
+        findings: [],
+        gaps: [],
+        citations: [],
+        needs_human: outcome.status === "needs_human",
+        declined_advice: false,
+        injection_seen: false,
+        memories_recalled: [],
+        applied_corrections: [],
+        rounds: 0,
+        scores: null,
+        model_source: "none: code applies an approved fix",
+        partial: false,
+        stop_reason: null,
+        applied: outcome.applied,
+      };
+      return { ...base, status: outcome.status, output, error: null };
+    }
     if (outcome.kind === "feedback") {
       const output: RunOutput = {
         summary: outcome.summary,
@@ -971,6 +1115,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       stop_reason: stopReason,
       ...(taskName === "thesis_check" ? { verdicts: verdictsOf(findings, thesisIds) } : {}),
       ...(taskName === "pre_trade" && preTrade !== null ? { new_findings: preTrade.new_findings, escalation: preTrade.escalation } : {}),
+      ...(taskName === "reconcile" && reconciliation !== null ? { proposals: proposalsFrom(reconciliation.rows, findings, reconciliation.run_query_id) } : {}),
     };
     return { ...base, status: outcome.kind === "success" ? "success" : "needs_human", output, error: null };
   }

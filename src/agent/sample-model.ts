@@ -2,6 +2,7 @@
 // It dispatches on the agent parameter of complete(), never on the system text, and builds each reply only from the
 // facts in the user message. Each agent's own step refines its rule here as that agent's file is added.
 import type { AgentName, CompleteOptions, CompleteResult } from "./llm";
+import { proposedFix } from "./reconcile-fix";
 
 type Obj = Record<string, unknown>;
 
@@ -222,6 +223,7 @@ function analyst(input: Obj): Obj {
   // thesis_check: the input carries the theses with their evidence tables; the rules are in thesisFinding.
   if (Array.isArray(input.theses)) return { findings: objs(input.theses).map(thesisFinding), gaps: [] };
   if (str(input.task) === "pre_trade") return preTradeAnalyst(input);
+  if (str(input.task) === "reconcile") return reconcileAnalyst(input);
   const task = str(input.task) || "explain_week";
   const question = str(input.question);
   const feedback = str(input.feedback);
@@ -587,6 +589,67 @@ function preTradeAnalyst(input: Obj): Obj {
   return { findings, gaps: [] };
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Analyst for reconcile: from the reconciliation and journal_for_symbol results only (code ran every query; no tools).
+//   reconciliation  one finding per difference row, subject = its issue_id: what differs and the amounts, as the row
+//                   gives them; the reason "not known" unless the row states one; the proposed fix in the form for the
+//                   row's kind; a journal entry that refers to the ledger trade is named, and its result cited
+// Never says a fix is done.
+
+function reconcileAnalyst(input: Obj): Obj {
+  const results: Result[] = objs(input.results).map((result) => ({ id: str(result.run_query_id), query_id: str(result.query_id), params: isObj(result.params) ? result.params : {}, rows: objs(result.rows) }));
+  const rec = results.find((result) => result.query_id === "reconciliation");
+  const journals = results.filter((result) => result.query_id === "journal_for_symbol");
+  if (rec === undefined) return { findings: [], gaps: ["No reconciliation result is in this run, so no difference can be explained."] };
+
+  const findings = rec.rows.map((row) => {
+    const issue = str(row.issue_id);
+    const v = (field: string): string => String(row[field] ?? "");
+    const numbers: Num[] = [];
+    const add = (field: string, label: string) => {
+      const value = num(row[field]);
+      if (value !== null && numbers.length < MAX_NUMBERS_PER_FINDING) numbers.push({ value, label });
+    };
+    let what: string;
+    switch (str(row.kind)) {
+      case "mismatched_trade":
+        what = `${v("field").replace(/_/g, " ")} differs between ledger ${v("ledger_id")} and broker ${v("ref")} for ${v("side")} ${v("quantity")} ${v("symbol")} on ${v("date")}: broker Tk ${v("broker_value")}, ledger Tk ${v("ledger_value")}, a difference of Tk ${v("difference_bdt")}.`;
+        add("broker_value", `broker ${labelOf(v("field"))}`);
+        add("ledger_value", `ledger ${labelOf(v("field"))}`);
+        add("difference_bdt", "difference bdt");
+        break;
+      case "ledger_only_trade":
+        what = `the ledger has ${v("side")} ${v("quantity")} ${v("symbol")} at Tk ${v("price")} on ${v("date")} (Tk ${v("amount_bdt")}), and the broker statement has no matching row.`;
+        add("price", "price");
+        add("amount_bdt", "amount bdt");
+        break;
+      case "broker_only_trade":
+        what = `the broker statement ${v("ref")} has ${v("side")} ${v("quantity")} ${v("symbol")} at Tk ${v("price")} on ${v("date")} (Tk ${v("amount_bdt")}${num(row.commission_bdt) === null ? "" : `, commission Tk ${v("commission_bdt")}`}), and the ledger has no matching trade.`;
+        add("price", "price");
+        add("amount_bdt", "amount bdt");
+        add("commission_bdt", "commission bdt");
+        break;
+      case "bank_only_deposit":
+        what = `the bank shows a deposit ${v("ref")} of Tk ${v("amount_bdt")} on ${v("date")}, and no contribution in the ledger matches it.`;
+        add("amount_bdt", "amount bdt");
+        break;
+      case "contribution_only_deposit":
+        what = `the ledger has contribution ${v("ledger_id")} of Tk ${v("amount_bdt")} on ${v("date")}, and no bank deposit matches it.`;
+        add("amount_bdt", "amount bdt");
+        break;
+      default:
+        what = `the data shows a difference of kind ${v("kind")}.`;
+    }
+    const reason = str(row.reason).trim() === "" ? "not known" : str(row.reason).trim();
+    const ledgerId = str(row.ledger_id);
+    const linked = ledgerId === "" ? [] : journals.flatMap((result) => result.rows.filter((entry) => str(entry.transaction_id) === ledgerId).map((entry) => ({ result, entry })));
+    const journalNote = linked.length === 0 ? "" : ` Journal entry ${linked.map(({ entry }) => str(entry.id)).join(", ")} refers to this trade.`;
+    const cites = [...new Set([rec.id, ...linked.map(({ result }) => result.id)])];
+    return finding("reconciliation", issue, `${issue}: ${what} Reason: ${reason}.${journalNote}`, numbers, cites, { proposed_fix: proposedFix(row) });
+  });
+  return { findings, gaps: [] };
+}
+
 /** "<SYMBOL> fell <x>% over the week, after its <category> announcement on <date>: '<title>'": after, never because of. */
 function announcementFinding(announcements: Result, row: Obj, moves: Result | undefined, moveRow: Obj | undefined): Obj {
   const symbol = str(row.symbol);
@@ -792,13 +855,22 @@ function writer(input: Obj): Obj {
       ? weekBullets(findings)
       : task === "thesis_check"
         ? findings.map((f): Bullet => ({ text: `${str(f.subject)}: ${str(f.claim)}`, sources: [f] }))
-        : findings.map((f): Bullet => ({ text: str(f.claim), sources: [f] }));
+        : task === "reconcile"
+          ? findings.map((f): Bullet => ({ text: `${str(f.claim)}${str(f.proposed_fix) === "" ? "" : ` Proposed fix, awaiting your approval: ${str(f.proposed_fix)}.`}`, sources: [f] }))
+          : findings.map((f): Bullet => ({ text: str(f.claim), sources: [f] }));
   const lead = findings[0] === undefined ? `No findings were accepted for ${task === "explain_week" ? "the week to" : "the review as of"} ${asOf}.` : str(findings[0].claim);
 
   // The summary: the PORTFOLIO move against DSEX and the largest holding move, from the findings' own figures.
   let summary = lead;
   if (escalation) {
     summary = `This trade would break ${str(escalation.rule)}: ${str(escalation.message)} Nothing has been saved; the decision is yours.`;
+  } else if (task === "reconcile") {
+    // The count is written as a word: a count is not a figure of any finding, and the code check allows only those.
+    const proposals = findings.filter((f) => f.kind === "reconciliation" && str(f.proposed_fix) !== "").length;
+    summary =
+      proposals === 0
+        ? `Reconciliation on ${asOf}: the ledger matches the broker and bank files; there is nothing to approve.`
+        : `Reconciliation on ${asOf}: ${wordsOf(proposals)} ${proposals === 1 ? "difference has a proposed fix" : "differences have proposed fixes"} awaiting your approval. Nothing has been saved; the decision is yours.`;
   } else if (task === "thesis_check" && findings.length > 0) {
     // The counts are written as words: a count is not a figure of any finding, and the code check allows only those.
     const count = (verdict: string) => findings.filter((f) => str(f.verdict) === verdict).length;

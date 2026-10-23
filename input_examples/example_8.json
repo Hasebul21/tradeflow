@@ -1,0 +1,10 @@
+{
+  "run_id": "example_8",
+  "input": {
+    "task": "reconcile",
+    "as_of": "2026-10-01"
+  },
+  "options": {
+    "sample_mode": false
+  }
+}

@@ -27,7 +27,14 @@ const CASES: Partial<Record<QueryId, Record<string, unknown>>> = {
   announcements_between: { from: "2026-09-24", to: AS_OF },
   fundamentals_latest: { symbol: "BXPHARMA", as_of: AS_OF },
   journal_for_symbol: { as_of: AS_OF },
+  // The whole year, so the paid dividends, ca-07 owed on 2026-10-01 and the BRACBANK bonus issue are all compared.
+  dividends_between: { from: "2026-01-01", to: AS_OF },
+  rule_findings: { as_of: AS_OF },
+  reconciliation: {},
 };
+
+/** reconciliation: the issue ids each side found, sorted, so the run shows the same issues both ways. */
+const issueIds = (rows: readonly Record<string, unknown>[]): string => rows.map((row) => String(row.issue_id)).sort().join(", ");
 
 const ZETARIS_VARIABLES = ["ZETARIS_REST_URL", "ZETARIS_ORG_ID", "ZETARIS_API_KEY"] as const;
 const DOC = path.join(process.cwd(), "docs", "zetaris-queries.md");
@@ -109,6 +116,7 @@ async function main(): Promise<number> {
       continue;
     }
     const local = q.local(prepared.params, data);
+    if (id === "reconciliation") console.log(`reconciliation issues: local() ${issueIds(local)}; Zetaris ${issueIds(remote.rows)}`);
     const diff = differences(q, local, remote.rows);
     if (diff.length === 0) {
       section.verdict = "parity: match";

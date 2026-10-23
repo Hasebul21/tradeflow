@@ -23,7 +23,7 @@ import {
   withBonusShares,
   type PortfolioData,
 } from "@/lib/portfolio-view";
-import { reconcile } from "@/lib/reconcile";
+import { PRICE_TOLERANCE_BDT, reconcile } from "@/lib/reconcile";
 import { positionWeights, sectorWeights, type RuleFinding } from "@/lib/rules";
 import { sectorMatchKey } from "@/lib/sector-targets";
 import { loadBankDeposits, loadBrokerStatement, type BankDepositRow, type BrokerStatementRow } from "@/lib/sources";
@@ -195,6 +195,26 @@ function dayEnd(s: string): string {
 /** The Dhaka calendar day of a timestamp column, whatever the session time zone is. */
 const dhakaDay = (column: string) =>
   `date_format(from_utc_timestamp(to_utc_timestamp(${column}, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd')`;
+/** The same day as a Spark DATE, for comparing with a DATE column (tested through zetaris.ts: t-021 is 2026-05-12). */
+const dhakaDate = (column: string) => `to_date(from_utc_timestamp(to_utc_timestamp(${column}, current_timezone()), 'Asia/Dhaka'))`;
+/** A ledger row's quantity, negative for a sell. */
+const signedQuantity = (alias: string) =>
+  `CASE WHEN ${alias}.side = 'buy' THEN CAST(${alias}.quantity AS DOUBLE) ELSE -CAST(${alias}.quantity AS DOUBLE) END`;
+/** Money amounts closer than this are equal: MONEY_EPSILON in src/lib/reconcile.ts, which is not exported. */
+const MONEY_EPSILON_SQL = 0.005;
+
+/**
+ * Bonus shares credited by `asOf` as (symbol, q) rows, as bonusTransactions credits them: floor(shares held on the
+ * record date * bonus_ratio). One level only: a bonus that itself counts an earlier bonus of the same symbol is not
+ * in the SQL, and parity would show it (the data has one bonus issue).
+ */
+function bonusSharesSql(asOf: string): string {
+  return `SELECT UPPER(TRIM(a.symbol)) AS symbol, FLOOR(SUM(${signedQuantity("t")}) * CAST(a.bonus_ratio AS DOUBLE) + 1e-9) AS q
+    FROM ${table(LEDGER, "corporate_actions")} a
+    JOIN ${table(LEDGER, "transactions")} t ON UPPER(TRIM(t.symbol)) = UPPER(TRIM(a.symbol)) AND ${dhakaDate("t.created_at")} <= a.record_date
+    WHERE a.kind = 'stock_dividend' AND a.record_date <= ${dateLiteral(asOf)} AND a.paid_on <= ${dateLiteral(asOf)}
+    GROUP BY a.id, a.symbol, a.bonus_ratio`;
+}
 
 function sessionsLiteral(n: number): number {
   if (!Number.isInteger(n) || n < 1 || n > 120) throw new QueryError("invalid_params", "sessions must be a whole number from 1 to 120.");
@@ -403,6 +423,49 @@ const dividendsBetween: NamedQuery<z.output<typeof dividendsParams>> = {
   description:
     "Cash dividends and bonus issues the portfolio is entitled to, by record date between two dates, with shares held on the record date, the amount and whether it is paid by the end date; use for any question about dividends, ex-dividend drops or bonus shares.",
   params: dividendsParams,
+  sqlColumns: ["action_id", "kind", "symbol", "record_date", "paid_on", "shares", "cash_per_share_bdt", "amount_bdt", "bonus_shares", "paid"],
+  sqlNumeric: ["shares", "cash_per_share_bdt", "amount_bdt", "bonus_shares"],
+  sqlBooleans: ["paid"],
+  sqlKey: (row) => String(row.action_id),
+  // Shares on the record date are the ledger's net shares by that Dhaka day plus the bonus shares credited by then
+  // (one level, as bonusSharesSql). ex_date is a DSE trading-calendar step, so it comes from local().
+  sql(p) {
+    const to = dateLiteral(p.to);
+    return `WITH acts AS (
+  SELECT id, kind, UPPER(TRIM(symbol)) AS symbol, record_date, paid_on,
+         CAST(cash_per_share_bdt AS DOUBLE) AS cash, CAST(bonus_ratio AS DOUBLE) AS ratio
+  FROM ${table(LEDGER, "corporate_actions")}
+),
+held AS (
+  SELECT a.id, COALESCE(SUM(${signedQuantity("t")}), 0) AS ledger_shares
+  FROM acts a
+  LEFT JOIN ${table(LEDGER, "transactions")} t ON UPPER(TRIM(t.symbol)) = a.symbol AND ${dhakaDate("t.created_at")} <= a.record_date
+  GROUP BY a.id
+),
+bonus AS (
+  SELECT a.symbol, a.paid_on, FLOOR(h.ledger_shares * a.ratio + 1e-9) AS bonus_shares
+  FROM acts a JOIN held h ON h.id = a.id
+  WHERE a.kind = 'stock_dividend' AND a.paid_on <= ${to}
+),
+ent AS (
+  SELECT a.id, a.kind, a.symbol, a.record_date, a.paid_on, a.cash, a.ratio,
+         MAX(h.ledger_shares) + COALESCE(SUM(b.bonus_shares), 0) AS shares
+  FROM acts a
+  JOIN held h ON h.id = a.id
+  LEFT JOIN bonus b ON b.symbol = a.symbol AND b.paid_on <= a.record_date
+  WHERE a.record_date >= ${dateLiteral(p.from)} AND a.record_date <= ${to}
+  GROUP BY a.id, a.kind, a.symbol, a.record_date, a.paid_on, a.cash, a.ratio
+)
+SELECT id AS action_id, kind, symbol, date_format(record_date, 'yyyy-MM-dd') AS record_date, date_format(paid_on, 'yyyy-MM-dd') AS paid_on, shares,
+       CASE WHEN kind = 'cash_dividend' THEN COALESCE(cash, 0) END AS cash_per_share_bdt,
+       CASE WHEN kind = 'cash_dividend' THEN ROUND(shares * COALESCE(cash, 0), 2) ELSE 0 END AS amount_bdt,
+       CASE WHEN kind = 'stock_dividend' THEN FLOOR(shares * ratio + 1e-9) ELSE 0 END AS bonus_shares,
+       paid_on <= ${to} AS paid
+FROM ent
+WHERE (kind = 'cash_dividend' AND shares > 0)
+   OR (kind = 'stock_dividend' AND paid_on <= ${to} AND FLOOR(shares * ratio + 1e-9) > 0)
+ORDER BY record_date, action_id`;
+  },
   local(p, d) {
     const { transactions } = d.portfolio;
     const actions = d.portfolio.actions;
@@ -500,6 +563,61 @@ const ruleFindings: NamedQuery<z.output<typeof ruleFindingsParams>> = {
   description:
     "Each holding's weight, each sector's weight against its target, and every finding of the owner's rules (position limit, sector target, trade plan reached) on a date; use to check whether a rule is broken and by how much.",
   params: ruleFindingsParams,
+  sqlColumns: ["row_type", "symbol", "sector", "shares", "market_value_bdt", "weight_pct", "target_pct", "delta_pct"],
+  sqlNumeric: ["shares", "market_value_bdt", "weight_pct", "target_pct", "delta_pct"],
+  // The position and sector rows come from SQL; the finding rows (kind, limits, the rule's message) stay with
+  // local(), through src/lib/rules.ts, and keep their place, as the PORTFOLIO row does for week_moves.
+  sqlKey: (row) =>
+    row.row_type === "position" ? `position|${String(row.symbol)}` : row.row_type === "sector" ? `sector|${sectorMatchKey(String(row.sector))}` : null,
+  sql(p) {
+    const asOf = p.as_of;
+    return `WITH ledger AS (
+  SELECT UPPER(TRIM(t.symbol)) AS symbol, ${signedQuantity("t")} AS q
+  FROM ${table(LEDGER, "transactions")} t
+  WHERE t.created_at < ${dayEnd(asOf)}
+  UNION ALL
+  ${bonusSharesSql(asOf)}
+),
+held AS (
+  SELECT symbol, SUM(q) AS shares FROM ledger GROUP BY symbol HAVING SUM(q) > 0
+),
+last_close AS (
+  SELECT symbol, close FROM (
+    SELECT UPPER(TRIM(symbol)) AS symbol, CAST(close AS DOUBLE) AS close,
+           ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(symbol)) ORDER BY bar_date DESC) AS rn
+    FROM ${table(LEDGER, "bars")}
+    WHERE bar_date <= ${dateLiteral(asOf)}
+  ) ranked
+  WHERE rn = 1
+),
+pos AS (
+  SELECT h.symbol, i.sector, COALESCE(NULLIF(TRIM(i.sector), ''), 'Unknown') AS sector_key, h.shares, ROUND(c.close * h.shares, 2) AS mv
+  FROM held h
+  JOIN last_close c ON c.symbol = h.symbol
+  LEFT JOIN ${table(LEDGER, "instruments")} i ON UPPER(TRIM(i.symbol)) = h.symbol
+),
+total AS (
+  SELECT SUM(mv) AS tmv FROM pos WHERE mv > 0
+),
+sec AS (
+  SELECT p.sector_key AS sector, SUM(p.mv) / MAX(t.tmv) * 100 AS pct
+  FROM pos p CROSS JOIN total t
+  WHERE p.mv > 0
+  GROUP BY p.sector_key
+),
+tgt AS (
+  SELECT TRIM(sector) AS sector, CAST(target_percent AS DOUBLE) AS target_pct FROM ${table(LEDGER, "sector_targets")}
+)
+SELECT 'position' AS row_type, p.symbol, p.sector, p.shares, p.mv AS market_value_bdt, ROUND(p.mv / t.tmv * 100, 2) AS weight_pct,
+       CAST(NULL AS DOUBLE) AS target_pct, CAST(NULL AS DOUBLE) AS delta_pct
+FROM pos p CROSS JOIN total t
+UNION ALL
+SELECT 'sector' AS row_type, CAST(NULL AS STRING) AS symbol, COALESCE(s.sector, g.sector) AS sector, CAST(NULL AS DOUBLE) AS shares,
+       CAST(NULL AS DOUBLE) AS market_value_bdt, ROUND(COALESCE(s.pct, 0), 2) AS weight_pct, g.target_pct,
+       CASE WHEN g.sector IS NULL THEN CAST(NULL AS DOUBLE) ELSE ROUND(COALESCE(s.pct, 0) - g.target_pct, 2) END AS delta_pct
+FROM sec s FULL OUTER JOIN tgt g ON LOWER(s.sector) = LOWER(g.sector)
+ORDER BY row_type, weight_pct DESC`;
+  },
   local(p, d) {
     const view = buildPortfolioView(d.portfolio, resolveDate(d, p.as_of));
     const positions = view.holdings.map(
@@ -590,10 +708,76 @@ const reconciliationQuery: NamedQuery<z.output<typeof reconciliationParams>> = {
   description:
     "Every difference between the ledger and the broker statement (mismatched, ledger-only and broker-only trades) and between the bank deposits and the contributions (bank-only and contribution-only), each with a stable issue_id; use for any reconciliation question.",
   params: reconciliationParams,
+  sqlColumns: ["issue_id", "kind", "ref", "ledger_id", "date", "symbol", "side", "quantity", "price", "field", "broker_value", "ledger_value", "difference_bdt", "amount_bdt", "commission_bdt"],
+  sqlNumeric: ["quantity", "price", "broker_value", "ledger_value", "difference_bdt", "amount_bdt", "commission_bdt"],
+  sqlKey: (row) => String(row.issue_id),
+  // One statement across both datasources: the ledger's transactions and contributions against the broker
+  // statement and the bank deposits. A trade matches on its Dhaka day, symbol, side and quantity, at a price within
+  // PRICE_TOLERANCE_BDT; a deposit on its Dhaka day and amount. ROW_NUMBER pairs repeated keys one to one, as
+  // reconcileTrades uses each row once. A full outer join keeps the rows only one side has; a matched pair stays
+  // only when its commission or price differs. The difference kinds are joined with UNION ALL.
+  sql() {
+    const ledgerDay = dhakaDate("created_at");
+    return `WITH b AS (
+  SELECT broker_ref, date_format(trade_date, 'yyyy-MM-dd') AS d, UPPER(TRIM(symbol)) AS sym, symbol, side,
+         CAST(quantity AS DOUBLE) AS quantity, CAST(price AS DOUBLE) AS price, CAST(commission_bdt AS DOUBLE) AS commission_bdt,
+         ROW_NUMBER() OVER (PARTITION BY trade_date, UPPER(TRIM(symbol)), side, CAST(quantity AS DOUBLE) ORDER BY broker_ref) AS rn
+  FROM ${table(EXTERNAL, "broker_statement")}
+),
+l AS (
+  SELECT id, date_format(${ledgerDay}, 'yyyy-MM-dd') AS d, UPPER(TRIM(symbol)) AS sym, symbol, side,
+         CAST(quantity AS DOUBLE) AS quantity, CAST(price_per_share AS DOUBLE) AS price, ROUND(COALESCE(CAST(fees_bdt AS DOUBLE), 0), 2) AS fee,
+         ROW_NUMBER() OVER (PARTITION BY ${ledgerDay}, UPPER(TRIM(symbol)), side, CAST(quantity AS DOUBLE) ORDER BY created_at, id) AS rn
+  FROM ${table(LEDGER, "transactions")}
+),
+k AS (
+  SELECT bank_ref, date_format(value_date, 'yyyy-MM-dd') AS d, CAST(amount_bdt AS DOUBLE) AS amount,
+         ROW_NUMBER() OVER (PARTITION BY value_date, ROUND(CAST(amount_bdt AS DOUBLE), 2) ORDER BY bank_ref) AS rn
+  FROM ${table(EXTERNAL, "bank_deposits")}
+),
+c AS (
+  SELECT id, date_format(${ledgerDay}, 'yyyy-MM-dd') AS d, CAST(amount_bdt AS DOUBLE) AS amount,
+         ROW_NUMBER() OVER (PARTITION BY ${ledgerDay}, ROUND(CAST(amount_bdt AS DOUBLE), 2) ORDER BY created_at, id) AS rn
+  FROM ${table(LEDGER, "contributions")}
+),
+trades AS (
+  SELECT b.broker_ref, b.d AS b_d, b.symbol AS b_symbol, b.side AS b_side, b.quantity AS b_quantity, b.price AS b_price, b.commission_bdt,
+         l.id AS ledger_id, l.d AS l_d, l.symbol AS l_symbol, l.side AS l_side, l.quantity AS l_quantity, l.price AS l_price, l.fee,
+         ABS(b.commission_bdt - l.fee) > ${MONEY_EPSILON_SQL} AS fee_differs, ABS(b.price - l.price) > ${MONEY_EPSILON_SQL} AS price_differs
+  FROM b FULL OUTER JOIN l
+    ON b.d = l.d AND b.sym = l.sym AND b.side = l.side AND b.quantity = l.quantity AND b.rn = l.rn
+   AND ABS(b.price - l.price) <= ${PRICE_TOLERANCE_BDT} + 1e-9
+)
+SELECT issue_id, kind, ref, ledger_id, \`date\`, symbol, side, quantity, price, field, broker_value, ledger_value, difference_bdt, amount_bdt, commission_bdt
+FROM (
+  SELECT COALESCE(ledger_id, broker_ref) AS issue_id,
+         CASE WHEN ledger_id IS NULL THEN 'broker_only_trade' WHEN broker_ref IS NULL THEN 'ledger_only_trade' ELSE 'mismatched_trade' END AS kind,
+         broker_ref AS ref, ledger_id, COALESCE(b_d, l_d) AS \`date\`, COALESCE(b_symbol, l_symbol) AS symbol, COALESCE(b_side, l_side) AS side,
+         COALESCE(b_quantity, l_quantity) AS quantity, COALESCE(b_price, l_price) AS price,
+         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS STRING) WHEN fee_differs THEN 'commission_bdt' ELSE 'price' END AS field,
+         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS DOUBLE) WHEN fee_differs THEN commission_bdt ELSE b_price END AS broker_value,
+         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS DOUBLE) WHEN fee_differs THEN fee ELSE l_price END AS ledger_value,
+         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN CAST(NULL AS DOUBLE) WHEN fee_differs THEN ROUND(commission_bdt - fee, 2) ELSE ROUND(b_price - l_price, 2) END AS difference_bdt,
+         CASE WHEN broker_ref IS NULL OR ledger_id IS NULL THEN ROUND(COALESCE(b_quantity, l_quantity) * COALESCE(b_price, l_price), 2) ELSE CAST(NULL AS DOUBLE) END AS amount_bdt,
+         CASE WHEN ledger_id IS NULL THEN commission_bdt ELSE CAST(NULL AS DOUBLE) END AS commission_bdt
+  FROM trades
+  WHERE broker_ref IS NULL OR ledger_id IS NULL OR fee_differs OR price_differs
+  UNION ALL
+  SELECT COALESCE(c.id, k.bank_ref) AS issue_id,
+         CASE WHEN c.id IS NULL THEN 'bank_only_deposit' ELSE 'contribution_only_deposit' END AS kind,
+         k.bank_ref AS ref, c.id AS ledger_id, COALESCE(k.d, c.d) AS \`date\`, CAST(NULL AS STRING) AS symbol, CAST(NULL AS STRING) AS side,
+         CAST(NULL AS DOUBLE) AS quantity, CAST(NULL AS DOUBLE) AS price, CAST(NULL AS STRING) AS field, CAST(NULL AS DOUBLE) AS broker_value,
+         CAST(NULL AS DOUBLE) AS ledger_value, CAST(NULL AS DOUBLE) AS difference_bdt, COALESCE(k.amount, c.amount) AS amount_bdt,
+         CAST(NULL AS DOUBLE) AS commission_bdt
+  FROM k FULL OUTER JOIN c ON k.d = c.d AND ABS(k.amount - c.amount) <= ${MONEY_EPSILON_SQL} AND k.rn = c.rn
+  WHERE k.bank_ref IS NULL OR c.id IS NULL
+) issues
+ORDER BY \`date\`, issue_id`;
+  },
   local(_p, d) {
     const rec = reconcile({ broker: d.broker, ledger: d.portfolio.transactions, bank: d.bank, contributions: d.portfolio.contributions });
     const day = (iso: string) => dhakaToday(new Date(iso));
-    const blank = { ref: null, ledger_id: null, date: null, symbol: null, side: null, quantity: null, price: null, field: null, broker_value: null, ledger_value: null, difference_bdt: null, amount_bdt: null };
+    const blank = { ref: null, ledger_id: null, date: null, symbol: null, side: null, quantity: null, price: null, field: null, broker_value: null, ledger_value: null, difference_bdt: null, amount_bdt: null, commission_bdt: null };
     const rows: Row[] = [];
     for (const pair of rec.trades.mismatched) {
       const first = pair.differences[0];
@@ -641,6 +825,8 @@ const reconciliationQuery: NamedQuery<z.output<typeof reconciliationParams>> = {
         quantity: b.quantity,
         price: b.price,
         amount_bdt: roundBdt(b.quantity * b.price),
+        // An approved fix writes it as the new transaction's fees_bdt, so the trade then matches with no fee difference.
+        commission_bdt: b.commission_bdt,
       });
     }
     for (const b of rec.deposits.bankOnly) {

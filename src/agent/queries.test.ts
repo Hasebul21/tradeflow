@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { QUERY_IDS, QueryError, catalogue, loadQueryData, runLocal, type QueryData, type Row } from "./queries";
+import { QUERIES, QUERY_IDS, QueryError, catalogue, loadQueryData, prepareQuery, runLocal, type QueryData, type Row } from "./queries";
+import { PRICE_TOLERANCE_BDT } from "@/lib/reconcile";
 
 // Runs on the seeded data in data/; data/README.md lists the planted cases checked here.
 let d: QueryData;
@@ -184,6 +185,33 @@ describe("reconciliation", () => {
     expect(rows.find((r) => r.issue_id === "t-030")).toMatchObject({ kind: "ledger_only_trade", symbol: "LHBL" });
     expect(rows.find((r) => r.issue_id === "BRK-20260802-035")).toMatchObject({ kind: "broker_only_trade", symbol: "OLYMPIC" });
     expect(rows.find((r) => r.issue_id === "BNK-0008")).toMatchObject({ kind: "bank_only_deposit", amount_bdt: 25000 });
+  });
+
+  it("gives the broker-only trade BRK-20260802-035 its commission_bdt, which an approved fix writes as fees_bdt", () => {
+    const { rows } = run("reconciliation", {});
+    expect(rows.find((r) => r.issue_id === "BRK-20260802-035")).toMatchObject({ commission_bdt: 13.09 });
+    expect(rows.filter((r) => r.kind !== "broker_only_trade").every((r) => r.commission_bdt === null)).toBe(true);
+  });
+});
+
+describe("sql() of the three statements added with the reconciliation agent", () => {
+  it("is one Lightning SQL statement each, on qualified tables, with no trailing semicolon and no Postgres-only syntax", () => {
+    const cases = { dividends_between: { from: "2026-01-01", to: "2026-10-01" }, rule_findings: { as_of: "2026-10-01" }, reconciliation: {} } as const;
+    for (const [id, raw] of Object.entries(cases)) {
+      const { params } = prepareQuery(id, raw, d);
+      const sql = QUERIES[id as keyof typeof cases].sql!(params, d);
+      expect(sql.trimEnd().endsWith(";")).toBe(false);
+      expect(sql).not.toMatch(/::date|AT TIME ZONE/i);
+      expect(sql).toMatch(/tradeflow_ledger\./);
+    }
+  });
+
+  it("joins both datasources in the reconciliation statement, with PRICE_TOLERANCE_BDT", () => {
+    const sql = QUERIES.reconciliation.sql!({}, d);
+    for (const name of ["tradeflow_ledger.transactions", "tradeflow_ledger.contributions", "tradeflow_external.broker_statement", "tradeflow_external.bank_deposits"]) expect(sql).toContain(name);
+    expect(sql).toContain(`<= ${PRICE_TOLERANCE_BDT} + 1e-9`);
+    expect(sql).toMatch(/FULL OUTER JOIN/);
+    expect(sql).toMatch(/UNION ALL/);
   });
 });
 

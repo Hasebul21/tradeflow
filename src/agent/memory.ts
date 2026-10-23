@@ -211,6 +211,28 @@ export async function remember(a: { content: string; task: string; asOf: string;
   return record.id;
 }
 
+/**
+ * Stores an owner decision, such as an approved reconciliation fix, as a "general" memory tagged decision, the
+ * task, the issue and the review it approves. Returns its id. guards.beforeRemember runs first with kind "decision":
+ * a refused write throws MemoryBlockedError and stores nothing.
+ */
+export async function rememberDecision(a: { content: string; task: string; issueId: string; reviewRunId: string; tracer: Tracer }): Promise<string> {
+  const guard = beforeRemember({ kind: "decision", text: a.content }, a.tracer);
+  if (!guard.ok) throw new MemoryBlockedError(guard.reason);
+  const started = Date.now();
+  const tags = ["decision", a.task, a.issueId, `run:${a.reviewRunId}`];
+  const record = openMemory().add({ content: a.content, type: "general", source: "owner:decision", tags });
+  a.tracer.log({
+    agent_name: "Memory",
+    action: "remember",
+    input_summary: `owner decision on ${a.issueId}, ${a.content.length} chars`,
+    output_summary: `memoryId=${record.id}; tags=${tags.join(",")}`,
+    status: "ok",
+    duration_ms: Date.now() - started,
+  });
+  return record.id;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // seedOwnerContext
 

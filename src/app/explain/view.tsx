@@ -10,7 +10,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
 import { acceptedText, adviceBadge, correctionChip, movedBadge, outOfScopeBadge, scoresText, selfCorrectionBanner, stopReasonLabel } from "./badges";
-import { runPreTrade, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
+import { approveFix, runPreTrade, runReconcile, runTheses, runWeek, sendCorrection, type PreTradeChoice } from "./actions";
 import { splitCitations } from "./citations";
 
 type Range = { first: string; last: string };
@@ -435,15 +435,75 @@ function PreTradeTab({ range, plans }: { range: Range; plans: Plan[] }) {
   );
 }
 
+type Proposal = NonNullable<NonNullable<RunResult["output"]>["proposals"]>[number];
+type Approval = { running: boolean; result: RunResult | null };
+
+/** One proposal's action: Approve for a fix code can apply, a tag for a manual check, then what the approval did. */
+function ApproveCell({ proposal, reviewRunId }: { proposal: Proposal; reviewRunId: string }) {
+  const [state, setState] = useState<Approval>({ running: false, result: null });
+  if (proposal.proposed_fix.startsWith("manual check")) return <Tag color="gold">Manual check: you decide</Tag>;
+  const approve = async () => {
+    setState({ running: true, result: null });
+    const result = await approveFix(crypto.randomUUID(), reviewRunId, proposal.issue_id);
+    setState({ running: false, result });
+  };
+  const result = state.result;
+  if (result === null) {
+    return <Button size="small" type="primary" loading={state.running} onClick={approve}>Approve</Button>;
+  }
+  const color = result.status === "success" ? "green" : result.status === "needs_human" ? "orange" : "red";
+  const text = result.status === "error" ? result.error?.message : result.output?.summary;
+  return (
+    <Space orientation="vertical" size={4}>
+      <Tag color={color}>{result.status === "success" ? "Applied" : result.status === "needs_human" ? "Not applied" : "Error"}</Tag>
+      <Typography.Text type="secondary">{text}</Typography.Text>
+    </Space>
+  );
+}
+
+function ReconcileTab({ range }: { range: Range }) {
+  const { state, start } = useRun();
+  const [asOf, setAsOf] = useState(range.last);
+  const reviewRunId = state.result?.run_id ?? "";
+  const rows = (state.result?.output?.proposals ?? []).map((p) => ({ key: p.issue_id, ...p }));
+  const columns: TableColumnsType<(typeof rows)[number]> = [
+    { title: "Issue", dataIndex: "issue_id" },
+    { title: "Explanation", dataIndex: "explanation" },
+    { title: "Proposed fix", dataIndex: "proposed_fix" },
+    { title: "Status", dataIndex: "status", render: (v: string) => <Tag color="orange">{v.replace(/_/g, " ")}</Tag> },
+    { title: "Your decision", key: "approve", render: (_: unknown, row) => <ApproveCell proposal={row} reviewRunId={reviewRunId} /> },
+  ];
+  return (
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
+      <Alert
+        type="info"
+        showIcon
+        title="Nothing changes until you approve a proposal."
+        description="Code applies an approved fix from the current rows. Fixes are written only when the app runs on a copy of data/ (TRADEFLOW_DATA_DIR) or in Docker. Zetaris shows the old rows until npm run db:load."
+      />
+      <Form layout="inline">
+        <AsOf value={asOf} onChange={setAsOf} range={range} />
+        <Button type="primary" loading={state.running} onClick={() => start((id) => runReconcile(id, asOf))}>Reconcile</Button>
+      </Form>
+      <Live state={state} />
+      <Result
+        state={state}
+        extra={<DataTable rowKey="key" columns={columns} dataSource={rows} pagination={false} locale={{ emptyText: <EmptyState message="No differences to approve." /> }} />}
+      />
+    </Space>
+  );
+}
+
 export function ExplainView({ range, theses, plans }: { range: Range; theses: Record<string, string>; plans: Plan[] }) {
   return (
     <div className="stack">
-      <PageHeader title="Explain" purpose="Ask the agents to explain your week, check your theses or review a trade before you save it. They never advise and never save anything." asOf={range.last} />
+      <PageHeader title="Explain" purpose="Ask the agents to explain your week, check your theses, review a trade before you save it or explain the reconciliation differences. They never advise, and nothing is saved unless you approve a fix." asOf={range.last} />
       <Tabs
         items={[
           { key: "week", label: "My week", children: <WeekTab range={range} /> },
           { key: "theses", label: "Theses", children: <ThesesTab range={range} theses={theses} /> },
           { key: "pretrade", label: "Pre-trade", children: <PreTradeTab range={range} plans={plans} /> },
+          { key: "reconcile", label: "Reconcile", children: <ReconcileTab range={range} /> },
         ]}
       />
     </div>
