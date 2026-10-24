@@ -147,6 +147,8 @@ export type AnalystInput = {
   feedback: string | null;
   /** On a retry: the previous findings the feedback flags; null in round 1. */
   flagged_findings: FlaggedFinding[] | null;
+  /** On a revise round: every run_query_id this batch may cite, so a revision copies one instead of inventing it. */
+  known_run_query_ids: string[] | null;
   /** Only for thesis_check: the batch's theses, each with its evidence table. */
   theses?: ThesisEvidence[];
 };
@@ -269,6 +271,18 @@ type Call = NonNullable<AnalyseDeps["complete"]>;
  * (BudgetExhaustedError from the run state when none is left; model errors from llm.ts pass through). A reply that
  * fails the schema or guards.afterModel is `{ ok: false, error }` with what was gathered; the run goes on.
  */
+/** Every run_query_id a batch's theses and results hold: the ids a revision may cite. */
+function knownRunQueryIds(results: readonly ResultForModel[], theses: readonly ThesisEvidence[] | undefined): string[] {
+  const ids = new Set<string>();
+  for (const result of results) ids.add(result.run_query_id);
+  for (const thesis of theses ?? []) {
+    if (thesis.journal_run_query_id !== null) ids.add(thesis.journal_run_query_id);
+    if (thesis.fundamentals_run_query_id !== null) ids.add(thesis.fundamentals_run_query_id);
+    for (const row of [...thesis.eps, ...thesis.dividends, ...thesis.announcements]) ids.add(row.run_query_id);
+  }
+  return [...ids];
+}
+
 export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Promise<AnalysisOutcome> {
   const { run } = deps;
   const cfg = run.config;
@@ -316,6 +330,7 @@ export async function analyse(request: AnalysisRequest, deps: AnalyseDeps): Prom
     previous_findings: request.previous_findings === undefined || request.previous_findings === null ? null : [...request.previous_findings],
     feedback: request.feedback ?? null,
     flagged_findings: request.flagged_findings === undefined || request.flagged_findings === null ? null : [...request.flagged_findings],
+    known_run_query_ids: request.feedback === undefined || request.feedback === null ? null : knownRunQueryIds(results, request.theses),
     ...(request.theses === undefined ? {} : { theses: [...request.theses] }),
   };
   // thesis_check and pre_trade: code has run every query, so the model is offered no tools.

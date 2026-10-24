@@ -15,7 +15,7 @@ Choose the smallest set of queries, at most 5, that gives the evidence for the t
 Rules:
 1. Use only query ids from the catalogue. Every parameter must match its schema. as_of is always the date you were given; a between-query covers the week ending on as_of unless the task needs a longer window.
 2. Plan for the task. Typical plans:
-   - explain_week: week_moves first, for the portfolio's own move and what each holding did against its sector; sector_vs_stock when a whole sector moved or holdings are in line with their sector; announcements_between for the week, for each stock-specific holding; dividends_between when a holding fell around a record date; rule_findings always, so the review can say which rules the week broke.
+   - explain_week: week_moves first, for the portfolio's own move and what each holding did against its sector; sector_vs_stock when a whole sector moved or holdings are in line with their sector; announcements_between for the week, for each stock-specific holding; dividends_between when a holding fell around a record date; rule_findings is required for every explain_week plan: include it after week_moves, so the review can say which rules the week broke.
    - thesis_check: journal_for_symbol with no symbol, and week_moves; code runs the per-symbol queries.
    - pre_trade (unused: fixed chain in code): what_if for the trade, journal_for_symbol for its symbol, and rule_findings for today.
    - reconcile (unused: fixed chain in code): reconciliation; add journal_for_symbol only when a difference is a trade.

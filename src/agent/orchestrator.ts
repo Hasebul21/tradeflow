@@ -1052,6 +1052,19 @@ async function runLoop(options: RunOptions, signal: AbortSignal): Promise<RunRes
             }
             if (analysis.injection_seen) flags.injection = true;
             const named = withNamedRows(analysis.findings, round === 0 ? null : feedback, new Set(Object.keys(state.store)));
+            for (const [before, after] of analysis.findings.map((finding, i) => [finding, named[i]] as const)) {
+              const added = after.cites.filter((id) => !before.cites.includes(id));
+              if (added.length > 0) {
+                tracer.log({
+                  agent_name: AGENT,
+                  action: "named_rows",
+                  input_summary: capped(`${before.kind} ${before.subject} in batch ${index + 1}`),
+                  output_summary: capped(`added ${added.join(", ")}`),
+                  status: "ok",
+                  retry_count: round,
+                });
+              }
+            }
             const { kept, dropped } = findingsOfBatch(batch, named);
             if (dropped.length > 0) {
               tracer.log({

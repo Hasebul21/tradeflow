@@ -352,7 +352,7 @@ describe("the Analyst with the sample model", () => {
     expect(calls[0].system).toBe(readFileSync(path.join(__dirname, "../prompts/analyst.md"), "utf8"));
     expect(calls[0]).toMatchObject({ model: "main", json: true, agent: "Analyst" });
     const user = JSON.parse(calls[0].user) as Record<string, unknown>;
-    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "trade", "focus", "memories", "world", "results", "previous_findings", "feedback", "flagged_findings"]);
+    expect(Object.keys(user)).toEqual(["task", "question", "as_of", "trade", "focus", "memories", "world", "results", "previous_findings", "feedback", "flagged_findings", "known_run_query_ids"]);
     expect(user).toMatchObject({ task: "explain_week", as_of: AS_OF, trade: null, world: [], previous_findings: previous, feedback: "Explain GP.", flagged_findings: [{ finding: 1, kind: "move", subject: "PORTFOLIO" }] });
     const results = user.results as { run_query_id: string; query_id: string; row_count: number; truncated: boolean; rows: unknown[] }[];
     expect(results).toHaveLength(1);

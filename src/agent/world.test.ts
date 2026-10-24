@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadQueryData, runLocal, type QueryResult } from "./queries";
-import { about, openWorld, recordRun } from "./world";
+import { MAX_FACT_CHARS, newestWithin, about, openWorld, recordRun } from "./world";
 
 // Each test gets its own copy of data/ through TRADEFLOW_DATA_DIR, so the World Model lives in its memory/world.
 let dir: string;
@@ -30,6 +30,27 @@ async function results1001(): Promise<Record<string, QueryResult>> {
   ];
   return Object.fromEntries(list.map((result) => [result.run_query_id, result]));
 }
+
+describe("newestWithin: the World facts a prompt holds stay under a total", () => {
+  const fact = (as_of: string, value: string) => ({ as_of, predicate: "note", value, url: null });
+  it("keeps the newest facts that fit in the total, across symbols, and drops the rest", () => {
+    // 24 Oct, example_5: each run adds facts, and the World section grew to 24,348 characters in one Analyst prompt.
+    const old = { symbol: "GP", fact: fact("2026-01-01", "x".repeat(300)) };
+    const mid = { symbol: "BXPHARMA", fact: fact("2026-06-01", "y".repeat(300)) };
+    const new1 = { symbol: "GP", fact: fact("2026-09-01", "z".repeat(300)) };
+    const kept = newestWithin([old, mid, new1], JSON.stringify(new1.fact).length + JSON.stringify(mid.fact).length);
+    expect([...kept.keys()].sort()).toEqual(["BXPHARMA", "GP"]);
+    expect(kept.get("GP")).toEqual([new1.fact]);
+    expect(kept.get("BXPHARMA")).toEqual([mid.fact]);
+  });
+  it("never returns more characters than the total, and returns everything when all of it fits", () => {
+    const entries = Array.from({ length: 200 }, (_, i) => ({ symbol: `S${i % 13}`, fact: fact(`2026-01-${String((i % 28) + 1).padStart(2, "0")}`, "v".repeat(180)) }));
+    const kept = newestWithin(entries, MAX_FACT_CHARS);
+    const total = [...kept.values()].flat().reduce((n, f) => n + JSON.stringify(f).length, 0);
+    expect(total).toBeLessThanOrEqual(MAX_FACT_CHARS);
+    expect(newestWithin(entries, Number.MAX_SAFE_INTEGER).size).toBe(13);
+  });
+});
 
 describe("world", () => {
   it("records the 1 Oct results and lists a-066 and latest_eps 1.62 for BXPHARMA, each with its run_query_id", async () => {

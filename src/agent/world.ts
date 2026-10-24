@@ -170,6 +170,30 @@ export type WorldFact = { predicate: string; value: unknown; as_of: string; url:
 export type WorldAnnouncement = { announcement_id: string; title: string; published_on: string; url: string | null };
 export type WorldAbout = { symbol: string; facts: WorldFact[]; announcements: WorldAnnouncement[] };
 
+/**
+ * The World facts about() returns, in total: each run adds facts to the World Model, and they go into every
+ * Analyst prompt, so the total is bounded by size. The newest facts that fit are kept.
+ */
+export const MAX_FACT_CHARS = 4000;
+
+/** The newest entries whose JSON fits in maxChars in total, grouped by symbol, in their original order. */
+export function newestWithin<T extends { as_of: string }>(entries: readonly { symbol: string; fact: T }[], maxChars: number): Map<string, T[]> {
+  const ranked = [...entries].sort((x, y) => y.fact.as_of.localeCompare(x.fact.as_of));
+  const kept = new Set<{ symbol: string; fact: T }>();
+  let used = 0;
+  for (const entry of ranked) {
+    const size = JSON.stringify(entry.fact).length;
+    if (used + size > maxChars) continue;
+    used += size;
+    kept.add(entry);
+  }
+  const out = new Map<string, T[]>();
+  for (const entry of entries) {
+    if (kept.has(entry)) out.set(entry.symbol, [...(out.get(entry.symbol) ?? []), entry.fact]);
+  }
+  return out;
+}
+
 /** The latest announcements per symbol that about() returns; the World Model keeps them all. */
 export const MAX_ANNOUNCEMENTS_PER_SYMBOL = 3;
 
@@ -189,10 +213,19 @@ const announcementOf = (e: Entity): WorldAnnouncement => ({
  */
 export function about(symbols: readonly string[]): WorldAbout[] {
   const wm = openWorld();
+  const unique = [...new Set(symbols)];
+  const allFacts = unique.flatMap((symbol) =>
+    wm
+      .view("facts")
+      .about(holdingId(symbol))
+      .filter((f) => f.supersededBy === undefined)
+      .map((f) => ({ symbol, fact: factOf(f) })),
+  );
+  const keptFacts = newestWithin(allFacts, MAX_FACT_CHARS);
   const out: WorldAbout[] = [];
-  for (const symbol of [...new Set(symbols)]) {
+  for (const symbol of unique) {
     const id = holdingId(symbol);
-    const facts = wm.view("facts").about(id).filter((f) => f.supersededBy === undefined).map(factOf);
+    const facts = keptFacts.get(symbol) ?? [];
     const announcements = wm
       .view("graph")
       .incoming(id, { via: "mentions" })

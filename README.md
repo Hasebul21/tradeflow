@@ -407,3 +407,188 @@ The ledger maths lives in `src/lib/portfolio.ts`, `src/lib/rules.ts` and `src/li
 ## Where it came from
 
 This is a cut-down, public version of a private portfolio app. The ledger maths, commission rule, number formatting and DSE calendar are copied from it unchanged. The private version's login, database, email reports, price scraping and AI features were removed, and the data was replaced with the synthetic set above. `PRE-EXISTING.md` lists what existed before the hackathon build window.
+
+## Quick start
+
+The judges' container needs no keys and no `.env`: it starts an app in sample mode that runs the real agent code on local data.
+
+```sh
+docker compose -f docker-compose.judge.yml up --build
+```
+
+Wait for the container to be healthy, then ask your first question:
+
+```sh
+curl -s -X POST http://localhost:8000/run \
+  -H "Content-Type: application/json" \
+  --data-binary @input_examples/example_1.json
+```
+
+The answer comes back as JSON with a `review_markdown` field that holds a Markdown review. Each cited number carries a `[q:…]` tag; open http://localhost:8000/explain to see each run's steps.
+
+### With real models
+
+To use real models, create `.env` from `.env.example` and set `METERLESS_API_KEY`, `METERLESS_BASE_URL` and the three `NEMOTRON_MODEL_*` routing ids, plus the `ZETARIS_*` vars. Then:
+
+```sh
+docker run --rm -p 8000:8000 \
+  --env-file .env \
+  -e PORT=8000 \
+  -v "$PWD/logs:/app/logs" \
+  tradeflow
+```
+
+To also reach Zetaris and Nightshift on the host, replace any `127.0.0.1` or `localhost` URL in `.env` with `host.docker.internal`:
+
+```sh
+docker run --rm -p 8000:8000 \
+  -e METERLESS_BASE_URL=http://host.docker.internal:8088/v1 \
+  -e ZETARIS_REST_URL=http://host.docker.internal:8888/api/v1.0 \
+  --env-file .env \
+  -e PORT=8000 \
+  -v "$PWD/logs:/app/logs" \
+  tradeflow
+```
+
+Reaching Nightshift through `host.docker.internal` is unverified; the real-model check in Step 25 runs on the host.
+
+### Other entry points
+
+```sh
+# CLI: one or more input files in one process (memory carries over)
+npm run agent -- input_examples/example_1.json
+
+# MCP server (stdin/stdout)
+npm run mcp   # needs TRADEFLOW_URL, default http://localhost:8000
+
+# Clean-clone test (simulates a judge's environment)
+bash scripts/clean-clone.sh
+```
+
+The organisers' `run.py` is recommended practice, not a rule. `POST /run` and `npm run agent` are this project's entry points; the run.py scripts the judges may use call one of them.
+
+## The harness
+
+Grouped as `.claude/rules/harness.md` groups its rules.
+
+### Workflow
+
+| Rule | File and function | How it is proved |
+|---|---|---|
+| The orchestrator owns the control flow | `src/agent/orchestrator.ts`, `run()` | A `run_end` trace line; `npm test` |
+| The loop is plan, act, check, revise | `src/agent/orchestrator.ts`, the Planner/Analyst/Evaluator loop | `plan_step`, `reject`, `accept` trace lines; `npm run eval` |
+| Revise, don't restart, in code | `src/agent/revision.ts`, `mergeRevision()` | `carry_forward`, `restore_finding` trace lines; `src/agent/revision.test.ts` |
+| Safety-critical chains are fixed, not planned | `src/agent/orchestrator.ts`, `fixed_plan` | `fixed_plan` trace line on `pre_trade` and `reconcile` |
+| Every run ends with exactly one status | `src/agent/run-state.ts`, `RunState` | `run_end` line with `stop_reason`; `src/agent/orchestrator.test.ts` |
+| Human in the loop: a trade is never saved by an agent | `src/agent/orchestrator.ts`, `pre_trade` branch | Status `needs_human`, "Nothing has been saved"; `output_examples/` |
+
+### Harness: limits, context, recovery, traces, evals
+
+| Limit | Value in `src/agent/config.ts` | What happens when it runs out |
+|---|---|---|
+| `MAX_ROUNDS` | 3 | `needs_human`, `stop_reason: "rounds"` |
+| `MAX_QUERY_CALLS` | 20 | `needs_human`, `stop_reason: "query_calls"` |
+| `MAX_MODEL_CALLS` | 54 | `needs_human`, `stop_reason: "model_calls"` |
+| `MAX_TOKENS_PER_RUN` | 630,000 | `needs_human`, `stop_reason: "tokens"` |
+| `ROUND_TIMEOUT_MS` | 51 min | `needs_human`, `stop_reason: "round_timeout"` |
+| `RUN_TIMEOUT_MS` | 110 min | `needs_human`, `stop_reason: "run_timeout"` |
+| `BRIEFING_TIMEOUT_MS` | 220 min | `needs_human`, `stop_reason: "run_timeout"` |
+| `MAX_PLAN_STEPS` | 5 | A longer plan is cut to the first 5, traced as `plan_cut` |
+| `MAX_TOOL_ROUNDS` | 2 | The Analyst must answer from the planned results alone |
+| `MAX_MEMORIES` | 5 | Older memories are not sent to the model |
+| `MAX_ROWS_PER_QUERY` | 50 | Extra rows are dropped, `truncated: true` |
+| `MAX_CONCURRENT_RUNS` | 2 (server) | `POST /run` answers 429 Busy with `Retry-After` |
+| `MAX_CONCURRENT_CHILDREN` | 2 (briefing) | A briefing child waits until a slot is free |
+
+**What each model sees** (`src/agent/context.ts`): `forModel` cuts query results to `MAX_ROWS_PER_QUERY` (50) rows and adds `row_count` and `truncated`; `memoriesForModel` keeps at most `MAX_MEMORIES` (5) memories as id, tags, content and relevance; `catalogueFor` gives a task its named queries; `citedResults` gives the Evaluator and Writer only the results the findings cite. The full rows stay in the run's result store, keyed by `run_query_id`, which `checkCitations` reads so a number from a cut row is still citable.
+
+**The trace** (`src/agent/trace.ts`): every agent step, guard, retry, fallback and approval writes one JSON line to `logs/trace-<run_id>.jsonl`. Fields: `timestamp`, `run_id`, `task`, `agent_name`, `action`, `input_summary`, `output_summary`, `target_agent`, `model`, `confidence` (the Evaluator's total out of 9 as a fraction rounded to two decimals), `retry_count`, `status`, `why`, `duration_ms` and `usage`. Every line goes through `maskSecrets` so no key or token ever reaches a trace. Plans, queries, retries and budget limits each have a trace line of their own.
+
+**The per-run query cache** (`src/agent/run-state.ts`): a query with the same id and params runs once per run. A cached call is traced as `Query.cached`, counts no query call, and reuses the same `run_query_id`.
+
+**Model fallback** (`src/agent/llm.ts`): `strong` falls back to `main` when the strong model is unavailable, traced as it happens. `main` and `fast` do not fall back. A 401 or 403 is `Unauthorized` and a refused connection is `NightshiftNotRunning`; neither falls back.
+
+**Native tool calling** (`src/agent/agents/analyst.ts`, `toolsFor`): the Analyst gets the task's named queries as OpenAI function definitions, at most `MAX_TOOL_ROUNDS` (2) rounds, then one call without tools so the model must answer. A tool call is run by code through `guards.beforeQuery`, the cache and the budget, and traced as `tool_call`.
+
+### Guardrails
+
+| Guard | Where it runs | What it blocks | File and function |
+|---|---|---|---|
+| `beforeQuery` | `runQuery`, before any query | A query id not in the registry, params that fail the query's schema, an `as_of` outside the bar dates, a `what_if` with an unknown symbol or a non-positive whole quantity, and a run whose query budget is spent. A Friday or Saturday `as_of` moves to the Thursday before | `src/agent/guards.ts` |
+| `afterModel` | After each model reply | A finding that fails the schema, wording that tells the owner to buy, sell or hold, or a thesis verdict other than confirmed, contradicted or open. Injection wording sets `injection_seen` without blocking | `src/agent/guards.ts` |
+| `checkCitations` | Over the findings of a draft | A finding with no `run_query_id`, a cite that does not exist in the run, or a number in `numbers` or in the claim not found in the cited rows or a listed memory | `src/agent/guards.ts` |
+| `beforeRemember` | `remember`, before a memory write | Anything but a review note, an owner correction or an owner decision; raw rows; text over 600 characters; text that reads like an instruction | `src/agent/guards.ts` |
+
+## Sponsor technology
+
+| Tool | What it does in the loop | File and function | How to see it working |
+|---|---|---|---|
+| **Zetaris** | Named queries that have `sql()` can run through Zetaris: `week_moves`, `sector_vs_stock`, `announcements_between`, `fundamentals_latest`, `dividends_between`, `journal_for_symbol`, `rule_findings` and `reconciliation`. Each matches its `local()` function; parity is confirmed. Zetaris falls back to local rows for anyone without the owner's Zetaris account | `src/agent/zetaris.ts` (adapted from the Zetaris getting-started client); the SQL of every query is in [`docs/zetaris-queries.md`](docs/zetaris-queries.md) | `npm run parity` prints the SQL from `sql()` and compares it to `local()`. Every section in [`docs/zetaris-queries.md`](docs/zetaris-queries.md) says "parity: match". A `Query` trace line with `source=zetaris` |
+| **Meterless H-MEM** | Stores the owner's memories (rules, preferences, corrections) in a per-data-dir ledger. `recall` finds memories by tag and by query, with a `retrievalReason`. `remember` stores an accepted review through `guards.beforeRemember`. A working Meterless Engine feature | `vendor/hmem/src` (copy of `engines/hmem/reference/src`, Apache-2.0); `src/agent/memory.ts` | A `Memory.recall` trace line with `retrievalReason` and the memory ids it took by tag. `src/agent/memory.test.ts` tests both paths. Markovian engine: not used |
+| **Meterless World Model** | Records what the run's query results show after each accepted review: each holding's `weight_pct`, `latest_eps` and `dividend_owed_bdt`, and announcements a cited finding references, each with a `run_query` url. Facts carry `run_query_id` provenance. A working Meterless Engine feature | `vendor/world-model/src` (copy of `engines/world-model/reference/src`, Apache-2.0); `src/agent/world.ts` | A `World.record` trace line before `run_end`. `src/agent/world.test.ts` and `src/agent/corrections.test.ts` pass. Markovian engine: not used |
+| **Nemotron endpoint: Meterless Nightshift (primary)** | Every Nemotron model call goes to the endpoint in `METERLESS_BASE_URL` (the Nightshift Runtime URL). The three tiers (`meterless/deep` for strong, `meterless/auto` for main, `meterless/fast` for fast) are routing modes; Nightshift picks the Nemotron model from its active lanes. The build used Nightshift as the primary provider, serving `openrouter/nvidia/nemotron-3.5-lightning` on all tiers | `src/agent/llm.ts` | Every `model_call` trace line in `output_examples/traces/` carries `requested_model` (the `meterless/*` id), `routed_model` (`openrouter/nvidia/nemotron-3.5-lightning`) and `cost_usd`. The four runs used Nightshift as the sole provider |
+| **Cursor** | Not used | — | The organisers allowed any IDE on 22 Oct. Claude Code, run in Orca's terminal, wrote the code with the kit in `.claude/`. The Cursor copy of the kit was removed on 22 Oct. No Cursor job is claimed |
+
+**What was unique.** Zetaris connects the agent loop to cross-database SQL queries, the first version of the parity runner that checks them, and the only Reconciliation agent that matches a ledger against broker and bank files. Meterless H-MEM and the World Model give the agent loop persistent, auditable state (each fact carries its `run_query_id`) with no Meterless cloud dependency: both are standalone reference implementations. Meterless Nightshift is the sole Nemotron provider for every real model call, orchestrating three routing tiers from one Runtime URL. No agent runs in Google Colab.
+
+## Examples and results
+
+`input_examples/` holds 8 input files plus 2 red-team variants; `output_examples/` holds their results from runs with real keys, in name order in one process. `output_examples/traces/` has the step-by-step trace of every run and [`output_examples/traces/ledger.jsonl`](output_examples/traces/ledger.jsonl), the memory ledger of the same sessions.
+
+[`evals/RESULTS.md`](evals/RESULTS.md) has:
+
+- **Sample mode (2026-10-24): 25 passed, 0 failed, 0 skipped.** Every case runs the real agent code on local data with the sample-model stand-in.
+- **Real model, run 1 (2026-10-22): 7 passed, 13 failed, 1 skipped.**
+- **Real model, run 2 (2026-10-22): 6 passed, 14 failed, 1 skipped.**
+- **Real model, run 3 (2026-10-22): 8 passed, 12 failed, 1 skipped** (two Nightshift Lightning lanes racing).
+- **Real model, run 4 (2026-10-23): 20 passed, 5 failed, 0 skipped** at concurrency 4; the most recent score.
+
+[`evals/E2E.md`](evals/E2E.md) is the end-to-end check through `POST /run` with real models: 10 results in 49.4 min (one unexpected error, `PromptTooLarge`), every planted outcome confirmed, no advice, disclaimer present in every review, memory propagated as planted.
+
+## AI usage
+
+1. **Models and providers.** Every real model call went through Meterless Nightshift, which served `openrouter/nvidia/nemotron-3.5-lightning` on all three tiers. The requested routing ids were `meterless/deep` (strong tier, for the Planner and Writer), `meterless/auto` (main tier, for the Analyst) and `meterless/fast` (fast tier, for the Evaluator's scoring and the Router). Each `model_call` trace line in `output_examples/traces/` carries `requested_model`, `routed_model` and `cost_usd` as evidence. The Nightshift Runtime URL was `http://127.0.0.1:8088/v1`; Nightshift connected to an OpenRouter endpoint, which served an NVIDIA Nemotron model. No reasoning switch was sent to Nightshift. The development runs used direct OpenRouter; those are not part of the submitted evidence.
+2. **Agent frameworks.** None. The agents are plain TypeScript functions in `src/agent/agents/`, orchestrated by `src/agent/orchestrator.ts`. No LangChain, CrewAI or similar framework is used.
+3. **Partner technologies and where.** Meterless Nightshift (the Nemotron provider, through `METERLESS_BASE_URL`), Meterless H-MEM (`vendor/hmem/`, memory store), Meterless World Model (`vendor/world-model/`, world state) and Zetaris (REST client, `src/agent/zetaris.ts`, for SQL queries). See "Sponsor technology" above.
+4. **External tools and libraries.** The base app uses Next.js 16, Ant Design 6, and the Ant Design Charts component. The agent layer adds Zod (schema validation), the OpenAI SDK (model client only), and Node.js built-ins. No other external libraries.
+5. **Data sources.** All data is synthetic, generated by `scripts/seed-data.mjs` and `scripts/seed.mjs`. No real trading data, personal information or financial records are used. See [`data/README.md`](data/README.md).
+6. **Open-source code adapted.** The Meterless H-MEM and World Model reference implementations are copied into `vendor/hmem/` and `vendor/world-model/` from the Meterless repository, under their Apache-2.0 licence. The Zetaris REST client is adapted from the Zetaris getting-started repository (Apache-2.0) in `src/agent/zetaris.ts`.
+7. **Known limitations.** The data is synthetic. The sample mode model is deterministic code with estimated token counts. `what_if` runs only locally. Any named query without `sql()` runs locally. Usage is counted in tokens, not money. The UI and the API share one port. Zetaris needs the owner's org and databases, so judges without them and sample mode get local or local-fallback rows. H-MEM's reference embedder is a hash, so recall is by tag and keyword signals, not meaning. The real-model pass rate in the most recent run (23 Oct) was 20 of 25 (80%).
+8. **Fallback and sample-mode behaviour.** Without `METERLESS_API_KEY`, `METERLESS_BASE_URL` or any `NEMOTRON_MODEL_*` routing id, the app runs in sample mode: the same agent code but with a deterministic offline stand-in (`src/agent/sample-model.ts`) that builds each reply from the input, never from a stored answer. A refused connection to Nightshift returns a structured error naming "Nightshift not running" and never falls back to sample mode. Zetaris falls back to local rows with source `local-fallback`. The strong model tier falls back to main when unavailable. A Planner whose model call fails after retries gets a code-built plan from `src/agent/default-plan.ts`. A scoring call that returns no content accepts the draft on code checks alone (`score_unavailable`).
+
+## Third-party code and licences
+
+| Component | Licence | Where it lives |
+|---|---|---|
+| Meterless H-MEM (reference implementation) | Apache-2.0 | `vendor/hmem/` |
+| Meterless World Model (reference implementation) | Apache-2.0 | `vendor/world-model/` |
+| Zetaris getting-started client (adapted) | Apache-2.0 | `src/agent/zetaris.ts` |
+
+The npm packages added for the agent layer are Zod, the OpenAI SDK and the MCP SDK.
+
+This repository: MIT, see [LICENSE](LICENSE).
+
+## Limitations
+
+- **Synthetic data.** All data in `data/` is generated. No real trading data is used; see [`data/README.md`](data/README.md).
+- **Sample mode.** The sample-model stand-in is deterministic code. Its token counts are estimates (characters divided by four) and its reply never carries a real model's nuance.
+- **what_if runs only locally.** The trade preview is a calculation, not an SQL query, so it never goes through Zetaris.
+- **Queries without sql().** Any named query that has no `sql()` definition runs only through `local()`. Every query in the current registry has `sql()` (confirmed by `npm run parity`).
+- **Usage is counted in tokens, not money.** Each `model_call` trace line reports `tokens_in` and `tokens_out`, never a monetary cost; `cost_usd` is written only when the provider returns a receipt. A `cost_usd` total is an estimate.
+- **The UI and the API share one port.** The organisers suggest a separate UI port; this project uses one port for both.
+- **Zetaris needs the owner's org and databases.** Judges without the owner's Zetaris account, or in sample mode, get local or local-fallback rows. Parity is confirmed for every query that has `sql()`.
+- **H-MEM's reference embedder is a hash.** Recall is by tag and keyword signals, not semantic meaning. This is a Meterless reference implementation, not a production embedder.
+- **Real-model pass rate.** The most recent real-model run (23 Oct, 20 of 25, 80%) improved over earlier runs; earlier runs had a lower pass rate (22 Oct runs: 7, 6 and 8 of 21). The sample-mode eval passes all 25 cases.
+
+## Before and after
+
+Everything at the git tag [`pre-hackathon`](https://github.com/Hasebul21/tradeflow/tree/pre-hackathon) existed before the build window (15 October 2026, 00:00 UTC). `git diff pre-hackathon --stat` counts 239 files changed, 45,610 insertions.
+
+| What is new | What is pre-existing |
+|---|---|
+| `src/agent/` — the agent loop, agents, guards, memory, world model, traces, config, context, named queries, the LLM client and the sample model; `src/app/run/`, `src/app/explain/`, `src/app/runs/` — new pages; `vendor/hmem/` and `vendor/world-model/` | `src/lib/` — the ledger maths, attribution, what-if, reconciliation, fundamentals, rules and data loading; `data/` — the synthetic data, seed scripts and story tests; the base pages (`src/app/*/page.tsx` and `view.tsx`), components and JSON API routes; `scripts/load-postgres.mjs`; `Dockerfile` and `docker-compose.yml` |
+| The coding-agent kit in `.claude/`, `evals/` and `src/agent/prompts/` was drafted on 5 October (first for Cursor); the build used its Claude Code copy in `.claude/`, added on 22 October | The files listed in `PRE-EXISTING.md`, unchanged from before the build window |
+| `src/test/story.data.test.ts` — the story tests — is pre-existing | — |
+| [`data/README.md`](data/README.md) is pre-existing and describes every data file, its fields and the planted scenarios | — |
+
+Write any connection-string example without a password part, or the pre-commit hook rejects the commit. The base's own setup text is above.

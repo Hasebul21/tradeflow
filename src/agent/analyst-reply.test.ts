@@ -271,3 +271,12 @@ describe("prompts/analyst.md names the pre_trade finding's subject", () => {
     expect(preTrade).toContain("Write one pre_trade finding from what_if, with the trade's symbol as its subject");
   });
 });
+
+describe("known_run_query_ids: a revision copies only the ids the batch holds", () => {
+  it("names the field and the rule in the Analyst prompt", () => {
+    // 24 Oct, example_5: the Analyst cited 549b7252, a run_query_id that was never in the run, on every revise round.
+    const prompt = readFileSync(path.resolve("src/agent/prompts/analyst.md"), "utf8");
+    expect(prompt).toContain("known_run_query_ids");
+    expect(prompt).toContain("never write an id that is not in it");
+  });
+});
