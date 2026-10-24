@@ -20,8 +20,8 @@
   },
   "repository": "https://github.com/Hasebul21/tradeflow",
   "submission": {
-    "demo_video": "tradeflow-demo.mp4",
-    "slide_deck": "tradeflow-slides.pdf"
+    "demo_video": "https://github.com/Hasebul21/tradeflow/blob/main/demo/out/tradeflow-demo.mp4",
+    "slide_deck": "demo/tradeflow-slides.pdf"
   },
   "sponsors": {
     "zetaris": {
@@ -70,16 +70,16 @@
     },
     "nvidia": {
       "status": "working",
-      "how": "Nemotron (openrouter/nvidia/nemotron-3.5-lightning) serves every model call — Planner, Analyst, Evaluator and Writer — through three Nightshift routing tiers.",
+      "how": "Nemotron serves every model call — Planner, Analyst, Evaluator and Writer — through three Nightshift routing tiers. The real runs routed to openrouter/nvidia/nemotron-3.5-lightning, with openrouter/nvidia/nemotron-3-ultra-550b-a55b:free on one retry lane.",
       "where": ["src/agent/llm.ts", "src/agent/config.ts"],
       "evidence": [
-        "Every model_call trace line carries routed_model=openrouter/nvidia/nemotron-3.5-lightning",
-        "output_examples/traces/ has the trace files from four real runs"
+        "The model_call trace lines in output_examples/traces/ that carry routed_model and cost_usd (51 lines)",
+        "output_examples/traces/ has the trace files and the memory ledger of the shipped example runs"
       ],
       "integration_working": true,
       "in_use_case": true,
       "use_case_note": "All Nemotron calls go through Meterless Nightshift (METERLESS_BASE_URL). Development runs used direct OpenRouter; those are not part of the submitted evidence.",
-      "models": ["openrouter/nvidia/nemotron-3.5-lightning"],
+      "models": ["openrouter/nvidia/nemotron-3.5-lightning", "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"],
       "route": "via-meterless"
     }
   },
@@ -204,5 +204,5 @@
     "sample_mode": true,
     "secrets": ["METERLESS_API_KEY", "METERLESS_BASE_URL", "NEMOTRON_MODEL_DEEP", "NEMOTRON_MODEL_MAIN", "NEMOTRON_MODEL_FAST"]
   },
-  "evidence_logs": "logs/trace-<run_id>.jsonl"
+  "evidence_logs": "output_examples/traces/"
 }
