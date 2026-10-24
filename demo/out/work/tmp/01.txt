@@ -1,0 +1,1 @@
+Tradeflow is a review tool for the Dhaka Stock Exchange. It explains why the portfolio moved, checks the reason behind every trade, and reviews a trade before you save it. Every number in every answer cites the query that produced it, and a separate Evaluator rejects any claim the rows cannot support. All the data is synthetic.

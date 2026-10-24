@@ -1,0 +1,1 @@
+Tradeflow review agents. Every claim cites its query. Every number is verified against the rows. You always decide. Built with NVIDIA Nemotron through Meterless Nightshift and Zetaris Lightning SQL. All data is synthetic.

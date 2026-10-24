@@ -1,0 +1,1 @@
+The Reconcile tab compares the broker and bank statements against the ledger. The code joins the sources on the trading day, symbol, side and quantity. Each difference the agents explain, and each one carries a proposed fix written by code, never by a model. You approve one at a time, and only your approval applies the fix to the ledger.

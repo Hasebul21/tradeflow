@@ -19,3 +19,4 @@ next-env.d.ts
 logs/
 data/memory/
 evals/redteam/fixtures/
+demo/out/work/captions/track.mov

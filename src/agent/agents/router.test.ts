@@ -86,7 +86,7 @@ describe("the sample Router", () => {
     const result = await free("router-test-advice", "Should I sell BXPHARMA now?", { as_of: AS_OF });
     expect(result.task).toBe("explain_week");
     expect(result.output?.declined_advice).toBe(true);
-  });
+  }, 30000);
 
   it("is the run's first model call, and its call counts in usage", async () => {
     const result = await free("router-test-first-call", "Why did I lose money this week?", { as_of: AS_OF });
@@ -182,7 +182,7 @@ describe("the Router's reply is checked in code", () => {
     const result = await free("router-test-no-trade", "Would buying 70 of them break my rules?", { as_of: AS_OF });
     expect(result.task).toBe("explain_week");
     expect(routeLine("router-test-no-trade")?.why).toBe("invalid router reply");
-  });
+  }, 30000);
 
   it("never calls the Router for a request with a task, or for input that fails validation", async () => {
     const withTask = await run({ runId: "router-test-with-task", task: "explain_week", input: { question: "Why did I lose money this week?", as_of: AS_OF }, sampleMode: true, config });

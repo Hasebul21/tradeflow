@@ -20,8 +20,8 @@
   },
   "repository": "https://github.com/Hasebul21/tradeflow",
   "submission": {
-    "demo_video": null,
-    "slide_deck": null
+    "demo_video": "tradeflow-demo.mp4",
+    "slide_deck": "tradeflow-slides.pdf"
   },
   "sponsors": {
     "zetaris": {

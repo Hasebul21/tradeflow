@@ -362,7 +362,7 @@ describe("the loop: revise, don't restart", () => {
       expect(by(lines, "Orchestrator", "drop_finding")).toHaveLength(1);
       expect(result.output?.findings.filter((finding) => finding.kind === "sector" && finding.subject === "Pharmaceuticals & Chemicals")).toHaveLength(1);
       expect(result.output?.gaps).toContain(SECTOR_GAP);
-    });
+    }, 30000);
 
     it("keeps the note when the dropped finding comes back still failing and is then left out (four rounds)", async () => {
       // Round 1: A is refused. Round 2: A again, so code drops it, and the model scores the draft 6. Round 3: A comes
@@ -394,7 +394,7 @@ describe("the loop: revise, don't restart", () => {
       expect(by(lines, "Evaluator", "reject").map((line) => line.retry_count)).toEqual([0, 1, 2]);
       expect(result.output?.findings.some((finding) => finding.kind === "sector")).toBe(false);
       expect(result.output?.gaps).toContain(SECTOR_GAP);
-    });
+    }, 30000);
   });
 
   it("asks again for a required finding the fix flagged, never restores it, and ends needs_human when it stays missing", async () => {

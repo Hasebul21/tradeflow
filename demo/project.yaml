@@ -1,0 +1,269 @@
+# Tradeflow demo video — target ~3 minutes 30 seconds (limit 1-4 minutes)
+# Built with: node /Users/cefalo/video-studio/studio.js make project.yaml
+name: tradeflow-demo
+size: 1280x720
+fps: 30
+captions: soft
+pad: 0.5
+fade: 0.3
+stillSeconds: 5
+background: "#111111"
+color: "#ffffff"
+
+voice:
+  engine: edge
+  edge:
+    name: en-GB-RyanNeural
+    rate: "+8%"
+
+scenes:
+
+  # ---------------------------------------------------------------------------
+  # 1. Opening title card (~15 s)
+  # ---------------------------------------------------------------------------
+  - type: title
+    name: Opening
+    title: "Tradeflow"
+    subtitle: "Review agents for the Dhaka Stock Exchange"
+    note: "Auditable portfolio analysis"
+    say: >-
+      Tradeflow is a review tool for the Dhaka Stock Exchange.
+      It explains why the portfolio moved, checks the reason behind
+      every trade, and reviews a trade before you save it.
+      Every number in every answer cites the query that produced it,
+      and a separate Evaluator rejects any claim the rows cannot support.
+      All the data is synthetic.
+    caption: |-
+      Tradeflow — review agents for the DSE
+      Explains the week, checks trades
+      Reviews a trade before you save it
+      Every claim cites its query
+      All data is synthetic
+
+  # ---------------------------------------------------------------------------
+  # 2. Dashboard: stat cards, attribution, rules, holdings (~32 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Dashboard
+    url: http://localhost:8000/
+    say: >-
+      This is the portfolio dashboard. At the top: market value,
+      this week's move against the DSEX index, dividend income,
+      and realised and unrealised profit and loss.
+      Scrolling down shows what moved the portfolio this week,
+      each stock compared with its sector index, and the contribution
+      to the total. Then the rules your portfolio breaks,
+      and the full holdings table with weights and break-even prices.
+      The review agents live on the Explain page.
+    caption: |-
+      The portfolio dashboard
+      Value, week move vs DSEX, dividends, P&L
+      What moved this week: stocks vs sectors
+      Rules broken, and the holdings table
+      Review agents live on the Explain page
+    actions:
+      - wait: 2500
+      - scroll: { y: 320, steps: 8 }
+      - wait: 2500
+      - scroll: { y: 680, steps: 8 }
+      - wait: 2500
+      - scroll: { y: 1050, steps: 8 }
+      - wait: 2500
+      - scroll: { y: 1400, steps: 8 }
+      - wait: 2000
+      - goto: http://localhost:8000/explain
+      - wait: 2500
+
+  # ---------------------------------------------------------------------------
+  # 3. Explain week: live steps, proof cards, citation drawer (~58 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Explain week
+    url: http://localhost:8000/explain
+    timeout: 180000
+    say: >-
+      This is the Explain page. Pick a question, or type your own,
+      and press Explain my week. Watch each step appear live:
+      the Planner chooses the queries, code runs them against Zetaris
+      or the local ledger, the Analyst writes findings where every number
+      cites the query behind it, the Evaluator checks each claim
+      against the rows and scores the draft out of nine,
+      and the Writer produces the final review.
+      The Proof cards count the sponsor work: queries run through Zetaris,
+      memories recalled by the H-MEM engine, Nemotron model calls with their
+      token counts, and the guards that checked or blocked.
+      Click a citation tag to open the exact rows behind a number,
+      and the SQL that Zetaris ran. At the bottom, the Correct this box
+      lets you teach the next review what to do differently.
+    actions:
+      - wait: 1000
+      - click: "text=How does this week compare with last week?"
+      - wait: 500
+      - click: "text=Explain my week"
+      - wait: 6000
+      - waitForText: "Summary"
+      - wait: 2500
+      - scroll: { y: 160, steps: 6 }
+      - highlight: "text=Proof"
+      - wait: 3500
+      - scroll: { y: 0, steps: 6 }
+      - wait: 800
+      - hover: "role=button >> text=[week_moves]"
+      - wait: 500
+      - click: "role=button >> text=[week_moves]"
+      - wait: 3500
+      - press: Escape
+      - wait: 1500
+      - scroll: { y: 500, steps: 8 }
+      - wait: 1500
+      - scroll: { y: 9999, steps: 10 }
+      - wait: 1500
+      - highlight: "text=Correct this"
+      - wait: 3500
+
+  # ---------------------------------------------------------------------------
+  # 4. Advice refusal and off-topic: the guards hold (~30 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Advice refusal
+    url: http://localhost:8000/explain
+    timeout: 180000
+    say: >-
+      The agents never recommend buying, selling or holding.
+      These red chips are the try-to-break-it questions.
+      Click the advice question and the run refuses to advise,
+      marked by the advice declined badge, but still reviews the facts.
+      And an off-topic request, like a poem, is kept to the data.
+      The guards check every reply before it reaches you.
+    actions:
+      - click: "text=Should I sell BXPHARMA now?"
+      - wait: 500
+      - click: "text=Explain my week"
+      - wait: 5500
+      - waitForText: "Summary"
+      - wait: 2500
+      - scroll: { y: 0, steps: 4 }
+      - highlight: "text=Advice declined"
+      - wait: 3500
+
+  # ---------------------------------------------------------------------------
+  # 5. Thesis check: verdict table (~30 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Thesis check
+    url: http://localhost:8000/explain
+    timeout: 180000
+    say: >-
+      The Theses tab checks every trade reason from your journal
+      against the latest market data. For each entry it reads the thesis,
+      the exit condition and the horizon, then pulls the fundamentals,
+      dividends and announcements for that symbol.
+      Each thesis gets a clear verdict: confirmed, contradicted, or open,
+      with the evidence that settles it. The table shows at a glance
+      which of your reasons still hold and which need a second look.
+    actions:
+      - click: "role=tab >> text=Theses"
+      - wait: 1000
+      - click: "role=button >> text=Check"
+      - wait: 11000
+      - waitForText: "Summary"
+      - wait: 2500
+      - scroll: { y: 480, steps: 8 }
+      - wait: 3500
+
+  # ---------------------------------------------------------------------------
+  # 6. Pre-trade escalation: what-if breaks a rule (~32 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Pre-trade escalation
+    url: http://localhost:8000/explain
+    timeout: 180000
+    say: >-
+      Before you save a trade, run the pre-trade check.
+      Enter a symbol, choose buy or sell, and set the quantity —
+      here, buying seventy WALTONHIL shares.
+      The agents run a what-if preview against your open theses
+      and your rules. This trade pushes a sector past its target,
+      so a clear warning appears: Nothing has been saved,
+      the decision is yours. The check never writes to the ledger.
+    actions:
+      - click: "role=tab >> text=Pre-trade"
+      - wait: 1000
+      - click: "text=A new trade"
+      - wait: 500
+      - click: "[placeholder=\"EBL\"]"
+      - fill: ["[placeholder=\"EBL\"]", "WALTONHIL"]
+      - click: "role=spinbutton >> nth=0"
+      - fill: ["role=spinbutton >> nth=0", "70"]
+      - click: "role=button >> text=Check this trade"
+      - wait: 12000
+      - waitForText: "Summary"
+      - wait: 3000
+      - scroll: { y: 9999, steps: 10 }
+      - wait: 1500
+      - highlight: "text=Nothing has been saved"
+      - wait: 3500
+
+  # ---------------------------------------------------------------------------
+  # 7. Reconciliation: differences with Approve buttons (~30 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Reconciliation
+    url: http://localhost:8000/explain
+    timeout: 180000
+    say: >-
+      The Reconcile tab compares the broker and bank statements
+      against the ledger. The code joins the sources on the trading day,
+      symbol, side and quantity. Each difference the agents explain,
+      and each one carries a proposed fix written by code,
+      never by a model. You approve one at a time,
+      and only your approval applies the fix to the ledger.
+    actions:
+      - click: "role=tab >> text=Reconcile"
+      - wait: 1000
+      - click: "role=button >> text=Explain the differences"
+      - wait: 12000
+      - waitForText: "Summary"
+      - wait: 3000
+      - scroll: { y: 9999, steps: 10 }
+      - wait: 1500
+      - highlight: "text=Approve"
+      - wait: 3500
+
+  # ---------------------------------------------------------------------------
+  # 8. Review queue and the trace viewer (~32 s)
+  # ---------------------------------------------------------------------------
+  - type: browser
+    name: Review queue
+    url: http://localhost:8000/explain/queue
+    timeout: 30000
+    say: >-
+      The review queue lists every run that needs you:
+      escalated trades, reconciliation proposals,
+      and runs that hit a limit. All decisions are yours,
+      and nothing happens without your approval.
+      Open a trace to see the whole run as a timeline:
+      every agent step, every guard decision, every retry and fallback,
+      and every model call with its tokens and cost.
+      This is the audit trail behind every answer.
+    actions:
+      - wait: 2500
+      - scroll: { y: 300, steps: 6 }
+      - wait: 2500
+      - click: "text=Open the trace"
+      - wait: 3000
+      - scroll: { y: 320, steps: 6 }
+      - wait: 2500
+
+  # ---------------------------------------------------------------------------
+  # 9. Closing title card (~15 s)
+  # ---------------------------------------------------------------------------
+  - type: title
+    name: Closing
+    title: "Every claim. Every number. Auditable."
+    note: "Open Agent Hackathon 2026"
+    say: >-
+      Tradeflow review agents. Every claim cites its query.
+      Every number is verified against the rows. You always decide.
+      Built with NVIDIA Nemotron through Meterless Nightshift
+      and Zetaris Lightning SQL. All data is synthetic.

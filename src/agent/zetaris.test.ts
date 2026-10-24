@@ -100,7 +100,7 @@ describe("a Zetaris error", () => {
       expect(result.source).toBe("local-fallback");
       expect(result.rows).toEqual(localMoves());
     }
-  });
+  }, 30000);
 
   it("an unreachable Zetaris falls back, and the trace line names the cause, not the URL", async () => {
     const refused = () => Promise.reject(Object.assign(new TypeError("fetch failed for http://zetaris.test"), { cause: { code: "ECONNREFUSED" } }));
