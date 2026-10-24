@@ -174,7 +174,7 @@ function findingRow(f: RuleFinding): Row {
 const LEDGER = "tradeflow_ledger";
 const EXTERNAL = "tradeflow_external";
 
-/** A table as `SHOW DATASOURCE TABLES` lists it, qualified with its datasource (docs/zetaris-tables.txt). */
+/** A table as `SHOW DATASOURCE TABLES` lists it, qualified with its datasource (src/agent/zetaris-tables.txt). */
 export function table(datasource: typeof LEDGER | typeof EXTERNAL, name: string): string {
   return `${datasource}.${name}`;
 }

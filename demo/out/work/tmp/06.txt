@@ -1,1 +1,0 @@
-Before you save a trade, run the pre-trade check. Enter a symbol, choose buy or sell, and set the quantity — here, buying seventy WALTONHIL shares. The agents run a what-if preview against your open theses and your rules. This trade pushes a sector past its target, so a clear warning appears: Nothing has been saved, the decision is yours. The check never writes to the ledger.

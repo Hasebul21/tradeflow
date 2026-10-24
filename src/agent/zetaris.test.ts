@@ -390,7 +390,7 @@ describe("sql()", () => {
     reconciliation: {},
   };
   const withSql = (Object.keys(QUERIES) as QueryId[]).filter((id) => QUERIES[id].sql);
-  const tables = new Set(readFileSync(path.join(process.cwd(), "docs", "zetaris-tables.txt"), "utf8").split("\n").filter(Boolean));
+  const tables = new Set(readFileSync(path.join(process.cwd(), "src", "agent", "zetaris-tables.txt"), "utf8").split("\n").filter(Boolean));
 
   it("exists for every query but what_if", () => {
     expect(withSql.sort()).toEqual(["announcements_between", "dividends_between", "fundamentals_latest", "journal_for_symbol", "reconciliation", "rule_findings", "sector_vs_stock", "week_moves"]);

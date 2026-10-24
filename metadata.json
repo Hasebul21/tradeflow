@@ -50,7 +50,7 @@
       "evidence": [
         "Memory.recall trace line with retrievalReason and memory ids; src/agent/memory.test.ts tests both paths",
         "World.record trace line before run_end; src/agent/world.test.ts and src/agent/corrections.test.ts pass",
-        "Every model_call trace line carries requested_model, routed_model and cost_usd; the four runs used Nightshift as the sole provider"
+        "Every model_call trace line carries requested_model, routed_model and cost_usd; the shipped runs used Nightshift as the sole provider"
       ],
       "integration_working": true,
       "in_use_case": true,

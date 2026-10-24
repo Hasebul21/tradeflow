@@ -2,14 +2,13 @@
 
 Agents that explain a Dhaka Stock Exchange portfolio, check the reasons behind each trade and review a trade before it is saved, citing the query behind every number, so each answer can be audited. A review tool, never trading advice.
 
-Open Agent Hackathon 2026 (22 to 28 October 2026). Track: Wildcard [Tinkerer]. Built in the window: `src/agent` and `vendor`; the coding-agent kit (`.claude`, `evals`, `src/agent/prompts`) was drafted on 5 Oct and copied in when the window opened; pre-existing: see [PRE-EXISTING.md](PRE-EXISTING.md).
+Open Agent Hackathon 2026 (22 to 27 October 2026). Track: Wildcard [Tinkerer]. Built in the window: `src/agent` and `vendor`; the coding-agent kit (`.claude`, `evals`, `src/agent/prompts`) was drafted on 5 Oct and copied in when the window opened; pre-existing: see [PRE-EXISTING.md](PRE-EXISTING.md).
 
 | What | Where |
 |---|---|
 | The traces | [output_examples/traces/](output_examples/traces/) |
 | The results | [evals/RESULTS.md](evals/RESULTS.md), [evals/E2E.md](evals/E2E.md) |
 | The demo video | [tradeflow-demo.mp4](https://github.com/Hasebul21/tradeflow/blob/main/demo/out/tradeflow-demo.mp4) |
-| The slide deck | [demo/tradeflow-slides.pdf](demo/tradeflow-slides.pdf) |
 | The pitch deck | [docs/deck/deck.pdf](docs/deck/deck.pdf) |
 | Before the window | [the pre-hackathon tag](https://github.com/Hasebul21/tradeflow/tree/pre-hackathon) |
 
@@ -531,7 +530,7 @@ Grouped as `.claude/rules/harness.md` groups its rules.
 | **Zetaris** | Named queries that have `sql()` can run through Zetaris: `week_moves`, `sector_vs_stock`, `announcements_between`, `fundamentals_latest`, `dividends_between`, `journal_for_symbol`, `rule_findings` and `reconciliation`. Each matches its `local()` function; parity is confirmed. Zetaris falls back to local rows for anyone without the owner's Zetaris account | `src/agent/zetaris.ts` (adapted from the Zetaris getting-started client); the SQL of every query is in [`docs/zetaris-queries.md`](docs/zetaris-queries.md) | `npm run parity` prints the SQL from `sql()` and compares it to `local()`. Every section in [`docs/zetaris-queries.md`](docs/zetaris-queries.md) says "parity: match". A `Query` trace line with `source=zetaris` |
 | **Meterless H-MEM** | Stores the owner's memories (rules, preferences, corrections) in a per-data-dir ledger. `recall` finds memories by tag and by query, with a `retrievalReason`. `remember` stores an accepted review through `guards.beforeRemember`. A working Meterless Engine feature | `vendor/hmem/src` (copy of `engines/hmem/reference/src`, Apache-2.0); `src/agent/memory.ts` | A `Memory.recall` trace line with `retrievalReason` and the memory ids it took by tag. `src/agent/memory.test.ts` tests both paths. Markovian engine: not used |
 | **Meterless World Model** | Records what the run's query results show after each accepted review: each holding's `weight_pct`, `latest_eps` and `dividend_owed_bdt`, and announcements a cited finding references, each with a `run_query` url. Facts carry `run_query_id` provenance. A working Meterless Engine feature | `vendor/world-model/src` (copy of `engines/world-model/reference/src`, Apache-2.0); `src/agent/world.ts` | A `World.record` trace line before `run_end`. `src/agent/world.test.ts` and `src/agent/corrections.test.ts` pass. Markovian engine: not used |
-| **Nemotron endpoint: Meterless Nightshift (primary)** | Every Nemotron model call goes to the endpoint in `METERLESS_BASE_URL` (the Nightshift Runtime URL). The three tiers (`meterless/deep` for strong, `meterless/auto` for main, `meterless/fast` for fast) are routing modes; Nightshift picks the Nemotron model from its active lanes. The build used Nightshift as the primary provider, serving `openrouter/nvidia/nemotron-3.5-lightning` on all tiers | `src/agent/llm.ts` | Every `model_call` trace line in `output_examples/traces/` carries `requested_model` (the `meterless/*` id), `routed_model` (`openrouter/nvidia/nemotron-3.5-lightning`) and `cost_usd`. The four runs used Nightshift as the sole provider |
+| **Nemotron endpoint: Meterless Nightshift (primary)** | Every Nemotron model call goes to the endpoint in `METERLESS_BASE_URL` (the Nightshift Runtime URL). The three tiers (`meterless/deep` for strong, `meterless/auto` for main, `meterless/fast` for fast) are routing modes; Nightshift picks the Nemotron model from its active lanes. The build used Nightshift as the primary provider, serving `openrouter/nvidia/nemotron-3.5-lightning` on all tiers | `src/agent/llm.ts` | Every `model_call` trace line in `output_examples/traces/` carries `requested_model` (the `meterless/*` id), `routed_model` (`openrouter/nvidia/nemotron-3.5-lightning`) and `cost_usd`. The shipped runs used Nightshift as the sole provider |
 | **Cursor** | Not used | — | The organisers allowed any IDE on 22 Oct. Claude Code, run in Orca's terminal, wrote the code with the kit in `.claude/`. The Cursor copy of the kit was removed on 22 Oct. No Cursor job is claimed |
 
 **What was unique.** Zetaris connects the agent loop to cross-database SQL queries, the first version of the parity runner that checks them, and the only Reconciliation agent that matches a ledger against broker and bank files. Meterless H-MEM and the World Model give the agent loop persistent, auditable state (each fact carries its `run_query_id`) with no Meterless cloud dependency: both are standalone reference implementations. Meterless Nightshift is the sole Nemotron provider for every real model call, orchestrating three routing tiers from one Runtime URL. No agent runs in Google Colab.
@@ -549,7 +548,7 @@ Grouped as `.claude/rules/harness.md` groups its rules.
 - **Real model, run 4 (2026-10-23): 20 passed, 5 failed, 0 skipped** at concurrency 4.
 - **Real model, run 5 (2026-10-24): 24 passed, 1 failed, 0 skipped** at concurrency 4; the best score so far.
 - **Real model, run 6 (2026-10-24): 21 passed, 4 failed, 0 skipped** at concurrency 4.
-- **Real model, run 7 (2026-10-24): 20 passed, 5 failed, 0 skipped** at concurrency 4; the most recent score. The five failing checks: `example_3b` did not mention "last week" or "24 Sep", `example_5` left `j-005` open and ended `needs_human`, `example_6b` ended `needs_human`, `example_7b` dropped a finding, and `router-pre-trade` dropped a finding. Real-model runs are not deterministic, so the failing cases move between runs; every case passes in sample mode.
+- **Real model, run 7 (2026-10-24): 20 passed, 5 failed, 0 skipped** at concurrency 4; the most recent score. The five failing checks: `example_3b` did not mention "last week" or "24 Sep", `example_5` left `j-005` open, `example_6b` ended `needs_human`, `example_7b` dropped a finding, and `router-pre-trade` dropped a finding. Real-model runs are not deterministic, so the failing cases move between runs; every case passes in sample mode.
 
 [`evals/E2E.md`](evals/E2E.md) is the end-to-end check through `POST /run` with real models: 11 planted cases, run twice (49.4 min, then a full rerun on the merged fix), with 10 of 11 outcomes confirmed in each run, no advice, the disclaimer in every review, and memory propagated as planted. `example_5` failed both runs with an unexpected `PromptTooLarge` error and is counted as a content failure.
 
@@ -565,7 +564,7 @@ npm run eval    # every input example and red-team case in sample mode
 
 | Check | Latest result | Where it is recorded |
 |---|---|---|
-| `npm test` | 943 passed, 0 failed (86 test files) | run on 2026-10-24 |
+| `npm test` | 941 passed, 0 failed (86 test files) | run on 2026-10-24 |
 | Sample-mode eval | 25 passed, 0 failed, 0 skipped | [`evals/RESULTS.md`](evals/RESULTS.md) |
 | Real-model eval, most recent | 20 passed, 5 failed, 0 skipped | [`evals/RESULTS.md`](evals/RESULTS.md) |
 | Real-model eval, best | 24 passed, 1 failed, 0 skipped | [`evals/RESULTS.md`](evals/RESULTS.md) |
