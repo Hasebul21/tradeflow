@@ -46,10 +46,10 @@ export function MetricsView({ runsRead, groups, versions }: { runsRead: number; 
   const all = groups[0]?.metrics;
   return (
     <Flex vertical gap={16}>
-      <PageHeader title="Metrics" purpose="Numbers across runs, counted from the trace files. Nothing here is estimated." extra={<Flex gap={12}><Link href="/explain">Explain</Link><Link href="/explain/queue">Review queue</Link></Flex>} />
+      <PageHeader title="Metrics" purpose="Numbers across runs, counted from the trace files. Nothing here is estimated." extra={<Flex gap={12}><Link href="/explain">Analysis & Verification</Link><Link href="/explain/queue">Pending Approvals</Link></Flex>} />
       <Typography.Text type="secondary">{`Counted from the newest ${runsRead} runs on this computer.`}</Typography.Text>
       {all === undefined || runsRead === 0 ? (
-        <EmptyState message="No runs yet. Run a review on the Explain page, then come back." />
+        <EmptyState message="No runs yet. Run a review on the Analysis & Verification page, then come back." />
       ) : (
         groups.map(({ task, metrics, rows }) => (
           <Flex vertical gap={12} key={task} data-testid={`metrics-${task}`}>

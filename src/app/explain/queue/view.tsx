@@ -37,8 +37,8 @@ const COLUMNS = runColumns<QueueRun>([{ title: "Why it waits", key: "why", rende
 export function QueueView({ runs }: { runs: QueueRun[] }) {
   return (
     <Flex vertical gap={16}>
-      <PageHeader title="Review queue" purpose="Runs that wait for you: escalated trades, reconciliation proposals and runs that hit a limit. Newest first." extra={<Flex gap={12}><Link href="/explain">Explain</Link><Link href="/explain/metrics">Metrics</Link></Flex>} />
-      {runs.length === 0 ? <EmptyState message="No run is waiting for you. Runs that need your decision appear here after you use Explain." /> : <DataTable<QueueRun> rowKey="run_id" columns={COLUMNS} dataSource={runs} pagination={{ pageSize: 20, hideOnSinglePage: true }} data-testid="queue" />}
+      <PageHeader title="Pending Approvals" purpose="Runs that wait for you: escalated trades, reconciliation proposals and runs that hit a limit. Newest first." extra={<Flex gap={12}><Link href="/explain">Analysis & Verification</Link><Link href="/explain/metrics">Metrics</Link></Flex>} />
+      {runs.length === 0 ? <EmptyState message="No run is waiting for you. Runs that need your decision appear here after you use Analysis & Verification." /> : <DataTable<QueueRun> rowKey="run_id" columns={COLUMNS} dataSource={runs} pagination={{ pageSize: 20, hideOnSinglePage: true }} data-testid="queue" />}
     </Flex>
   );
 }

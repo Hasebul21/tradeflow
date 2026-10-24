@@ -3,7 +3,7 @@
 import { Alert, Card, Descriptions, Steps, Typography } from "antd";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
-import { ABOUT, DATES, FIRST_RUN, NEVER, PAGES, PURPOSE, RESULT, RUN_PAGES, RUN_PAGES_NOTE, WORDS, pageLinks, splitPageNames, type PageLine, type Term } from "./content";
+import { ABOUT, FIRST_RUN, NEVER, PAGES, PURPOSE, RESULT, RUN_PAGES, RUN_PAGES_NOTE, WORDS, pageLinks, splitPageNames, type PageLine, type Term } from "./content";
 
 const LINKS = pageLinks();
 
@@ -58,9 +58,6 @@ export function GuideView() {
           data-testid="first-run"
           items={FIRST_RUN.map((step) => ({ title: <Linked text={step} />, status: "process" }))}
         />
-      </Card>
-      <Card size="small" title="How dates work">
-        <Typography.Paragraph style={{ margin: 0 }}>{DATES}</Typography.Paragraph>
       </Card>
       <Card size="small" title="What each page is for">
         <PageList pages={PAGES} />

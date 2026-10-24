@@ -41,8 +41,8 @@ describe("the Guide page", () => {
   });
 
   it("links page names inside its sentences, but not the button Explain my week", () => {
-    expect(page).toContain('<span>Open </span><a href="/explain">Explain</a><span> from the menu.</span>');
-    expect(page).toContain('<a href="/explain/queue">Review queue</a><span> lists these runs.</span>');
+    expect(page).toContain('<span>Open </span><a href="/explain">Analysis &amp; Verification</a><span> from the menu.</span>');
+    expect(page).toContain('<a href="/explain/queue">Pending Approvals</a><span> page lists these runs.</span>');
     expect(page).toContain(html('Press "Explain my week"'));
   });
 

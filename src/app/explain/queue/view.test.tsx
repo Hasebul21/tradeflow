@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("antd", async (importOriginal) => (await import("../../render-for-tests")).inlinePopups(await importOriginal()));
 
-import { render } from "../../render-for-tests";
+import { html, render } from "../../render-for-tests";
 import { QueueView, type QueueRun } from "./view";
 
 const RUN: QueueRun = {
@@ -30,6 +30,6 @@ describe("the review queue", () => {
   });
 
   it("15: the empty queue says when runs appear", () => {
-    expect(render(<QueueView runs={[]} />)).toContain("No run is waiting for you. Runs that need your decision appear here after you use Explain.");
+    expect(render(<QueueView runs={[]} />)).toContain(html("No run is waiting for you. Runs that need your decision appear here after you use Analysis & Verification."));
   });
 });

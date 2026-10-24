@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { asOfHelp, errorAdvice, fallbackText, modelText, shortRunId, statusHint, taskName } from "./names";
+import { errorAdvice, fallbackText, modelText, shortRunId, statusHint, taskName } from "./names";
 
 describe("plain names for the agent pages", () => {
   it("names each task by its Explain tab and keeps an unknown code", () => {
     expect(taskName("explain_week")).toBe("My week");
-    expect(taskName("thesis_check")).toBe("Theses");
+    expect(taskName("thesis_check")).toBe("Strategy & Hypotheses");
     expect(taskName("pre_trade")).toBe("Pre-trade");
-    expect(taskName("reconcile")).toBe("Reconcile");
+    expect(taskName("reconcile")).toBe("Audit & Discrepancies");
     expect(taskName("something_new")).toBe("something_new");
     expect(taskName(null)).toBe("-");
   });
@@ -41,9 +41,4 @@ describe("plain names for the agent pages", () => {
     expect(errorAdvice(false)).toBe("Change the inputs above and try again.");
   });
 
-  it("gives the date range and the weekend under the date picker", () => {
-    expect(asOfHelp({ first: "2026-01-04", last: "2026-10-01" })).toBe(
-      "The day whose closing prices are used, from 4 Jan 2026 to 1 Oct 2026. Fridays and Saturdays, the exchange's weekend, are greyed out.",
-    );
   });
-});

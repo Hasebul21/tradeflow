@@ -15,7 +15,7 @@ describe("the Explain page's score text", () => {
     expect(scoresText({ scores: null }, unavailable)).toBe("score unavailable: the model returned no answer; the code checks passed");
     expect(scoresText({ scores: null }, [])).toBe("not scored");
     const banner = selfCorrectionBanner({ rounds: 2, scores: null }, [{ agent_name: "Evaluator", action: "reject", why: "cite a row" }, ...unavailable]);
-    expect(banner).toBe("Draft 1 rejected: cite a row. Draft 2 accepted, score unavailable.");
+    expect(banner).toBe("The first draft had an issue: cite a row. Draft 2 accepted, score unavailable.");
   });
 });
 

@@ -10,7 +10,7 @@ const MAIN: Item[] = [
   ["/", "Portfolio"],
   ["/transactions", "Transactions"],
   ["/journal", "Journal"],
-  ["/explain", "Explain"],
+  ["/explain", "Analysis & Verification"],
   ["/history", "History"],
 ];
 const MARKET: Item[] = [

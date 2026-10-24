@@ -18,7 +18,7 @@ export function RunView({ runId, lines, proof, done, summary }: { runId: string;
   const rows = stepRows(lines);
   return (
     <Flex vertical gap={16}>
-      <PageHeader title="Run steps" purpose="Every step the agents took, in order, with the source of each query and the memory each step recalled." extra={<Flex wrap gap={12}><Link href="/explain">Explain</Link><Link href="/explain/queue">Review queue</Link></Flex>} />
+      <PageHeader title="Run steps" purpose="Every step the agents took, in order, with the source of each query and the memory each step recalled." extra={<Flex wrap gap={12}><Link href="/explain">Analysis & Verification</Link><Link href="/explain/queue">Pending Approvals</Link></Flex>} />
       <Descriptions size="small" bordered column={{ xs: 1, sm: 2, md: 4 }} data-testid="run-summary">
         <Descriptions.Item label="Run id">{runId}</Descriptions.Item>
         <Descriptions.Item label="Task">{summary.task ?? "-"}</Descriptions.Item>
@@ -26,7 +26,7 @@ export function RunView({ runId, lines, proof, done, summary }: { runId: string;
         <Descriptions.Item label="As of">{summary.as_of ?? "-"}</Descriptions.Item>
         <Descriptions.Item label="Steps">{rows.length}</Descriptions.Item>
       </Descriptions>
-      {summary.status === "needs_human" ? <Alert type="warning" showIcon message="This run waits for you" description={waitingFor(summary)} /> : null}
+      {summary.status === "needs_human" ? <Alert type="warning" showIcon title="This run waits for you" description={waitingFor(summary)} /> : null}
       <ProofRow proof={proof} />
       {rows.length === 0 ? (
         <EmptyState message="This trace has no lines yet." />

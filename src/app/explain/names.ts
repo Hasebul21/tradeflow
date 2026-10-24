@@ -4,9 +4,9 @@ import { shortDate } from "@/components/format";
 /** Each task by the name of its Explain tab. */
 export const TASK_NAMES: Record<string, string> = {
   explain_week: "My week",
-  thesis_check: "Theses",
+  thesis_check: "Strategy & Hypotheses",
   pre_trade: "Pre-trade",
-  reconcile: "Reconcile",
+  reconcile: "Audit & Discrepancies",
   reconcile_approve: "Approve a fix",
   feedback: "Correction",
   briefing: "Weekly briefing",
@@ -49,11 +49,6 @@ export const ERROR_TITLE = "The run could not finish";
 /** What to do after an error: retry when the error is recoverable, else change the inputs. */
 export function errorAdvice(recoverable: boolean | undefined): string {
   return recoverable ? "Press the button again to retry. If it fails again, open Details." : "Change the inputs above and try again.";
-}
-
-/** The help under every As of picker on the Explain page. */
-export function asOfHelp(range: { first: string; last: string }): string {
-  return `The day whose closing prices are used, from ${shortDate(range.first)} to ${shortDate(range.last)}. Fridays and Saturdays, the exchange's weekend, are greyed out.`;
 }
 
 export const STEPS_HELP =

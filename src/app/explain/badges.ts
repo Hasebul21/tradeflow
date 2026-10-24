@@ -30,9 +30,14 @@ export function movedBadge(lines: readonly Line[]): string | null {
   return null;
 }
 
+/** The gap sentence for a question the data does not cover, or null. */
+export function outOfScopeNote(output: Pick<Output, "gaps"> | null | undefined): string | null {
+  return (output?.gaps ?? []).find((gap) => /asks for nothing the portfolio data covers/.test(gap)) ?? null;
+}
+
 /** The badge for a question the data does not cover, read from the run's gaps, or null. */
 export function outOfScopeBadge(output: Pick<Output, "gaps"> | null | undefined): string | null {
-  return (output?.gaps ?? []).some((gap) => /asks for nothing the portfolio data covers/.test(gap)) ? "Out of scope: listed under what I could not cover" : null;
+  return outOfScopeNote(output) ? "Out of scope: listed under what I could not cover" : null;
 }
 
 /** True when the Evaluator accepted the draft on the code checks alone because the model returned no score. */
@@ -47,13 +52,24 @@ export function scoresText(output: Pick<Output, "scores"> | null | undefined, li
   return scoreUnavailable(lines) ? "score unavailable: the model returned no answer; the code checks passed" : "not scored";
 }
 
-/** The banner under the result header when more than one round ran, or null. The reason is the Evaluator's first rejection. */
+/** The banner under the result header when more than one round ran, or null. The reason is the Evaluator's first rejection rewritten in natural language. */
 export function selfCorrectionBanner(output: Pick<Output, "rounds" | "scores"> | null | undefined, lines: readonly Line[]): string | null {
   if (output === null || output === undefined || output.rounds <= 1) return null;
   const reject = lines.find((line) => line.agent_name === "Evaluator" && line.action === "reject");
-  const reason = typeof reject?.why === "string" && reject.why !== "" ? reject.why : "the Evaluator asked for a fix";
+  const why = typeof reject?.why === "string" && reject.why !== "" ? reject.why : null;
+
+  let reason: string;
+  if (why && /Fix finding/i.test(why)) {
+    const count = (why.match(/Fix finding/gi) ?? []).length;
+    reason = `The first draft had issues with ${count} finding${count > 1 ? "s" : ""}: it quoted figures the run's data could not support.`;
+  } else if (why) {
+    reason = `The first draft had an issue: ${why}.`;
+  } else {
+    reason = "the Evaluator asked for a fix";
+  }
+
   const score = output.scores ? `, score ${output.scores.total}/9` : scoreUnavailable(lines) ? ", score unavailable" : "";
-  return `Draft 1 rejected: ${reason}. Draft ${output.rounds} accepted${score}.`;
+  return `${reason} Draft ${output.rounds} accepted${score}.`;
 }
 
 /** The purple chip for a run that recalled an owner correction, or null. */

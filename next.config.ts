@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["tradeflow.orca.localhost"],
+  devIndicators: false,
+  experimental: {
+    serverActions: { allowedOrigins: ["tradeflow.orca.localhost", "tradeflow.orca.*"] },
+  },
   async headers() {
     return [
       {

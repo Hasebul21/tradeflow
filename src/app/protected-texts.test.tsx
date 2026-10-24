@@ -18,7 +18,7 @@ describe("protected texts and selectors", () => {
     expect(render(<ThesesTab range={RANGE} theses={{}} />)).toContain("<span>Check</span>");
     expect(render(<PreTradeTab range={RANGE} plans={[]} />)).toContain("<span>Check this trade</span>");
     const tabs = render(<ExplainView range={RANGE} theses={{}} plans={[]} sampleMode={false} />);
-    expect(tabs).toContain(">Theses<");
+    expect(tabs).toContain(">Strategy &amp; Hypotheses<");
     expect(tabs).toContain(">Pre-trade<");
   });
 

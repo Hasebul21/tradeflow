@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("antd", async (importOriginal) => (await import("../../render-for-tests")).inlinePopups(await importOriginal()));
 
 import type { TaskMetrics } from "@/agent/metrics";
-import { render } from "../../render-for-tests";
+import { html, render } from "../../render-for-tests";
 import { MetricsView, type MetricsGroup } from "./view";
 
 const metrics = { by_status: { success: 2, needs_human: 1, error: 0, unknown: 0 }, queries: { zetaris: 0, local: 9, local_fallback: 0 } } as unknown as TaskMetrics;
@@ -22,6 +22,6 @@ describe("the metrics page", () => {
   });
 
   it("15: with no runs, says what to do", () => {
-    expect(render(<MetricsView runsRead={0} groups={[]} versions={[]} />)).toContain("No runs yet. Run a review on the Explain page, then come back.");
+    expect(render(<MetricsView runsRead={0} groups={[]} versions={[]} />)).toContain(html("No runs yet. Run a review on the Analysis & Verification page, then come back."));
   });
 });

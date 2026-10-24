@@ -41,7 +41,7 @@ scenes:
       All data is synthetic
 
   # ---------------------------------------------------------------------------
-  # 2. Dashboard: stat cards, attribution, rules, holdings (~32 s)
+  # 2. Dashboard: stat cards, attribution, rules, holdings + header links (~35 s)
   # ---------------------------------------------------------------------------
   - type: browser
     name: Dashboard
@@ -54,13 +54,18 @@ scenes:
       each stock compared with its sector index, and the contribution
       to the total. Then the rules your portfolio breaks,
       and the full holdings table with weights and break-even prices.
-      The review agents live on the Explain page.
+      The review agents live on the Analysis and Verification page.
+      The header at the top shows Pending Approvals, Past runs, Metrics,
+      and the Guide.
+      Below that the status row shows Stopped, Scores, Model
+      and Usage at a glance.
     caption: |-
       The portfolio dashboard
       Value, week move vs DSEX, dividends, P&L
       What moved this week: stocks vs sectors
       Rules broken, and the holdings table
-      Review agents live on the Explain page
+      Header: Pending Approvals, Past runs, Metrics, Guide
+      Status row: Stopped, Scores, Model, Usage
     actions:
       - wait: 2500
       - scroll: { y: 320, steps: 8 }
@@ -73,6 +78,18 @@ scenes:
       - wait: 2000
       - goto: http://localhost:8000/explain
       - wait: 2500
+      - scroll: { y: 0, steps: 4 }
+      - highlight: "text=Pending Approvals"
+      - wait: 1500
+      - highlight: "text=Past runs"
+      - wait: 1500
+      - highlight: "text=Metrics"
+      - wait: 1500
+      - highlight: "text=Guide"
+      - wait: 2000
+      - scroll: { y: 80, steps: 4 }
+      - highlight: "text=Stopped"
+      - wait: 1500
 
   # ---------------------------------------------------------------------------
   # 3. Explain week: live steps, proof cards, citation drawer (~58 s)
@@ -82,7 +99,7 @@ scenes:
     url: http://localhost:8000/explain
     timeout: 180000
     say: >-
-      This is the Explain page. Pick a question, or type your own,
+      This is the Analysis and Verification page. Pick a question, or type your own,
       and press Explain my week. Watch each step appear live:
       the Planner chooses the queries, code runs them against Zetaris
       or the local ledger, the Analyst writes findings where every number
@@ -93,7 +110,9 @@ scenes:
       memories recalled by the H-MEM engine, Nemotron model calls with their
       token counts, and the guards that checked or blocked.
       Click a citation tag to open the exact rows behind a number,
-      and the SQL that Zetaris ran. At the bottom, the Correct this box
+      and the SQL that Zetaris ran. Below the review, the What I remembered
+      card shows the corrections from earlier reviews that this run applied —
+      the agents learn what you teach them. At the bottom, the Correct this box
       lets you teach the next review what to do differently.
     actions:
       - wait: 1000
@@ -118,6 +137,8 @@ scenes:
       - wait: 1500
       - scroll: { y: 9999, steps: 10 }
       - wait: 1500
+      - highlight: "text=What I remembered"
+      - wait: 3000
       - highlight: "text=Correct this"
       - wait: 3500
 
@@ -130,7 +151,7 @@ scenes:
     timeout: 180000
     say: >-
       The agents never recommend buying, selling or holding.
-      These red chips are the try-to-break-it questions.
+      These red chips are the Guardrail and Safety Test Bench questions.
       Click the advice question and the run refuses to advise,
       marked by the advice declined badge, but still reviews the facts.
       And an off-topic request, like a poem, is kept to the data.
@@ -147,32 +168,56 @@ scenes:
       - wait: 3500
 
   # ---------------------------------------------------------------------------
-  # 5. Thesis check: verdict table (~30 s)
+  # 5. Analysis and Verification: thesis verdict table (~30 s)
   # ---------------------------------------------------------------------------
   - type: browser
     name: Thesis check
     url: http://localhost:8000/explain
     timeout: 180000
     say: >-
-      The Theses tab checks every trade reason from your journal
-      against the latest market data. For each entry it reads the thesis,
-      the exit condition and the horizon, then pulls the fundamentals,
-      dividends and announcements for that symbol.
-      Each thesis gets a clear verdict: confirmed, contradicted, or open,
-      with the evidence that settles it. The table shows at a glance
-      which of your reasons still hold and which need a second look.
+      Under Analysis and Verification, the Strategy & Hypotheses tab checks every
+      trade reason from your journal against the latest market data.
+      For each entry it reads the thesis, the exit condition and the
+      horizon, then pulls the fundamentals, dividends and announcements
+      for that symbol. Hovering a row shows the details:
+      UPGDCL, BXPHARMA, SQUAREPH. Each thesis gets a clear
+      verdict and evidence column showing whether your core thesis
+      remains OPEN, supported, or challenged.
+      The disclaimer at the bottom is important: the agent never tells
+      you what to buy or sell — it simply holds a mirror to your own
+      investment logic.
+    caption: |-
+      Analysis & Verification: thesis verdict table
+      Hover UPGDCL, BXPHARMA, SQUAREPH rows
+      Verdict and Evidence columns: OPEN, supported, challenged
+      Never tells you what to buy or sell
+      Holds a mirror to your own investment logic
     actions:
-      - click: "role=tab >> text=Theses"
+      - click: "role=tab >> text=Strategy & Hypotheses"
       - wait: 1000
       - click: "role=button >> text=Check"
       - wait: 11000
       - waitForText: "Summary"
       - wait: 2500
       - scroll: { y: 480, steps: 8 }
-      - wait: 3500
+      - wait: 1000
+      - hover: "text=UPGDCL"
+      - wait: 1500
+      - hover: "text=BXPHARMA"
+      - wait: 1500
+      - hover: "text=SQUAREPH"
+      - wait: 1500
+      - highlight: "text=Verdict"
+      - wait: 2000
+      - highlight: "text=Evidence"
+      - wait: 2000
+      - scroll: { y: 9999, steps: 10 }
+      - wait: 1000
+      - highlight: "text=never tells you what to buy or sell"
+      - wait: 3000
 
   # ---------------------------------------------------------------------------
-  # 6. Pre-trade escalation: what-if breaks a rule (~32 s)
+  # 6. Pre-trade escalation: EBL buy-10 deep dive (~32 s)
   # ---------------------------------------------------------------------------
   - type: browser
     name: Pre-trade escalation
@@ -180,27 +225,47 @@ scenes:
     timeout: 180000
     say: >-
       Before you save a trade, run the pre-trade check.
-      Enter a symbol, choose buy or sell, and set the quantity —
-      here, buying seventy WALTONHIL shares.
-      The agents run a what-if preview against your open theses
-      and your rules. This trade pushes a sector past its target,
-      so a clear warning appears: Nothing has been saved,
-      the decision is yours. The check never writes to the ledger.
+      Enter EBL, choose Buy, set quantity to 10 and price to 23,
+      then press Check this trade.
+      The what-if runs a zero-side-effect simulation:
+      Tk 230 gross plus commission; buying 10 shares nudges
+      EBL's portfolio weight from 5.15 percent to 5.19 percent,
+      and Bank sector weight to 23.92 percent,
+      all while keeping your actual ledger untouched.
+      journal_for_symbol fetches past journal entries for EBL,
+      matching j-027, j-018, j-006: buying below book value
+      or spreading bank risk beyond BRAC Bank.
+      The escalation banner is clear: nothing has been saved,
+      you make the final call.
+    caption: |-
+      Pre-trade check: EBL Buy 10 at 23
+      what_if: zero-side-effect simulation
+      Portfolio weight 5.15% to 5.19%, Bank sector 23.92%
+      journal_for_symbol: matches j-027, j-018, j-006
+      Nothing has been saved — you make the final call
     actions:
       - click: "role=tab >> text=Pre-trade"
       - wait: 1000
       - click: "text=A new trade"
       - wait: 500
       - click: "[placeholder=\"EBL\"]"
-      - fill: ["[placeholder=\"EBL\"]", "WALTONHIL"]
+      - fill: ["[placeholder=\"EBL\"]", "EBL"]
       - click: "role=spinbutton >> nth=0"
-      - fill: ["role=spinbutton >> nth=0", "70"]
+      - fill: ["role=spinbutton >> nth=0", "10"]
+      - click: "role=spinbutton >> nth=1"
+      - fill: ["role=spinbutton >> nth=1", "23"]
       - click: "role=button >> text=Check this trade"
       - wait: 12000
       - waitForText: "Summary"
       - wait: 3000
+      - scroll: { y: 260, steps: 6 }
+      - wait: 1000
+      - highlight: "text=what_if"
+      - wait: 2000
+      - highlight: "text=journal_for_symbol"
+      - wait: 2000
       - scroll: { y: 9999, steps: 10 }
-      - wait: 1500
+      - wait: 1000
       - highlight: "text=Nothing has been saved"
       - wait: 3500
 
@@ -212,14 +277,14 @@ scenes:
     url: http://localhost:8000/explain
     timeout: 180000
     say: >-
-      The Reconcile tab compares the broker and bank statements
+      The Audit and Discrepancies tab compares the broker and bank statements
       against the ledger. The code joins the sources on the trading day,
       symbol, side and quantity. Each difference the agents explain,
       and each one carries a proposed fix written by code,
       never by a model. You approve one at a time,
       and only your approval applies the fix to the ledger.
     actions:
-      - click: "role=tab >> text=Reconcile"
+      - click: "role=tab >> text=Audit & Discrepancies"
       - wait: 1000
       - click: "role=button >> text=Explain the differences"
       - wait: 12000
@@ -231,14 +296,14 @@ scenes:
       - wait: 3500
 
   # ---------------------------------------------------------------------------
-  # 8. Review queue and the trace viewer (~32 s)
+  # 8. Pending Approvals and the trace viewer (~32 s)
   # ---------------------------------------------------------------------------
   - type: browser
-    name: Review queue
+    name: Pending Approvals
     url: http://localhost:8000/explain/queue
     timeout: 30000
     say: >-
-      The review queue lists every run that needs you:
+      The Pending Approvals page lists every run that needs you:
       escalated trades, reconciliation proposals,
       and runs that hit a limit. All decisions are yours,
       and nothing happens without your approval.
@@ -246,6 +311,10 @@ scenes:
       every agent step, every guard decision, every retry and fallback,
       and every model call with its tokens and cost.
       This is the audit trail behind every answer.
+    caption: |-
+      Pending Approvals: escalated trades, proposals, limits
+      Open the trace: agent steps, guards, retries, model calls
+      The audit trail behind every answer
     actions:
       - wait: 2500
       - scroll: { y: 300, steps: 6 }
@@ -265,5 +334,13 @@ scenes:
     say: >-
       Tradeflow review agents. Every claim cites its query.
       Every number is verified against the rows. You always decide.
+      Analysis and Verification, pre-trade checks,
+      reconciliation — all backed by an auditable trace.
       Built with NVIDIA Nemotron through Meterless Nightshift
       and Zetaris Lightning SQL. All data is synthetic.
+    caption: |-
+      Tradeflow — every claim cites its query
+      Analysis & Verification, pre-trade, reconciliation
+      Auditable trace behind every answer
+      Built with NVIDIA Nemotron + Zetaris Lightning SQL
+      All data is synthetic

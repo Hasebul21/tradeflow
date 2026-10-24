@@ -28,9 +28,9 @@ const COLUMNS = runColumns<RunSummary>([
 export function RunsView({ runs }: { runs: RunSummary[] }) {
   return (
     <Flex vertical gap={16}>
-      <PageHeader title="Past runs" purpose="Every run on this computer, newest first. Open one to see its steps." extra={<Flex wrap gap={12}><Link href="/explain">Explain</Link><Link href="/explain/queue">Review queue</Link></Flex>} />
+      <PageHeader title="Past runs" purpose="Every run on this computer, newest first. Open one to see its steps." extra={<Flex wrap gap={12}><Link href="/explain">Analysis & Verification</Link><Link href="/explain/queue">Pending Approvals</Link></Flex>} />
       {runs.length === 0 ? (
-        <EmptyState message="No runs yet. Run a review on the Explain page, then come back." />
+        <EmptyState message="No runs yet. Run a review on the Analysis & Verification page, then come back." />
       ) : (
         <DataTable<RunSummary> rowKey="run_id" columns={COLUMNS} dataSource={runs} pagination={{ pageSize: 20, hideOnSinglePage: true }} data-testid="runs" />
       )}
