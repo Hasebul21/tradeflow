@@ -29,24 +29,66 @@
     }
   ],
   "usage": {
-    "model_calls": 16,
+    "model_calls": 14,
     "query_calls": 19,
-    "tokens_in": 206364,
-    "tokens_out": 21769,
-    "duration_ms": 166620
+    "tokens_in": 199297,
+    "tokens_out": 18477,
+    "duration_ms": 253450
   },
   "trace_id": "example_5",
   "log_file": "logs/trace-example_5.jsonl",
-  "execution_time_seconds": 166.62,
-  "status": "needs_human",
+  "execution_time_seconds": 253.45,
+  "status": "success",
   "output": {
-    "summary": "The draft was not accepted after 3 rounds; the last fix asked: Fix finding 19 (thesis j-012): the claim has 12.5, which is not in its numbers or the cited rows (12.5 is in announcements_between dc530089-0426-4b19-8e51-4d1548dc9522 and dividends_between f82e50d9-451a-4267-9720-aa60b3a96ec3: cite the one it came from, or leave it out); use only figures from the rows it cites. Fix finding 26 (thesis j-001): the claim has 12.5, which is not in its numbers or the cited rows (12.5 is in announcements_between dc530089-0426-4b19-8e51-4d1548dc9522 and dividends_between f82e50d9-451a-4267-9720-aa60b3a96ec3: cite the one it came from, or leave it out); use only figures from the rows it cites. The findings below are the best draft, unreviewed; the decision is yours.",
-    "review_markdown": "The draft was not accepted after 3 rounds; the last fix asked: Fix finding 19 (thesis j-012): the claim has 12.5, which is not in its numbers or the cited rows (12.5 is in announcements_between dc530089-0426-4b19-8e51-4d1548dc9522 and dividends_between f82e50d9-451a-4267-9720-aa60b3a96ec3: cite the one it came from, or leave it out); use only figures from the rows it cites. Fix finding 26 (thesis j-001): the claim has 12.5, which is not in its numbers or the cited rows (12.5 is in announcements_between dc530089-0426-4b19-8e51-4d1548dc9522 and dividends_between f82e50d9-451a-4267-9720-aa60b3a96ec3: cite the one it came from, or leave it out); use only figures from the rows it cites. The findings below are the best draft, unreviewed; the decision is yours.\n\n- Confirmed: EPS reported 4.20 (2025‑12‑31), 3.49 (2026‑03‑31) and 4.01 (2026‑06‑30); no exit condition is set, so the thesis of adding United Power for steady income remains open. [q:cf708d20-c4e4-4cb0-9b5d-131216d7b8aa] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: EPS reported 9.61 (2025‑12‑31), 11.35 (2026‑03‑31) and 10.46 (2026‑06‑30); no exit condition is set, so the thesis of a small trade ahead of festival season remains open. [q:ab92bdb0-f679-4306-942f-e5f29c73525a] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: EPS declined from 2.30 (2025‑12‑31) to 2.05 (2026‑03‑31) to 1.62 (2026‑06‑30); an announcement on 2026‑09‑27 reported profit lower than the same quarter last year; no exit condition is set, so the thesis of averaging down on BXPHARMA remains open. [q:bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e] [q:dc530089-0426-4b19-8e51-4d1548dc9522] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: EPS reported 1.03 (2025‑12‑31), 1.03 (2026‑03‑31) and 1.04 (2026‑06‑30); stable earnings support the thesis of adding at a low price, but no direct evidence on book value; the thesis remains open. [q:cbbebfb1-aee9-4060-926d-bd4a517df018] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: Square's EPS reported 4.90 (2025‑12‑31), 5.20 (2026‑03‑31) and 5.84 (2026‑06‑30); an announcement on 2026‑09‑24 reported profit higher than the same quarter last year; the exit condition 'Trim if it goes above 25% of the portfolio' is therefore met. [q:ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343] [q:dc530089-0426-4b19-8e51-4d1548dc9522] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: EPS rose from 1.28 to 1.41 to 1.50 over the three reported quarters, supporting that BRACBANK is still cheap against its book value. [q:d52fe1d1-2f08-4436-91e5-9f9befbd603a] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, but the dividend of Tk 12.5 per share is still owed (not cut), supporting the thesis of adding before the dividend record date. [q:f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5] [q:f82e50d9-451a-4267-9720-aa60b3a96ec3] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: EPS declined from 2.30 to 2.05 to 1.62 over the three reported quarters, and an announcement on 2026-09-27 reported profit lower than the same quarter last year; no exit condition is set, so the thesis of averaging down on BXPHARMA remains open. [q:bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e] [q:dc530089-0426-4b19-8e51-4d1548dc9522] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: EPS fell from 1.33 to 1.25 to 1.19 over the three reported quarters, but no exit condition is set, so the thesis of adding to LHBL before the building season remains open. [q:f78a46c2-c067-4520-8b82-06eb0c1a8114] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: EPS was 0.90, 0.90 and 0.95 over the three reported quarters, steady, supporting the thesis of adding to City Bank while it stays below book value. [q:634f3f3c-0aa2-4e43-9951-a0a86aaaad73] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: EPS for SQURPHARMA rose from 4.9 to 5.2 to 5.84 over the three quarters since the thesis date, and a price-sensitive announcement of higher profit than the same quarter last year was published on 2026-09-24, so the data shows your reason \"Adding to Square, still my highest-conviction holding.\" still holds. [q:ba2488b1-d2e5-480d-9298-7fd456a5a066] [q:ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343] [q:dc530089-0426-4b19-8e51-4d1548dc9522]\n- Contradicted: EPS for RENATA fell from 7.14 to 7.03 to 6.82 over the three quarters since the thesis date, so the data does not support \"Adding a little more Renata after a dip.\" [q:ba2488b1-d2e5-480d-9298-7fd456a5a066] [q:029ac4c1-f551-4a0c-a0f7-dc2e65c05f98]\n- Open: EPS for EBL was 1.03, 1.03 and 1.04 over the three quarters since the thesis date, and a price-sensitive announcement of lower profit than the same quarter last year was published on 2026-07-22; the rows hold no price-to-book data to test \"Adding to EBL at a low price against book value.\" [q:ba2488b1-d2e5-480d-9298-7fd456a5a066] [q:cbbebfb1-aee9-4060-926d-bd4a517df018] [q:dc530089-0426-4b19-8e51-4d1548dc9522]\n- Confirmed: BATBC paid a cash dividend of Tk 18 per share on 2026-07-12, a dividend declared and published on 2026-06-01, so the data shows your reason \"Adding to BATBC for the dividend income.\" still holds, while EPS fell from 7.58 to 7.4 to 6.97. [q:ba2488b1-d2e5-480d-9298-7fd456a5a066] [q:f82e50d9-451a-4267-9720-aa60b3a96ec3] [q:f9a6c66d-5146-4989-89b4-7dea5f63aa47] [q:dc530089-0426-4b19-8e51-4d1548dc9522]\n- Open: EPS for SUMITPOWER was 0.68, 0.71 and 0.64 over the three quarters since the thesis date, with no direction established; your exit condition \"Sell if it gains 10%.\" cannot be checked because the evidence table holds no price rows. [q:ba2488b1-d2e5-480d-9298-7fd456a5a066] [q:ac4ca874-9971-40f6-aea4-aeeca60f3657]\n- Confirmed: BRACBANK's EPS rose from 1.28 to 1.41 to 1.50 over the three reported quarters, so the thesis of buying while cheap against book value is still supported by growing earnings. [q:d52fe1d1-2f08-4436-91e5-9f9befbd603a] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: LHBL's EPS fell from 1.33 to 1.25 to 1.19 over the three reported quarters, but the exit condition 'Sell if it falls 15% below what I paid' is not met by the EPS data alone; the thesis of waiting for post-monsoon demand remains open. [q:f78a46c2-c067-4520-8b82-06eb0c1a8114] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Contradicted: BXPHARMA's EPS fell from 2.30 to 2.05 to 1.62 over the three reported quarters, so the exit condition 'Sell if two quarters in a row show lower profit' is met. [q:bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, the cash dividend of Tk 12.5 per share is still owed (not paid), supporting the thesis of adding before the dividend record date. [q:f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: ROBI's EPS fell from 0.27 to 0.24 then rose to 0.29 over the three reported quarters, so the exit condition 'Sell half if it gains 15%' is not yet met; the thesis of a short trade on falling share price with growing data revenue remains open. [q:31844187-1adf-4b59-beb8-92ed7183ca6f] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: City Bank's EPS remained steady at 0.90, 0.90 and 0.95 over the three reported quarters, supporting the thesis of a steady dividend. [q:634f3f3c-0aa2-4e43-9951-a0a86aaaad73] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: Olympic's EPS changed from 2.34 to 2.24 to 2.41 over the three reported quarters, showing no clear profit-growth trend; the thesis remains open. [q:bf07f2b5-3500-4eac-bf1d-6c3fa9f51b09] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: HeidelbergCement's EPS was 3.43, 3.43 and 3.32 over the last three quarters, with a slight decline in the most recent quarter; no price data available to confirm the short‑trade thesis, so the thesis remains open. [q:59d46fe3-65ec-4e0c-b514-2a9291854b95] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Contradicted: Renata's EPS fell from 7.14 to 7.03 to 6.82 over the three reported quarters, contradicting the thesis that profit grows every year. [q:029ac4c1-f551-4a0c-a0f7-dc2e65c05f98] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: EBL's EPS remained steady at 1.03, 1.03 and 1.04 over the three reported quarters, supporting the thesis of a cheap second bank. [q:cbbebfb1-aee9-4060-926d-bd4a517df018] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, but the dividend of Tk 12.5 per share is still owed (not cut), supporting the thesis of buying before the dividend record date. [q:f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: BRACBANK's EPS rose from 1.28 to 1.41 to 1.50 over the three reported quarters, so the thesis of buying while cheap against book value is still supported by growing earnings. [q:d52fe1d1-2f08-4436-91e5-9f9befbd603a] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Confirmed: SQURPHARMA's EPS rose from 4.90 to 5.20 to 5.84 over the three reported quarters, so the thesis of Square as the steadiest pharma company with demand holding up remains confirmed. [q:ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: UPGDCL's EPS fell from 4.20 to 3.49 to 4.01 over the three reported quarters, but the exit condition 'Sell if the dividend is cut' is not met; the thesis of power plants with fixed government contracts remains open. [q:cf708d20-c4e4-4cb0-9b5d-131216d7b8aa] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n- Open: BATBC's EPS fell from 7.58 to 7.40 to 6.97 over the three reported quarters, but the exit condition is not met; the thesis of buying for the dividend remains open. [q:f9a6c66d-5146-4989-89b4-7dea5f63aa47] [q:ba2488b1-d2e5-480d-9298-7fd456a5a066]\n\nNot covered: The evidence tables hold no price rows, so j-016's exit condition \"Sell if it gains 10%.\" and j-018's price against book value cannot be tested.; The evidence tables hold no portfolio weight rows, so j-020's position as the highest-conviction (largest) holding cannot be checked.\n\nThis is a review of your own records, not financial advice.",
+    "summary": "Your portfolio fell 1.67% over the week to 1 Oct 2026, 0.92 points behind DSEX. The largest individual move was BXPHARMA down 14.88%, 11.89 points against its sector index.",
+    "review_markdown": "Your portfolio fell 1.67% over the week to 1 Oct 2026, 0.92 points behind DSEX. The largest individual move was BXPHARMA down 14.88%, 11.89 points against its sector index.\n\n- BXPHARMA fell 14.88% over the week, 11.89 points against its sector index, stock-specific. [q:b9d799f1-65d9-4ecb-875f-b8550828cd4c]\n- SQURPHARMA rose 1.24% over the week, 4.23 points above its sector index, stock-specific. [q:b9d799f1-65d9-4ecb-875f-b8550828cd4c]\n- Portfolio fell 1.67% over the week, 0.92 points behind DSEX. [q:b9d799f1-65d9-4ecb-875f-b8550828cd4c]\n- Pharmaceuticals & Chemicals sector fell 2.99% against DSEX's 0.75% decline. [q:b9d799f1-65d9-4ecb-875f-b8550828cd4c]\n\n- j-030: Open: EPS 4.20→3.49→4.01; no exit condition set, thesis of adding United Power for steady income remains open. [q:13683a27-f5d8-40db-9dbe-8c4d799347f5] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-029: Open: EPS 9.61→11.35→10.46; no exit condition set, thesis of small trade ahead of festival season remains open. [q:ddf3fa72-fbd9-4d4c-8c92-4204dc1cfc18] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-028: Open: EPS 2.30→2.05→1.62; profit lower than same quarter last year on 2026‑09‑27; no exit condition set, thesis of averaging down on BXPHARMA remains open. [q:72350923-f659-4e36-b521-af862d5fd15a] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-027: Open: EPS 1.03→1.03→1.04; stable earnings support adding at a low price, but no direct evidence on book value; thesis remains open. [q:8cc00a9d-5bac-4a71-a182-138b152ea0e9] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-026: Open: Square's weight 25.44% as of 2026‑10‑01, above the 25% trim threshold; EPS 4.90→5.20→5.84; profit higher than same quarter last year on 2026‑09‑24; exit condition 'Trim if above 25%' is met, thesis remains open. [q:7df51a8b-ef7d-4086-aa9b-1803a3b35988] [q:67ad038b-64a9-4e1f-9f9c-9ec07729615e] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122] [q:b9d799f1-65d9-4ecb-875f-b8550828cd4c]\n- j-025: Confirmed: BRACBANK EPS 1.28→1.41→1.50; still cheap against book value; thesis confirmed. [q:8d3a5120-29ce-4d5c-a847-6674a83cb2c5] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-024: Open: GP EPS 5.94→5.71→5.41; cash dividend Tk 12.5 still owed; thesis of adding before dividend record date remains open. [q:394a4c0b-9c23-4088-bb2e-d02725057b56] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-023: Open: BXPHARMA EPS 2.30→2.05→1.62; profit lower than same quarter last year on 2026‑09‑27; thesis of averaging down remains open. [q:72350923-f659-4e36-b521-af862d5fd15a] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-022: Open: LHBL EPS 1.33→1.25→1.19; no exit condition set; thesis of adding to LHBL before building season remains open. [q:e646967f-a1f7-46c2-b798-84430fa50142] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-021: Confirmed: City Bank EPS 0.90, 0.90, 0.95 steady; thesis of adding while below book value confirmed. [q:3273ffeb-0a80-46e1-860a-bfa912154548] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-020: Open: SQURPHARMA EPS 4.90→5.20→5.84; no exit condition specified; thesis remains open. [q:7df51a8b-ef7d-4086-aa9b-1803a3b35988] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-019: Open: RENATA EPS 7.14→7.03→6.82; steady decline; thesis remains open. [q:cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-018: Open: EBL EPS 1.03→1.03→1.04; stability; thesis remains open. [q:8cc00a9d-5bac-4a71-a182-138b152ea0e9] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-017: Open: BATBC EPS 7.58→7.40→6.97; dividend Tk 18 paid 2026‑07‑12; no exit condition triggered; thesis remains open. [q:cb381279-a52d-4878-8629-973b89638957] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-016: Open: SUMITPOWER EPS 0.68→0.71→0.64; exit condition 'Sell if gains 10%' not met; thesis remains open. [q:6fa72b6b-f00f-42e1-a92e-6964938b1558] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-015: Confirmed: BRACBANK EPS 1.28→1.41→1.50; growing earnings; thesis confirmed. [q:8d3a5120-29ce-4d5c-a847-6674a83cb2c5] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-014: Open: LHBL EPS 1.33→1.25→1.19; exit condition 'Sell if falls 15% below paid' not met by EPS; thesis of waiting for post-monsoon demand remains open. [q:e646967f-a1f7-46c2-b798-84430fa50142] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-013: Contradicted: BXPHARMA EPS 2.30→2.05→1.62; two quarters lower profit; exit condition 'Sell if two quarters in a row lower profit' met. [q:72350923-f659-4e36-b521-af862d5fd15a] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-012: Open: GP EPS 5.94→5.71→5.41; cash dividend Tk 12.5 still owed; thesis of adding before dividend record date remains open. [q:394a4c0b-9c23-4088-bb2e-d02725057b56] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-011: Open: ROBI EPS 0.27→0.24→0.29; exit condition 'Sell half if gains 15%' not met; thesis remains open. [q:51a6687a-d9e5-489e-9f81-c423c9d155b1] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-010: Open: City Bank EPS 0.90, 0.90, 0.95; no dividend paid since thesis date; thesis of steady dividend not yet confirmed. [q:3273ffeb-0a80-46e1-860a-bfa912154548] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-009: Open: Olympic EPS 2.34→2.24→2.41; no clear profit-growth trend; thesis remains open. [q:2c1088c4-8217-4376-b465-59de4301abd3] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-008: Open: HeidelbergCement EPS 3.43→3.43→3.32; no price data; thesis remains open. [q:df37b140-1a89-4496-a854-5b38a362af15] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-007: Contradicted: Renata EPS 7.14→7.03→6.82; contradicts profit-grows-every-year thesis. [q:cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-006: Open: EBL EPS 1.03→1.03→1.04; stable earnings; thesis of cheap second bank remains open. [q:8cc00a9d-5bac-4a71-a182-138b152ea0e9] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-005: Confirmed: BATBC EPS 7.58→7.40→6.97; dividend Tk 18 paid 2026‑07‑12; thesis confirmed. [q:cb381279-a52d-4878-8629-973b89638957] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-004: Open: UPGDCL EPS 4.2→3.49→4.01; thesis of power plants holding up if market falls remains open. [q:13683a27-f5d8-40db-9dbe-8c4d799347f5] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-003: Confirmed: SQURPHARMA EPS 4.9→5.2→5.84; Square as steadiest pharma confirmed. [q:7df51a8b-ef7d-4086-aa9b-1803a3b35988] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-002: Confirmed: BRACBANK EPS 1.28→1.41→1.50; thesis confirmed. [q:8d3a5120-29ce-4d5c-a847-6674a83cb2c5] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n- j-001: Open: GP EPS 5.94→5.71→5.41; dividend Tk 12.50 still owed; thesis of buying for dividend remains open. [q:394a4c0b-9c23-4088-bb2e-d02725057b56] [q:5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move. [q:mem-54]\n\n**What to look at next**\n- BXPHARMA's next earnings announcement after the 2026‑09‑27 profit decline.\n- GP's dividend record date and payment status.\n\nNot covered: sector index comparison not available; weekly move data not provided to evaluate against sector indices.\n\nYou asked what to trade. This review explains what happened; the decision stays with you.\n\nThis is a review of your own records, not financial advice.",
     "findings": [
+      {
+        "kind": "move",
+        "subject": "PORTFOLIO",
+        "claim": "The data shows the portfolio fell 1.67% over the week, 0.92 points behind DSEX.",
+        "numbers": [
+          {
+            "value": -1.67,
+            "label": "portfolio change %"
+          },
+          {
+            "value": -0.92,
+            "label": "points against DSEX"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "sector",
+        "subject": "SQURPHARMA",
+        "claim": "The data shows SQURPHARMA rose 1.24% over the week, 4.23 points above its sector index, stock-specific.",
+        "numbers": [
+          {
+            "value": 1.24,
+            "label": "change %"
+          },
+          {
+            "value": 4.23,
+            "label": "points against sector"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
       {
         "kind": "thesis",
         "subject": "j-030",
-        "claim": "Confirmed: EPS reported 4.20 (2025‑12‑31), 3.49 (2026‑03‑31) and 4.01 (2026‑06‑30); no exit condition is set, so the thesis of adding United Power for steady income remains open.",
+        "claim": "Open: EPS reported 4.20 (2025‑12‑31), 3.49 (2026‑03‑31) and 4.01 (2026‑06‑30); no exit condition is set, so the thesis of adding United Power for steady income remains open.",
         "numbers": [
           {
             "value": 4.2,
@@ -62,19 +104,17 @@
           }
         ],
         "cites": [
-          "cf708d20-c4e4-4cb0-9b5d-131216d7b8aa",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "13683a27-f5d8-40db-9dbe-8c4d799347f5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
-        "memory_ids": [
-          "mem-54"
-        ]
+        "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-029",
-        "claim": "Confirmed: EPS reported 9.61 (2025‑12‑31), 11.35 (2026‑03‑31) and 10.46 (2026‑06‑30); no exit condition is set, so the thesis of a small trade ahead of festival season remains open.",
+        "claim": "Open: EPS reported 9.61 (2025‑12‑31), 11.35 (2026‑03‑31) and 10.46 (2026‑06‑30); no exit condition is set, so the thesis of a small trade ahead of festival season remains open.",
         "numbers": [
           {
             "value": 9.61,
@@ -90,14 +130,12 @@
           }
         ],
         "cites": [
-          "ab92bdb0-f679-4306-942f-e5f29c73525a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "ddf3fa72-fbd9-4d4c-8c92-4204dc1cfc18",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
-        "memory_ids": [
-          "mem-54"
-        ]
+        "memory_ids": []
       },
       {
         "kind": "thesis",
@@ -118,20 +156,18 @@
           }
         ],
         "cites": [
-          "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
-          "dc530089-0426-4b19-8e51-4d1548dc9522",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "72350923-f659-4e36-b521-af862d5fd15a",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
-        "memory_ids": [
-          "mem-54"
-        ]
+        "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-027",
-        "claim": "Confirmed: EPS reported 1.03 (2025‑12‑31), 1.03 (2026‑03‑31) and 1.04 (2026‑06‑30); stable earnings support the thesis of adding at a low price, but no direct evidence on book value; the thesis remains open.",
+        "claim": "Open: EPS reported 1.03 (2025‑12‑31), 1.03 (2026‑03‑31) and 1.04 (2026‑06‑30); stable earnings support the thesis of adding at a low price, but no direct evidence on book value; the thesis remains open.",
         "numbers": [
           {
             "value": 1.03,
@@ -147,20 +183,22 @@
           }
         ],
         "cites": [
-          "cbbebfb1-aee9-4060-926d-bd4a517df018",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
-        "memory_ids": [
-          "mem-54"
-        ]
+        "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-026",
-        "claim": "Open: Square's EPS reported 4.90 (2025‑12‑31), 5.20 (2026‑03‑31) and 5.84 (2026‑06‑30); an announcement on 2026‑09‑24 reported profit higher than the same quarter last year; the exit condition 'Trim if it goes above 25% of the portfolio' is therefore met.",
+        "claim": "Open: Square's weight is 25.44% as of 2026‑10‑01, above the 25% trim threshold; EPS reported 4.90 (2025‑12‑31), 5.20 (2026‑03‑31) and 5.84 (2026‑06‑30); an announcement on 2026‑09‑24 reported profit higher than the same quarter last year; the exit condition 'Trim if it goes above 25% of the portfolio' is therefore met.",
         "numbers": [
+          {
+            "value": 25.44,
+            "label": "weight pct"
+          },
           {
             "value": 4.9,
             "label": "EPS bdt"
@@ -175,20 +213,82 @@
           }
         ],
         "cites": [
-          "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
-          "dc530089-0426-4b19-8e51-4d1548dc9522",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122",
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
         ],
         "verdict": "open",
         "proposed_fix": null,
-        "memory_ids": [
-          "mem-54"
-        ]
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "PORTFOLIO",
+        "claim": "The data shows the portfolio fell 1.67% over the week, 0.92 points behind DSEX.",
+        "numbers": [
+          {
+            "value": -1.67,
+            "label": "portfolio change %"
+          },
+          {
+            "value": -0.92,
+            "label": "points against DSEX"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "BXPHARMA",
+        "claim": "The data shows BXPHARMA fell 14.88% over the week, 11.89 points against its sector index, stock-specific.",
+        "numbers": [
+          {
+            "value": -14.88,
+            "label": "change %"
+          },
+          {
+            "value": -11.89,
+            "label": "points against sector"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "SQURPHARMA",
+        "claim": "The data shows SQURPHARMA rose 1.24% over the week, 4.23 points above its sector index, stock-specific.",
+        "numbers": [
+          {
+            "value": 1.24,
+            "label": "change %"
+          },
+          {
+            "value": 4.23,
+            "label": "points above sector"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-025",
-        "claim": "Confirmed: EPS rose from 1.28 to 1.41 to 1.50 over the three reported quarters, supporting that BRACBANK is still cheap against its book value.",
+        "claim": "Confirmed: BRACBANK's EPS rose from 1.28 to 1.41 to 1.5 over the three reported quarters, supporting that it is still cheap against its book value.",
         "numbers": [
           {
             "value": 1.28,
@@ -204,8 +304,8 @@
           }
         ],
         "cites": [
-          "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "confirmed",
         "proposed_fix": null,
@@ -214,7 +314,7 @@
       {
         "kind": "thesis",
         "subject": "j-024",
-        "claim": "Confirmed: EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, but the dividend of Tk 12.5 per share is still owed (not cut), supporting the thesis of adding before the dividend record date.",
+        "claim": "Open: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, and the dividend of Tk 12.5 per share is still owed (not paid), so the thesis of adding before the dividend record date remains open.",
         "numbers": [
           {
             "value": 5.94,
@@ -230,18 +330,18 @@
           }
         ],
         "cites": [
-          "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
-          "f82e50d9-451a-4267-9720-aa60b3a96ec3",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "394a4c0b-9c23-4088-bb2e-d02725057b56",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
         "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-023",
-        "claim": "Open: EPS declined from 2.30 to 2.05 to 1.62 over the three reported quarters, and an announcement on 2026-09-27 reported profit lower than the same quarter last year; no exit condition is set, so the thesis of averaging down on BXPHARMA remains open.",
+        "claim": "Open: BXPHARMA's EPS fell from 2.3 to 2.05 to 1.62 over the three reported quarters, and on 2026-09-27 profit was lower than the same quarter last year, so the thesis of averaging down remains open.",
         "numbers": [
           {
             "value": 2.3,
@@ -257,9 +357,9 @@
           }
         ],
         "cites": [
-          "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
-          "dc530089-0426-4b19-8e51-4d1548dc9522",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "72350923-f659-4e36-b521-af862d5fd15a",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -268,7 +368,7 @@
       {
         "kind": "thesis",
         "subject": "j-022",
-        "claim": "Open: EPS fell from 1.33 to 1.25 to 1.19 over the three reported quarters, but no exit condition is set, so the thesis of adding to LHBL before the building season remains open.",
+        "claim": "Open: LHBL's EPS fell from 1.33 to 1.25 to 1.19 over the three reported quarters, but no exit condition is set, so the thesis of adding to LHBL before the building season remains open.",
         "numbers": [
           {
             "value": 1.33,
@@ -284,8 +384,8 @@
           }
         ],
         "cites": [
-          "f78a46c2-c067-4520-8b82-06eb0c1a8114",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "e646967f-a1f7-46c2-b798-84430fa50142",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -294,7 +394,7 @@
       {
         "kind": "thesis",
         "subject": "j-021",
-        "claim": "Confirmed: EPS was 0.90, 0.90 and 0.95 over the three reported quarters, steady, supporting the thesis of adding to City Bank while it stays below book value.",
+        "claim": "Confirmed: City Bank's EPS was 0.9, 0.9 and 0.95 over the three reported quarters, steady, supporting the thesis of adding while it stays below book value.",
         "numbers": [
           {
             "value": 0.9,
@@ -310,8 +410,8 @@
           }
         ],
         "cites": [
-          "634f3f3c-0aa2-4e43-9951-a0a86aaaad73",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "3273ffeb-0a80-46e1-860a-bfa912154548",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "confirmed",
         "proposed_fix": null,
@@ -320,7 +420,7 @@
       {
         "kind": "thesis",
         "subject": "j-020",
-        "claim": "Confirmed: EPS for SQURPHARMA rose from 4.9 to 5.2 to 5.84 over the three quarters since the thesis date, and a price-sensitive announcement of higher profit than the same quarter last year was published on 2026-09-24, so the data shows your reason \"Adding to Square, still my highest-conviction holding.\" still holds.",
+        "claim": "Open: EPS for SQURPHARMA rose from 4.90 to 5.20 to 5.84 over the three quarters since the thesis date, supporting the thesis; no exit condition is specified, and the data does not show a dividend cut or payment that would affect the thesis.",
         "numbers": [
           {
             "value": 4.9,
@@ -336,18 +436,17 @@
           }
         ],
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
-          "dc530089-0426-4b19-8e51-4d1548dc9522"
+          "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
         "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-019",
-        "claim": "Contradicted: EPS for RENATA fell from 7.14 to 7.03 to 6.82 over the three quarters since the thesis date, so the data does not support \"Adding a little more Renata after a dip.\"",
+        "claim": "Open: EPS for RENATA fell from 7.14 to 7.03 to 6.82 over the three quarters since the thesis date, showing a steady decline; no exit condition is specified, and the data does not show a dividend cut or payment that would affect the thesis.",
         "numbers": [
           {
             "value": 7.14,
@@ -363,17 +462,17 @@
           }
         ],
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "029ac4c1-f551-4a0c-a0f7-dc2e65c05f98"
+          "cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "contradicted",
+        "verdict": "open",
         "proposed_fix": null,
         "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-018",
-        "claim": "Open: EPS for EBL was 1.03, 1.03 and 1.04 over the three quarters since the thesis date, and a price-sensitive announcement of lower profit than the same quarter last year was published on 2026-07-22; the rows hold no price-to-book data to test \"Adding to EBL at a low price against book value.\"",
+        "claim": "Open: EPS for EBL was 1.03, 1.03, 1.04 over the three quarters since the thesis date, showing stability; no exit condition is specified, and the data does not show a dividend cut or payment that would affect the thesis.",
         "numbers": [
           {
             "value": 1.03,
@@ -389,9 +488,8 @@
           }
         ],
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "cbbebfb1-aee9-4060-926d-bd4a517df018",
-          "dc530089-0426-4b19-8e51-4d1548dc9522"
+          "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -400,12 +498,8 @@
       {
         "kind": "thesis",
         "subject": "j-017",
-        "claim": "Confirmed: BATBC paid a cash dividend of Tk 18 per share on 2026-07-12, a dividend declared and published on 2026-06-01, so the data shows your reason \"Adding to BATBC for the dividend income.\" still holds, while EPS fell from 7.58 to 7.4 to 6.97.",
+        "claim": "Open: EPS for BATBC fell from 7.58 to 7.40 to 6.97 over the three quarters since the thesis date, showing a decline; the dividend of Tk 18.00 per share was paid on 2026-07-12, but the exit condition is unspecified, so the thesis remains open — the dividend was paid but no exit condition was triggered.",
         "numbers": [
-          {
-            "value": 18,
-            "label": "dividend per share"
-          },
           {
             "value": 7.58,
             "label": "EPS"
@@ -417,22 +511,25 @@
           {
             "value": 6.97,
             "label": "EPS"
+          },
+          {
+            "value": 18,
+            "label": "cash per share bdt"
           }
         ],
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "f82e50d9-451a-4267-9720-aa60b3a96ec3",
-          "f9a6c66d-5146-4989-89b4-7dea5f63aa47",
-          "dc530089-0426-4b19-8e51-4d1548dc9522"
+          "cb381279-a52d-4878-8629-973b89638957",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
         "memory_ids": []
       },
       {
         "kind": "thesis",
         "subject": "j-016",
-        "claim": "Open: EPS for SUMITPOWER was 0.68, 0.71 and 0.64 over the three quarters since the thesis date, with no direction established; your exit condition \"Sell if it gains 10%.\" cannot be checked because the evidence table holds no price rows.",
+        "claim": "Open: EPS for SUMITPOWER fell from 0.68 to 0.71 to 0.64 over the three quarters since the thesis date; the exit condition 'Sell if it gains 10%' has not been met, as the stock price change is not reported in the available data.",
         "numbers": [
           {
             "value": 0.68,
@@ -445,17 +542,55 @@
           {
             "value": 0.64,
             "label": "EPS"
-          },
-          {
-            "value": 10,
-            "label": "exit condition threshold"
           }
         ],
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "ac4ca874-9971-40f6-aea4-aeeca60f3657"
+          "6fa72b6b-f00f-42e1-a92e-6964938b1558",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "PORTFOLIO",
+        "claim": "The data shows the portfolio fell 1.67% over the week, 0.92 points behind DSEX.",
+        "numbers": [
+          {
+            "value": -1.67,
+            "label": "portfolio change %"
+          },
+          {
+            "value": -0.92,
+            "label": "points against DSEX"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "sector",
+        "subject": "BXPHARMA",
+        "claim": "The data shows BXPHARMA fell 14.88% over the week, 11.89 points against its sector index, stock-specific.",
+        "numbers": [
+          {
+            "value": -14.88,
+            "label": "change %"
+          },
+          {
+            "value": -11.89,
+            "label": "points against sector"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
         "proposed_fix": null,
         "memory_ids": []
       },
@@ -478,8 +613,8 @@
           }
         ],
         "cites": [
-          "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "confirmed",
         "proposed_fix": null,
@@ -504,8 +639,8 @@
           }
         ],
         "cites": [
-          "f78a46c2-c067-4520-8b82-06eb0c1a8114",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "e646967f-a1f7-46c2-b798-84430fa50142",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -530,8 +665,8 @@
           }
         ],
         "cites": [
-          "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "72350923-f659-4e36-b521-af862d5fd15a",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "contradicted",
         "proposed_fix": null,
@@ -540,7 +675,7 @@
       {
         "kind": "thesis",
         "subject": "j-012",
-        "claim": "Open: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, the cash dividend of Tk 12.5 per share is still owed (not paid), supporting the thesis of adding before the dividend record date.",
+        "claim": "Open: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, the cash dividend of Tk 12.5 per share is still owed (not paid), supporting the thesis of adding before the dividend record date; the record date of 2026-09-21 has passed and the dividend remains unpaid, so the thesis remains open.",
         "numbers": [
           {
             "value": 5.94,
@@ -553,11 +688,16 @@
           {
             "value": 5.41,
             "label": "EPS (2026-06-30)"
+          },
+          {
+            "value": 12.5,
+            "label": "dividend per share (Tk)"
           }
         ],
         "cites": [
-          "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "394a4c0b-9c23-4088-bb2e-d02725057b56",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -566,7 +706,7 @@
       {
         "kind": "thesis",
         "subject": "j-011",
-        "claim": "Open: ROBI's EPS fell from 0.27 to 0.24 then rose to 0.29 over the three reported quarters, so the exit condition 'Sell half if it gains 15%' is not yet met; the thesis of a short trade on falling share price with growing data revenue remains open.",
+        "claim": "Open: ROBI's EPS fell from 0.27 to 0.24 then rose to 0.29 over the three reported quarters, so the exit condition 'Sell half if it gains 15%' is not yet met based on EPS; the thesis of a short trade on falling share price with growing data revenue remains open.",
         "numbers": [
           {
             "value": 0.27,
@@ -582,8 +722,8 @@
           }
         ],
         "cites": [
-          "31844187-1adf-4b59-beb8-92ed7183ca6f",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "51a6687a-d9e5-489e-9f81-c423c9d155b1",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -592,7 +732,7 @@
       {
         "kind": "thesis",
         "subject": "j-010",
-        "claim": "Confirmed: City Bank's EPS remained steady at 0.90, 0.90 and 0.95 over the three reported quarters, supporting the thesis of a steady dividend.",
+        "claim": "Open: City Bank's EPS remained steady at 0.90, 0.90 and 0.95 over the three reported quarters, but no dividend has been paid since the thesis date, so the thesis of a steady dividend is not yet confirmed.",
         "numbers": [
           {
             "value": 0.9,
@@ -608,10 +748,10 @@
           }
         ],
         "cites": [
-          "634f3f3c-0aa2-4e43-9951-a0a86aaaad73",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "3273ffeb-0a80-46e1-860a-bfa912154548",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
-        "verdict": "confirmed",
+        "verdict": "open",
         "proposed_fix": null,
         "memory_ids": []
       },
@@ -634,8 +774,8 @@
           }
         ],
         "cites": [
-          "bf07f2b5-3500-4eac-bf1d-6c3fa9f51b09",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "2c1088c4-8217-4376-b465-59de4301abd3",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -660,8 +800,8 @@
           }
         ],
         "cites": [
-          "59d46fe3-65ec-4e0c-b514-2a9291854b95",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "df37b140-1a89-4496-a854-5b38a362af15",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -686,8 +826,8 @@
           }
         ],
         "cites": [
-          "029ac4c1-f551-4a0c-a0f7-dc2e65c05f98",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "contradicted",
         "proposed_fix": null,
@@ -696,7 +836,7 @@
       {
         "kind": "thesis",
         "subject": "j-006",
-        "claim": "Open: EBL's EPS remained steady at 1.03, 1.03 and 1.04 over the three reported quarters, supporting the thesis of a cheap second bank.",
+        "claim": "Open: EBL's EPS was 1.03, 1.03 and 1.04 over the three reported quarters, showing stable earnings; the thesis of a cheap second bank remains open.",
         "numbers": [
           {
             "value": 1.03,
@@ -712,8 +852,108 @@
           }
         ],
         "cites": [
-          "cbbebfb1-aee9-4060-926d-bd4a517df018",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
+        ],
+        "verdict": "open",
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "PORTFOLIO",
+        "claim": "The data shows the portfolio fell 1.67% over the week, 0.92 points behind DSEX.",
+        "numbers": [
+          {
+            "value": -1.67,
+            "label": "portfolio change %"
+          },
+          {
+            "value": -0.92,
+            "label": "points against DSEX"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "sector",
+        "subject": "Pharmaceuticals & Chemicals",
+        "claim": "The data shows the Pharmaceuticals & Chemicals sector fell 2.99% against DSEX's 0.75% decline, with BXPHARMA down 14.88% and SQURPHARMA up 1.24% relative to the sector.",
+        "numbers": [
+          {
+            "value": -2.99,
+            "label": "sector change %"
+          },
+          {
+            "value": -14.88,
+            "label": "BXPHARMA change %"
+          },
+          {
+            "value": 1.24,
+            "label": "SQURPHARMA change %"
+          }
+        ],
+        "cites": [
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "thesis",
+        "subject": "j-005",
+        "claim": "Confirmed: BATBC's EPS fell from 7.58 to 7.40 to 6.97 over the three reported quarters, and the dividend of Tk 18 was paid on 2026-07-12, so the thesis of buying for the dividend remains confirmed.",
+        "numbers": [
+          {
+            "value": 7.58,
+            "label": "EPS"
+          },
+          {
+            "value": 7.4,
+            "label": "EPS"
+          },
+          {
+            "value": 6.97,
+            "label": "EPS"
+          }
+        ],
+        "cites": [
+          "cb381279-a52d-4878-8629-973b89638957",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e"
+        ],
+        "verdict": "confirmed",
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "thesis",
+        "subject": "j-004",
+        "claim": "Open: UPGDCL's EPS fell from 4.2 to 3.49 to 4.01 over the three reported quarters, so the thesis of power plants holding up if the market falls remains open.",
+        "numbers": [
+          {
+            "value": 4.2,
+            "label": "EPS"
+          },
+          {
+            "value": 3.49,
+            "label": "EPS"
+          },
+          {
+            "value": 4.01,
+            "label": "EPS"
+          }
+        ],
+        "cites": [
+          "13683a27-f5d8-40db-9dbe-8c4d799347f5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -721,25 +961,25 @@
       },
       {
         "kind": "thesis",
-        "subject": "j-001",
-        "claim": "Confirmed: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, but the dividend of Tk 12.5 per share is still owed (not cut), supporting the thesis of buying before the dividend record date.",
+        "subject": "j-003",
+        "claim": "Confirmed: SQURPHARMA's EPS rose from 4.9 to 5.2 to 5.84 over the three reported quarters, so the thesis of Square as the steadiest pharma company remains confirmed.",
         "numbers": [
           {
-            "value": 5.94,
-            "label": "EPS (2025-12-31)"
+            "value": 4.9,
+            "label": "EPS"
           },
           {
-            "value": 5.71,
-            "label": "EPS (2026-03-31)"
+            "value": 5.2,
+            "label": "EPS"
           },
           {
-            "value": 5.41,
-            "label": "EPS (2026-06-30)"
+            "value": 5.84,
+            "label": "EPS"
           }
         ],
         "cites": [
-          "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "confirmed",
         "proposed_fix": null,
@@ -752,20 +992,20 @@
         "numbers": [
           {
             "value": 1.28,
-            "label": "EPS (2025-12-31)"
+            "label": "EPS"
           },
           {
             "value": 1.41,
-            "label": "EPS (2026-03-31)"
+            "label": "EPS"
           },
           {
             "value": 1.5,
-            "label": "EPS (2026-06-30)"
+            "label": "EPS"
           }
         ],
         "cites": [
-          "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "confirmed",
         "proposed_fix": null,
@@ -773,77 +1013,26 @@
       },
       {
         "kind": "thesis",
-        "subject": "j-003",
-        "claim": "Confirmed: SQURPHARMA's EPS rose from 4.90 to 5.20 to 5.84 over the three reported quarters, so the thesis of Square as the steadiest pharma company with demand holding up remains confirmed.",
+        "subject": "j-001",
+        "claim": "Open: GP's EPS fell from 5.94 to 5.71 to 5.41 over the three reported quarters, and the dividend of Tk 12.50 is still owed (not paid), so the thesis of buying for the dividend remains open.",
         "numbers": [
           {
-            "value": 4.9,
-            "label": "EPS (2025-12-31)"
+            "value": 5.94,
+            "label": "EPS"
           },
           {
-            "value": 5.2,
-            "label": "EPS (2026-03-31)"
+            "value": 5.71,
+            "label": "EPS"
           },
           {
-            "value": 5.84,
-            "label": "EPS (2026-06-30)"
+            "value": 5.41,
+            "label": "EPS"
           }
         ],
         "cites": [
-          "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
-        ],
-        "verdict": "confirmed",
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "thesis",
-        "subject": "j-004",
-        "claim": "Open: UPGDCL's EPS fell from 4.20 to 3.49 to 4.01 over the three reported quarters, but the exit condition 'Sell if the dividend is cut' is not met; the thesis of power plants with fixed government contracts remains open.",
-        "numbers": [
-          {
-            "value": 4.2,
-            "label": "EPS (2025-12-31)"
-          },
-          {
-            "value": 3.49,
-            "label": "EPS (2026-03-31)"
-          },
-          {
-            "value": 4.01,
-            "label": "EPS (2026-06-30)"
-          }
-        ],
-        "cites": [
-          "cf708d20-c4e4-4cb0-9b5d-131216d7b8aa",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
-        ],
-        "verdict": "open",
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "thesis",
-        "subject": "j-005",
-        "claim": "Open: BATBC's EPS fell from 7.58 to 7.40 to 6.97 over the three reported quarters, but the exit condition is not met; the thesis of buying for the dividend remains open.",
-        "numbers": [
-          {
-            "value": 7.58,
-            "label": "EPS (2025-12-31)"
-          },
-          {
-            "value": 7.4,
-            "label": "EPS (2026-03-31)"
-          },
-          {
-            "value": 6.97,
-            "label": "EPS (2026-06-30)"
-          }
-        ],
-        "cites": [
-          "f9a6c66d-5146-4989-89b4-7dea5f63aa47",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "394a4c0b-9c23-4088-bb2e-d02725057b56",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ],
         "verdict": "open",
         "proposed_fix": null,
@@ -851,12 +1040,229 @@
       }
     ],
     "gaps": [
-      "The evidence tables hold no price rows, so j-016's exit condition \"Sell if it gains 10%.\" and j-018's price against book value cannot be tested.",
-      "The evidence tables hold no portfolio weight rows, so j-020's position as the highest-conviction (largest) holding cannot be checked."
+      "Sector index comparison not available; weekly move data not provided to evaluate against sector indices.",
+      "What the portfolio will do next week: the data can't predict prices."
     ],
     "citations": [
       {
-        "run_query_id": "cf708d20-c4e4-4cb0-9b5d-131216d7b8aa",
+        "run_query_id": "b9d799f1-65d9-4ecb-875f-b8550828cd4c",
+        "query_id": "week_moves",
+        "params": {
+          "as_of": "2026-10-01",
+          "sessions": 5
+        },
+        "source": "zetaris",
+        "row_count": 14,
+        "rows": [
+          {
+            "symbol": "PORTFOLIO",
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "change_pct": -1.67,
+            "change_bdt": -10728.4,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.92
+          },
+          {
+            "symbol": "BXPHARMA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 320,
+            "from_close": 167.3,
+            "to_close": 142.4,
+            "change_pct": -14.88,
+            "contribution_bdt": -7968,
+            "contribution_pts": -1.24,
+            "sector_change_pct": -2.99,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": -11.89,
+            "comparison": "stock-specific",
+            "weight_pct": 7.21
+          },
+          {
+            "symbol": "SQURPHARMA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 655,
+            "from_close": 242.4,
+            "to_close": 245.4,
+            "change_pct": 1.24,
+            "contribution_bdt": 1965,
+            "contribution_pts": 0.31,
+            "sector_change_pct": -2.99,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 4.23,
+            "comparison": "stock-specific",
+            "weight_pct": 25.44
+          },
+          {
+            "symbol": "RENATA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 36,
+            "from_close": 933.2,
+            "to_close": 898.3,
+            "change_pct": -3.74,
+            "contribution_bdt": -1256.4,
+            "contribution_pts": -0.2,
+            "sector_change_pct": -2.99,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": -0.75,
+            "comparison": "in line with sector",
+            "weight_pct": 5.12
+          },
+          {
+            "symbol": "BRACBANK",
+            "sector": "Bank",
+            "shares": 1520,
+            "from_close": 51.8,
+            "to_close": 51.2,
+            "change_pct": -1.16,
+            "contribution_bdt": -912,
+            "contribution_pts": -0.14,
+            "sector_change_pct": -0.93,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": -0.23,
+            "comparison": "in line with sector",
+            "weight_pct": 12.32
+          },
+          {
+            "symbol": "GP",
+            "sector": "Telecommunication",
+            "shares": 240,
+            "from_close": 358,
+            "to_close": 355,
+            "change_pct": -0.84,
+            "contribution_bdt": -720,
+            "contribution_pts": -0.11,
+            "sector_change_pct": -1.24,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 0.41,
+            "comparison": "in line with sector",
+            "weight_pct": 13.49
+          },
+          {
+            "symbol": "UPGDCL",
+            "sector": "Fuel & Power",
+            "shares": 250,
+            "from_close": 171.6,
+            "to_close": 169.7,
+            "change_pct": -1.11,
+            "contribution_bdt": -475,
+            "contribution_pts": -0.07,
+            "sector_change_pct": -1.04,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": -0.06,
+            "comparison": "in line with sector",
+            "weight_pct": 6.72
+          },
+          {
+            "symbol": "BATBC",
+            "sector": "Food & Allied",
+            "shares": 80,
+            "from_close": 518.6,
+            "to_close": 513.7,
+            "change_pct": -0.94,
+            "contribution_bdt": -392,
+            "contribution_pts": -0.06,
+            "sector_change_pct": -1.32,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 0.37,
+            "comparison": "in line with sector",
+            "weight_pct": 6.51
+          },
+          {
+            "symbol": "SUMITPOWER",
+            "sector": "Fuel & Power",
+            "shares": 500,
+            "from_close": 31.4,
+            "to_close": 30.9,
+            "change_pct": -1.59,
+            "contribution_bdt": -250,
+            "contribution_pts": -0.04,
+            "sector_change_pct": -1.04,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": -0.55,
+            "comparison": "in line with sector",
+            "weight_pct": 2.45
+          },
+          {
+            "symbol": "EBL",
+            "sector": "Bank",
+            "shares": 1200,
+            "from_close": 27.3,
+            "to_close": 27.1,
+            "change_pct": -0.73,
+            "contribution_bdt": -240,
+            "contribution_pts": -0.04,
+            "sector_change_pct": -0.93,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 0.2,
+            "comparison": "in line with sector",
+            "weight_pct": 5.15
+          },
+          {
+            "symbol": "ROBI",
+            "sector": "Telecommunication",
+            "shares": 400,
+            "from_close": 33.6,
+            "to_close": 33.1,
+            "change_pct": -1.49,
+            "contribution_bdt": -200,
+            "contribution_pts": -0.03,
+            "sector_change_pct": -1.24,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": -0.24,
+            "comparison": "in line with sector",
+            "weight_pct": 2.1
+          },
+          {
+            "symbol": "CITYBANK",
+            "sector": "Bank",
+            "shares": 1300,
+            "from_close": 31.3,
+            "to_close": 31.2,
+            "change_pct": -0.32,
+            "contribution_bdt": -130,
+            "contribution_pts": -0.02,
+            "sector_change_pct": -0.93,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 0.61,
+            "comparison": "in line with sector",
+            "weight_pct": 6.42
+          },
+          {
+            "symbol": "OLYMPIC",
+            "sector": "Food & Allied",
+            "shares": 100,
+            "from_close": 164.6,
+            "to_close": 163.5,
+            "change_pct": -0.67,
+            "contribution_bdt": -110,
+            "contribution_pts": -0.02,
+            "sector_change_pct": -1.32,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 0.65,
+            "comparison": "in line with sector",
+            "weight_pct": 2.59
+          },
+          {
+            "symbol": "LHBL",
+            "sector": "Cement",
+            "shares": 400,
+            "from_close": 71.1,
+            "to_close": 71,
+            "change_pct": -0.14,
+            "contribution_bdt": -40,
+            "contribution_pts": -0.01,
+            "sector_change_pct": -1.01,
+            "index_change_pct": -0.75,
+            "vs_sector_pts": 0.87,
+            "comparison": "in line with sector",
+            "weight_pct": 4.5
+          }
+        ],
+        "sql": "SELECT symbol, from_close, to_close, ROUND((to_close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT symbol,\n         MAX(CASE WHEN rn = 1 THEN close END) AS to_close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n      AND symbol IN (\n        SELECT symbol FROM tradeflow_ledger.transactions\n        WHERE created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n        GROUP BY symbol\n        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0\n      )\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY symbol\n) w\nWHERE from_close IS NOT NULL AND to_close IS NOT NULL\nORDER BY symbol"
+      },
+      {
+        "run_query_id": "13683a27-f5d8-40db-9dbe-8c4d799347f5",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "UPGDCL",
@@ -917,7 +1323,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'UPGDCL'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "ba2488b1-d2e5-480d-9298-7fd456a5a066",
+        "run_query_id": "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122",
         "query_id": "journal_for_symbol",
         "params": {
           "as_of": "2026-10-01"
@@ -1403,7 +1809,7 @@
         "sql": "SELECT j.id, j.transaction_id, t.symbol, t.side, date_format(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd') AS trade_date, t.quantity, t.price_per_share,\n       j.horizon, j.thesis, j.exit_condition\nFROM tradeflow_ledger.journal j\nJOIN tradeflow_ledger.transactions t ON t.id = j.transaction_id\nWHERE j.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\nORDER BY j.created_at DESC, j.id DESC"
       },
       {
-        "run_query_id": "ab92bdb0-f679-4306-942f-e5f29c73525a",
+        "run_query_id": "ddf3fa72-fbd9-4d4c-8c92-4204dc1cfc18",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "WALTONHIL",
@@ -1464,7 +1870,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'WALTONHIL'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
+        "run_query_id": "72350923-f659-4e36-b521-af862d5fd15a",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "BXPHARMA",
@@ -1525,7 +1931,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'BXPHARMA'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "dc530089-0426-4b19-8e51-4d1548dc9522",
+        "run_query_id": "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
         "query_id": "announcements_between",
         "params": {
           "from": "2026-01-15",
@@ -2038,7 +2444,7 @@
         "sql": "SELECT id, symbol, date_format(from_utc_timestamp(to_utc_timestamp(published_at, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd') AS published_on, category, price_sensitive, title\nFROM tradeflow_external.announcements\nWHERE published_at >= CAST('2026-01-15T00:00:00+06:00' AS TIMESTAMP)\n  AND published_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\nORDER BY published_at DESC, id DESC"
       },
       {
-        "run_query_id": "cbbebfb1-aee9-4060-926d-bd4a517df018",
+        "run_query_id": "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "EBL",
@@ -2099,7 +2505,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'EBL'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
+        "run_query_id": "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "SQURPHARMA",
@@ -2160,7 +2566,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'SQURPHARMA'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
+        "run_query_id": "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "BRACBANK",
@@ -2221,7 +2627,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'BRACBANK'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
+        "run_query_id": "394a4c0b-9c23-4088-bb2e-d02725057b56",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "GP",
@@ -2282,7 +2688,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'GP'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "f82e50d9-451a-4267-9720-aa60b3a96ec3",
+        "run_query_id": "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
         "query_id": "dividends_between",
         "params": {
           "from": "2026-01-15",
@@ -2386,7 +2792,7 @@
         "sql": "WITH acts AS (\n  SELECT id, kind, UPPER(TRIM(symbol)) AS symbol, record_date, paid_on,\n         CAST(cash_per_share_bdt AS DOUBLE) AS cash, CAST(bonus_ratio AS DOUBLE) AS ratio\n  FROM tradeflow_ledger.corporate_actions\n),\nheld AS (\n  SELECT a.id, COALESCE(SUM(CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END), 0) AS ledger_shares\n  FROM acts a\n  LEFT JOIN tradeflow_ledger.transactions t ON UPPER(TRIM(t.symbol)) = a.symbol AND to_date(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka')) <= a.record_date\n  GROUP BY a.id\n),\nbonus AS (\n  SELECT a.symbol, a.paid_on, FLOOR(h.ledger_shares * a.ratio + 1e-9) AS bonus_shares\n  FROM acts a JOIN held h ON h.id = a.id\n  WHERE a.kind = 'stock_dividend' AND a.paid_on <= CAST('2026-10-01' AS DATE)\n),\nent AS (\n  SELECT a.id, a.kind, a.symbol, a.record_date, a.paid_on, a.cash, a.ratio,\n         MAX(h.ledger_shares) + COALESCE(SUM(b.bonus_shares), 0) AS shares\n  FROM acts a\n  JOIN held h ON h.id = a.id\n  LEFT JOIN bonus b ON b.symbol = a.symbol AND b.paid_on <= a.record_date\n  WHERE a.record_date >= CAST('2026-01-15' AS DATE) AND a.record_date <= CAST('2026-10-01' AS DATE)\n  GROUP BY a.id, a.kind, a.symbol, a.record_date, a.paid_on, a.cash, a.ratio\n)\nSELECT id AS action_id, kind, symbol, date_format(record_date, 'yyyy-MM-dd') AS record_date, date_format(paid_on, 'yyyy-MM-dd') AS paid_on, shares,\n       CASE WHEN kind = 'cash_dividend' THEN COALESCE(cash, 0) END AS cash_per_share_bdt,\n       CASE WHEN kind = 'cash_dividend' THEN ROUND(shares * COALESCE(cash, 0), 2) ELSE 0 END AS amount_bdt,\n       CASE WHEN kind = 'stock_dividend' THEN FLOOR(shares * ratio + 1e-9) ELSE 0 END AS bonus_shares,\n       paid_on <= CAST('2026-10-01' AS DATE) AS paid\nFROM ent\nWHERE (kind = 'cash_dividend' AND shares > 0)\n   OR (kind = 'stock_dividend' AND paid_on <= CAST('2026-10-01' AS DATE) AND FLOOR(shares * ratio + 1e-9) > 0)\nORDER BY record_date, action_id"
       },
       {
-        "run_query_id": "f78a46c2-c067-4520-8b82-06eb0c1a8114",
+        "run_query_id": "e646967f-a1f7-46c2-b798-84430fa50142",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "LHBL",
@@ -2447,7 +2853,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'LHBL'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "634f3f3c-0aa2-4e43-9951-a0a86aaaad73",
+        "run_query_id": "3273ffeb-0a80-46e1-860a-bfa912154548",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "CITYBANK",
@@ -2508,7 +2914,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'CITYBANK'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "029ac4c1-f551-4a0c-a0f7-dc2e65c05f98",
+        "run_query_id": "cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "RENATA",
@@ -2569,7 +2975,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'RENATA'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "f9a6c66d-5146-4989-89b4-7dea5f63aa47",
+        "run_query_id": "cb381279-a52d-4878-8629-973b89638957",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "BATBC",
@@ -2630,7 +3036,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'BATBC'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "ac4ca874-9971-40f6-aea4-aeeca60f3657",
+        "run_query_id": "6fa72b6b-f00f-42e1-a92e-6964938b1558",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "SUMITPOWER",
@@ -2691,7 +3097,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'SUMITPOWER'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "31844187-1adf-4b59-beb8-92ed7183ca6f",
+        "run_query_id": "51a6687a-d9e5-489e-9f81-c423c9d155b1",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "ROBI",
@@ -2752,7 +3158,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'ROBI'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "bf07f2b5-3500-4eac-bf1d-6c3fa9f51b09",
+        "run_query_id": "2c1088c4-8217-4376-b465-59de4301abd3",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "OLYMPIC",
@@ -2813,7 +3219,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'OLYMPIC'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       },
       {
-        "run_query_id": "59d46fe3-65ec-4e0c-b514-2a9291854b95",
+        "run_query_id": "df37b140-1a89-4496-a854-5b38a362af15",
         "query_id": "fundamentals_latest",
         "params": {
           "symbol": "HEIDELBCEM",
@@ -2874,7 +3280,7 @@
         "sql": "SELECT symbol, period_end, reported_on, eps_bdt, nav_per_share_bdt, revenue_mn_bdt, net_profit_mn_bdt\nFROM tradeflow_external.fundamentals\nWHERE symbol = 'HEIDELBCEM'\n  AND reported_on <= CAST('2026-10-01' AS DATE)\nORDER BY period_end"
       }
     ],
-    "needs_human": true,
+    "needs_human": false,
     "declined_advice": false,
     "injection_seen": false,
     "memories_recalled": [
@@ -2889,28 +3295,33 @@
       }
     ],
     "applied_corrections": [],
-    "rounds": 3,
-    "scores": null,
-    "model_source": "openrouter/nvidia/nemotron-3.5-lightning, openrouter/xiaomi/mimo-v2.5",
-    "partial": true,
-    "stop_reason": "rounds",
+    "rounds": 2,
+    "scores": {
+      "accuracy": 3,
+      "appropriateness": 3,
+      "actionability": 3,
+      "total": 9
+    },
+    "model_source": "openrouter/nvidia/nemotron-3.5-lightning",
+    "partial": false,
+    "stop_reason": null,
     "verdicts": [
       {
         "journal_id": "j-030",
         "symbol": "UPGDCL",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "cf708d20-c4e4-4cb0-9b5d-131216d7b8aa",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "13683a27-f5d8-40db-9dbe-8c4d799347f5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-029",
         "symbol": "WALTONHIL",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "ab92bdb0-f679-4306-942f-e5f29c73525a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "ddf3fa72-fbd9-4d4c-8c92-4204dc1cfc18",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -2918,18 +3329,18 @@
         "symbol": "BXPHARMA",
         "verdict": "open",
         "cites": [
-          "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
-          "dc530089-0426-4b19-8e51-4d1548dc9522",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "72350923-f659-4e36-b521-af862d5fd15a",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-027",
         "symbol": "EBL",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "cbbebfb1-aee9-4060-926d-bd4a517df018",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -2937,9 +3348,10 @@
         "symbol": "SQURPHARMA",
         "verdict": "open",
         "cites": [
-          "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
-          "dc530089-0426-4b19-8e51-4d1548dc9522",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122",
+          "b9d799f1-65d9-4ecb-875f-b8550828cd4c"
         ]
       },
       {
@@ -2947,18 +3359,18 @@
         "symbol": "BRACBANK",
         "verdict": "confirmed",
         "cites": [
-          "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-024",
         "symbol": "GP",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
-          "f82e50d9-451a-4267-9720-aa60b3a96ec3",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "394a4c0b-9c23-4088-bb2e-d02725057b56",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -2966,9 +3378,9 @@
         "symbol": "BXPHARMA",
         "verdict": "open",
         "cites": [
-          "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
-          "dc530089-0426-4b19-8e51-4d1548dc9522",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "72350923-f659-4e36-b521-af862d5fd15a",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -2976,8 +3388,8 @@
         "symbol": "LHBL",
         "verdict": "open",
         "cites": [
-          "f78a46c2-c067-4520-8b82-06eb0c1a8114",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "e646967f-a1f7-46c2-b798-84430fa50142",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -2985,27 +3397,26 @@
         "symbol": "CITYBANK",
         "verdict": "confirmed",
         "cites": [
-          "634f3f3c-0aa2-4e43-9951-a0a86aaaad73",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "3273ffeb-0a80-46e1-860a-bfa912154548",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-020",
         "symbol": "SQURPHARMA",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
-          "dc530089-0426-4b19-8e51-4d1548dc9522"
+          "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-019",
         "symbol": "RENATA",
-        "verdict": "contradicted",
+        "verdict": "open",
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "029ac4c1-f551-4a0c-a0f7-dc2e65c05f98"
+          "cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3013,20 +3424,18 @@
         "symbol": "EBL",
         "verdict": "open",
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "cbbebfb1-aee9-4060-926d-bd4a517df018",
-          "dc530089-0426-4b19-8e51-4d1548dc9522"
+          "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-017",
         "symbol": "BATBC",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "f82e50d9-451a-4267-9720-aa60b3a96ec3",
-          "f9a6c66d-5146-4989-89b4-7dea5f63aa47",
-          "dc530089-0426-4b19-8e51-4d1548dc9522"
+          "cb381279-a52d-4878-8629-973b89638957",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3034,8 +3443,8 @@
         "symbol": "SUMITPOWER",
         "verdict": "open",
         "cites": [
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066",
-          "ac4ca874-9971-40f6-aea4-aeeca60f3657"
+          "6fa72b6b-f00f-42e1-a92e-6964938b1558",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3043,8 +3452,8 @@
         "symbol": "BRACBANK",
         "verdict": "confirmed",
         "cites": [
-          "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3052,8 +3461,8 @@
         "symbol": "LHBL",
         "verdict": "open",
         "cites": [
-          "f78a46c2-c067-4520-8b82-06eb0c1a8114",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "e646967f-a1f7-46c2-b798-84430fa50142",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3061,8 +3470,8 @@
         "symbol": "BXPHARMA",
         "verdict": "contradicted",
         "cites": [
-          "bc2fd7fa-3b33-4756-8c6f-7e5cf7e5a25e",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "72350923-f659-4e36-b521-af862d5fd15a",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3070,8 +3479,9 @@
         "symbol": "GP",
         "verdict": "open",
         "cites": [
-          "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "394a4c0b-9c23-4088-bb2e-d02725057b56",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3079,17 +3489,17 @@
         "symbol": "ROBI",
         "verdict": "open",
         "cites": [
-          "31844187-1adf-4b59-beb8-92ed7183ca6f",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "51a6687a-d9e5-489e-9f81-c423c9d155b1",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-010",
         "symbol": "CITYBANK",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "634f3f3c-0aa2-4e43-9951-a0a86aaaad73",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "3273ffeb-0a80-46e1-860a-bfa912154548",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3097,8 +3507,8 @@
         "symbol": "OLYMPIC",
         "verdict": "open",
         "cites": [
-          "bf07f2b5-3500-4eac-bf1d-6c3fa9f51b09",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "2c1088c4-8217-4376-b465-59de4301abd3",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3106,8 +3516,8 @@
         "symbol": "HEIDELBCEM",
         "verdict": "open",
         "cites": [
-          "59d46fe3-65ec-4e0c-b514-2a9291854b95",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "df37b140-1a89-4496-a854-5b38a362af15",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3115,8 +3525,8 @@
         "symbol": "RENATA",
         "verdict": "contradicted",
         "cites": [
-          "029ac4c1-f551-4a0c-a0f7-dc2e65c05f98",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "cd5ac4fa-aeb8-4601-839e-5b0366f1c3b4",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3124,17 +3534,19 @@
         "symbol": "EBL",
         "verdict": "open",
         "cites": [
-          "cbbebfb1-aee9-4060-926d-bd4a517df018",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8cc00a9d-5bac-4a71-a182-138b152ea0e9",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-005",
         "symbol": "BATBC",
-        "verdict": "open",
+        "verdict": "confirmed",
         "cites": [
-          "f9a6c66d-5146-4989-89b4-7dea5f63aa47",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "cb381279-a52d-4878-8629-973b89638957",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122",
+          "67ad038b-64a9-4e1f-9f9c-9ec07729615e"
         ]
       },
       {
@@ -3142,8 +3554,8 @@
         "symbol": "UPGDCL",
         "verdict": "open",
         "cites": [
-          "cf708d20-c4e4-4cb0-9b5d-131216d7b8aa",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "13683a27-f5d8-40db-9dbe-8c4d799347f5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3151,8 +3563,8 @@
         "symbol": "SQURPHARMA",
         "verdict": "confirmed",
         "cites": [
-          "ed1ca1e1-f8da-4d9d-a9d0-9f01c9990343",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "7df51a8b-ef7d-4086-aa9b-1803a3b35988",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
@@ -3160,17 +3572,18 @@
         "symbol": "BRACBANK",
         "verdict": "confirmed",
         "cites": [
-          "d52fe1d1-2f08-4436-91e5-9f9befbd603a",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "8d3a5120-29ce-4d5c-a847-6674a83cb2c5",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       },
       {
         "journal_id": "j-001",
         "symbol": "GP",
-        "verdict": "confirmed",
+        "verdict": "open",
         "cites": [
-          "f7ade6d3-b3e0-49b1-b7d9-aabb1069c5f5",
-          "ba2488b1-d2e5-480d-9298-7fd456a5a066"
+          "394a4c0b-9c23-4088-bb2e-d02725057b56",
+          "d4f1f3c2-0e6e-4944-a3ba-9bc672daa912",
+          "5cf3a7f9-72f9-4c53-8a33-8d0ed7b9d122"
         ]
       }
     ]

@@ -31,17 +31,17 @@
   "usage": {
     "model_calls": 3,
     "query_calls": 4,
-    "tokens_in": 17383,
-    "tokens_out": 1714,
-    "duration_ms": 31853
+    "tokens_in": 20168,
+    "tokens_out": 1723,
+    "duration_ms": 174178
   },
   "trace_id": "example_8",
   "log_file": "logs/trace-example_8.jsonl",
-  "execution_time_seconds": 31.853,
+  "execution_time_seconds": 174.178,
   "status": "needs_human",
   "output": {
     "summary": "Four reconciliation proposals await your approval; nothing has been saved, and the decision is yours.",
-    "review_markdown": "Four reconciliation proposals await your approval; nothing has been saved, and the decision is yours.\n\n- t-021: broker commission Tk 45.68 differs from ledger Tk 44.48 (difference Tk 1.20) for EBL buy 400 at Tk 27.8 on 2026-05-12; likely reason: not known. Proposed fix: manual check: commission_bdt differs between ledger t-021 and broker BRK-20260512-021. Awaiting your approval. [q:9347e548-026c-4111-988f-b8d6725cc8d7]\n- t-030: ledger has buy 150 LHBL at Tk 70.1 on 2026-07-01, no matching broker trade; likely reason: not known. Proposed fix: manual check: ledger trade t-030 has no broker row. Awaiting your approval. [q:9347e548-026c-4111-988f-b8d6725cc8d7]\n- BNK-0008: bank statement has contribution Tk 25000 on 2026-07-23, no matching ledger deposit; likely reason: not known. Proposed fix: add a contribution of Tk 25000 on 2026-07-23 (BNK-0008). Awaiting your approval. [q:9347e548-026c-4111-988f-b8d6725cc8d7]\n- BRK-20260802-035: broker has buy 20 OLYMPIC at Tk 163.6 on 2026-08-02, no matching ledger trade; likely reason: not known. Proposed fix: add a transaction of buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (BRK-20260802-035). Awaiting your approval. [q:9347e548-026c-4111-988f-b8d6725cc8d7]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.\n\n**What to look at next**\n- EBL commission discrepancy\n- LHBL missing broker trade\n- BNK deposit missing\n- OLYMPIC trade missing\n\nThis is a review of your own records, not financial advice.",
+    "review_markdown": "Four reconciliation proposals await your approval; nothing has been saved, and the decision is yours.\n\n- t-021: broker commission Tk 45.68 differs from ledger Tk 44.48 (difference Tk 1.20) for EBL buy 400 at Tk 27.8 on 2026-05-12; likely reason: not known. Proposed fix: manual check: commission_bdt differs between ledger t-021 and broker BRK-20260512-021. Awaiting your approval. [q:8469ab0f-0311-4eae-806f-926d870ea874]\n- t-030: ledger has buy 150 LHBL at Tk 70.1 on 2026-07-01, no matching broker trade; likely reason: not known. Proposed fix: manual check: ledger trade t-030 has no broker row. Awaiting your approval. [q:8469ab0f-0311-4eae-806f-926d870ea874]\n- BNK-0008: bank statement has contribution Tk 25000 on 2026-07-23, no matching ledger deposit; likely reason: not known. Proposed fix: add a contribution of Tk 25000 on 2026-07-23 (BNK-0008). Awaiting your approval. [q:8469ab0f-0311-4eae-806f-926d870ea874]\n- BRK-20260802-035: broker has buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (Tk 3272, commission Tk 13.09), no matching ledger trade; likely reason: not known. Proposed fix: add a transaction of buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (BRK-20260802-035). Awaiting your approval. [q:8469ab0f-0311-4eae-806f-926d870ea874]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.\n\n**What to look at next**\n- EBL commission discrepancy\n- LHBL missing broker trade\n- BNK deposit missing\n- OLYMPIC trade missing\n\nThis is a review of your own records, not financial advice.",
     "findings": [
       {
         "kind": "reconciliation",
@@ -62,7 +62,7 @@
           }
         ],
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "verdict": null,
         "proposed_fix": "manual check: commission_bdt differs between ledger t-021 and broker BRK-20260512-021",
@@ -87,7 +87,7 @@
           }
         ],
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "verdict": null,
         "proposed_fix": "manual check: ledger trade t-030 has no broker row",
@@ -104,7 +104,7 @@
           }
         ],
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "verdict": null,
         "proposed_fix": "add a contribution of Tk 25000 on 2026-07-23 (BNK-0008)",
@@ -133,7 +133,7 @@
           }
         ],
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "verdict": null,
         "proposed_fix": "add a transaction of buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (BRK-20260802-035)",
@@ -143,7 +143,7 @@
     "gaps": [],
     "citations": [
       {
-        "run_query_id": "9347e548-026c-4111-988f-b8d6725cc8d7",
+        "run_query_id": "8469ab0f-0311-4eae-806f-926d870ea874",
         "query_id": "reconciliation",
         "params": {},
         "source": "zetaris",
@@ -259,7 +259,7 @@
         "explanation": "t-021: the broker statement has commission Tk 45.68 and the ledger has Tk 44.48 for EBL buy 400 at Tk 27.8 on 2026-05-12. Reason: not known.",
         "proposed_fix": "manual check: commission_bdt differs between ledger t-021 and broker BRK-20260512-021",
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "status": "awaiting_approval"
       },
@@ -268,7 +268,7 @@
         "explanation": "t-030: ledger has buy 150 LHBL at Tk 70.1 on 2026-07-01, and the broker has no matching trade. Reason: not known.",
         "proposed_fix": "manual check: ledger trade t-030 has no broker row",
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "status": "awaiting_approval"
       },
@@ -277,7 +277,7 @@
         "explanation": "BNK-0008: bank statement has contribution Tk 25000 on 2026-07-23, and the ledger has no matching deposit. Reason: not known.",
         "proposed_fix": "add a contribution of Tk 25000 on 2026-07-23 (BNK-0008)",
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "status": "awaiting_approval"
       },
@@ -286,7 +286,7 @@
         "explanation": "BRK-20260802-035: the broker statement has buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (Tk 3272, commission Tk 13.09), and the ledger has no matching trade. Reason: not known.",
         "proposed_fix": "add a transaction of buy 20 OLYMPIC at Tk 163.6 on 2026-08-02 (BRK-20260802-035)",
         "cites": [
-          "9347e548-026c-4111-988f-b8d6725cc8d7"
+          "8469ab0f-0311-4eae-806f-926d870ea874"
         ],
         "status": "awaiting_approval"
       }

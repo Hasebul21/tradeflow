@@ -29,19 +29,19 @@
     }
   ],
   "usage": {
-    "model_calls": 4,
+    "model_calls": 3,
     "query_calls": 5,
-    "tokens_in": 29744,
-    "tokens_out": 3225,
-    "duration_ms": 56073
+    "tokens_in": 25005,
+    "tokens_out": 1886,
+    "duration_ms": 190059
   },
   "trace_id": "example_6a",
   "log_file": "logs/trace-example_6a.jsonl",
-  "execution_time_seconds": 56.073,
+  "execution_time_seconds": 190.059,
   "status": "needs_human",
   "output": {
     "summary": "This trade would break sector_target: Engineering is 11.9% of the portfolio, 6.9 points above your 5% target. Nothing has been saved; the decision is yours.",
-    "review_markdown": "This trade would break the sector_target rule: Engineering is 11.9% of the portfolio, 6.9 points above your 5% target. Nothing has been saved; the decision is yours.\n\n- The trade adds WALTONHIL with weight 11.88% after purchase, reducing GP from 13.49% to 11.89%, BRACBANK from 12.32% to 10.86%, BXPHARMA from 7.21% to 6.36%, CITYBANK from 6.42% to 5.66%, EBL from 5.15% to 4.54%, RENATA from 5.12% to 4.51%, LHBL from 4.5% to 3.96%, OLYMPIC from 2.59% to 2.28%, ROBI from 2.1% to 1.85%, SUMITPOWER from 2.45% to 2.16%, UPGDCL from 6.72% to 5.92%, SQURPHARMA from 25.44% to 22.42%, BATBC from 6.51% to 5.73%. [q:9b3b76f5-145d-44f1-9674-466966afec2d]\n- Commission cost is 330.29 BDT on a gross purchase of 82,572 BDT, raising total market value from 631,708.80 BDT to 716,835.80 BDT. [q:9b3b76f5-145d-44f1-9674-466966afec2d]\n- The Engineering sector rises to 11.9% actual, 6.9 points above the 5% target, breaking the sector_target rule. [q:9b3b76f5-145d-44f1-9674-466966afec2d]\n- The thesis j-029 describes this as a small trade on Walton ahead of the festival sales season, and the trade direction matches. [q:51fd572d-12fd-41a5-b701-4cf01bcf2b31]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.\n\n**What to look at next**\n- Engineering sector target; the portfolio's weight after this trade.\n\nNot covered: announcements between 2026-09-01 and 2026-10-01 for WALTONHIL; no rows were returned.\n\nThis is a review of your own records, not financial advice.",
+    "review_markdown": "This trade would break sector_target: Engineering is 11.9% of the portfolio, 6.9 points above your 5% target. Nothing has been saved; the decision is yours.\n\n- The trade adds WALTONHIL with weight 11.88% after purchase, reducing GP from 13.49% to 11.89%, BRACBANK from 12.32% to 10.86%, BXPHARMA from 7.21% to 6.36%, CITYBANK from 6.42% to 5.66%, EBL from 5.15% to 4.54%, RENATA from 5.12% to 4.51%, LHBL from 4.5% to 3.96%, OLYMPIC from 2.59% to 2.28%, ROBI from 2.1% to 1.85%, SUMITPOWER from 2.45% to 2.16%, UPGDCL from 6.72% to 5.92%, SQURPHARMA from 25.44% to 22.42%, and BATBC from 6.51% to 5.73%. [q:b965a238-0663-4602-89c0-3ea8a11ee686]\n- Commission cost is 330.29 BDT on a gross purchase of 82,572 BDT, raising total market value from 631,708.80 BDT to 716,835.80 BDT. [q:b965a238-0663-4602-89c0-3ea8a11ee686]\n- The thesis j-029 describes this as a small trade on Walton ahead of the festival sales season. [q:0af926ca-4c3c-490a-846b-6f3e8cb43275]\n\n**What I remembered**\n\n**What to look at next**\n- Engineering sector target; the portfolio's weight after this trade.\n\nNot covered: announcements between 2026-09-01 and 2026-10-01 for WALTONHIL; no rows were returned.\n\nThis is a review of your own records, not financial advice.",
     "findings": [
       {
         "kind": "pre_trade",
@@ -51,6 +51,10 @@
           {
             "value": 11.88,
             "label": "WALTONHIL weight after %"
+          },
+          {
+            "value": 0,
+            "label": "WALTONHIL weight before %"
           },
           {
             "value": 13.49,
@@ -157,22 +161,6 @@
             "label": "total market value after BDT"
           },
           {
-            "value": 25.44,
-            "label": "SQURPHARMA weight before %"
-          },
-          {
-            "value": 22.42,
-            "label": "SQURPHARMA weight after %"
-          },
-          {
-            "value": 6.51,
-            "label": "BATBC weight before %"
-          },
-          {
-            "value": 5.73,
-            "label": "BATBC weight after %"
-          },
-          {
             "value": 11.9,
             "label": "Engineering actual %"
           },
@@ -186,7 +174,7 @@
           }
         ],
         "cites": [
-          "9b3b76f5-145d-44f1-9674-466966afec2d"
+          "b965a238-0663-4602-89c0-3ea8a11ee686"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -198,7 +186,7 @@
         "claim": "The trade is a buy, matching the thesis's direction of a small trade on Walton ahead of the festival sales season.",
         "numbers": [],
         "cites": [
-          "51fd572d-12fd-41a5-b701-4cf01bcf2b31"
+          "0af926ca-4c3c-490a-846b-6f3e8cb43275"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -210,7 +198,7 @@
     ],
     "citations": [
       {
-        "run_query_id": "9b3b76f5-145d-44f1-9674-466966afec2d",
+        "run_query_id": "b965a238-0663-4602-89c0-3ea8a11ee686",
         "query_id": "what_if",
         "params": {
           "symbol": "WALTONHIL",
@@ -408,7 +396,7 @@
         ]
       },
       {
-        "run_query_id": "51fd572d-12fd-41a5-b701-4cf01bcf2b31",
+        "run_query_id": "0af926ca-4c3c-490a-846b-6f3e8cb43275",
         "query_id": "journal_for_symbol",
         "params": {
           "symbol": "WALTONHIL",

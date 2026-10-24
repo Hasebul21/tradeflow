@@ -29,20 +29,35 @@
     }
   ],
   "usage": {
-    "model_calls": 0,
+    "model_calls": 1,
     "query_calls": 0,
-    "tokens_in": 0,
-    "tokens_out": 0,
-    "duration_ms": 4
+    "tokens_in": 903,
+    "tokens_out": 185,
+    "duration_ms": 2518
   },
   "trace_id": "example_7a",
   "log_file": "logs/trace-example_7a.jsonl",
-  "execution_time_seconds": 0.004,
-  "status": "error",
-  "output": null,
-  "error": {
-    "type": "InvalidInput",
-    "message": "No remembered review has review_run_id \"example_3a\": only a review that passed the Evaluator is remembered.",
-    "recoverable": false
-  }
+  "execution_time_seconds": 2.518,
+  "status": "success",
+  "output": {
+    "summary": "Stored your correction to the review of 2026-09-24 as mem-61; later reviews recall it by tag.",
+    "review_markdown": "Stored your correction to the review of 2026-09-24 as mem-61; later reviews recall it by tag.\n\nThis is a review of your own records, not financial advice.",
+    "findings": [],
+    "gaps": [],
+    "citations": [],
+    "needs_human": false,
+    "declined_advice": false,
+    "injection_seen": false,
+    "memories_recalled": [],
+    "applied_corrections": [],
+    "rounds": 0,
+    "scores": null,
+    "model_source": "meterless/fast",
+    "partial": false,
+    "stop_reason": null,
+    "memory_ids_added": [
+      "mem-61"
+    ]
+  },
+  "error": null
 }

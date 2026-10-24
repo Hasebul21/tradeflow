@@ -29,45 +29,62 @@
     }
   ],
   "usage": {
-    "model_calls": 11,
-    "query_calls": 8,
-    "tokens_in": 120082,
-    "tokens_out": 15994,
-    "duration_ms": 376537
+    "model_calls": 4,
+    "query_calls": 5,
+    "tokens_in": 35464,
+    "tokens_out": 3472,
+    "duration_ms": 200344
   },
   "trace_id": "example_3b",
   "log_file": "logs/trace-example_3b.jsonl",
-  "execution_time_seconds": 376.537,
+  "execution_time_seconds": 200.344,
   "status": "success",
   "output": {
-    "summary": "Your portfolio fell 1.67% this week (2026-09-24 to 2026-10-01), 0.92 points behind DSEX, after rising 1.69% last week; BXPHARMA's 14.88% fall explains most of it.",
-    "review_markdown": "Your portfolio fell 1.67% in the week to 1 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.\n\n- BXPHARMA fell 14.88%, 11.89 points against its sector index (stock-specific), after reporting lower quarterly profit on 27 Sep (EPS Tk 1.62 vs Tk 2.41 last year). [q:79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd] [q:65c0819e-d6e3-4de5-91fc-f4b8faa25fa4]\n- RENATA fell 3.74%, 0.75 points against its sector index (in line with sector). [q:79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd]\n- BRACBANK fell 1.16%, 0.23 points against its sector index (in line with sector). [q:79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd]\n- SQURPHARMA rose 1.24%, 4.23 points above its sector index (stock-specific). [q:79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd]\n- GP fell 0.84%, 0.41 points above its sector index (in line with sector). [q:79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd]\n- BRACBANK fell 1.16%, 0.23 points against its sector index (in line with sector). [q:79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd]\n\n**What I remembered**\n- Not covered: last week's review figures differ; last week portfolio was 1.69% and 0.01 points ahead of DSEX.\n\n**What to look at next**\n- BXPHARMA's position sizing against the 25% limit; Pharmaceuticals & Chemicals sector weight against the 30% target.\n\nThis is a review of your own records, not financial advice.",
+    "summary": "Your portfolio fell 1.67% in the week to 01 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.",
+    "review_markdown": "Your portfolio fell 1.67% in the week to 01 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.\n\n- BXPHARMA fell 14.88%, 11.89 points against its sector index, so the move was its own, not the sector's. It came after lower quarterly earnings on 27 Sep. [q:8157c2c7-5aae-475a-80dd-49d63308f29b] [q:fc71a2a1-72f5-43de-ad11-5a90a4badc2c]\n- SQURPHARMA rose 1.24%, 4.23 points above its sector index, so the move was its own, not the sector's. [q:8157c2c7-5aae-475a-80dd-49d63308f29b]\n- RENATA fell 3.74%, 0.75 points against its sector index, in line with sector. [q:8157c2c7-5aae-475a-80dd-49d63308f29b]\n- BRACBANK fell 1.16%, 0.23 points against its sector index, in line with sector. [q:8157c2c7-5aae-475a-80dd-49d63308f29b]\n- GP fell 0.84%, 0.41 points against its sector index, in line with sector. [q:8157c2c7-5aae-475a-80dd-49d63308f29b]\n\n**What I remembered**\n\n**What to look at next**\n- BXPHARMA\n- SQURPHARMA\n\nNot covered: dividends between 25 Sep and 01 Oct returned no rows, so this review says nothing it would have shown.\n\nThis is a review of your own records, not financial advice.",
     "findings": [
       {
         "kind": "move",
         "subject": "PORTFOLIO",
-        "claim": "The data shows the portfolio fell 1.67% this week (2026-09-24 to 2026-10-01), after rising 1.69% last week (2026-09-17 to 2026-09-24); this week it was 0.92 points behind DSEX, while last week it was 0.01 points ahead of DSEX.",
+        "claim": "The data shows the portfolio fell 1.67% over the week to 1 Oct, 0.92 points behind DSEX.",
         "numbers": [
           {
             "value": -1.67,
-            "label": "this week portfolio change %"
-          },
-          {
-            "value": 1.69,
-            "label": "last week portfolio change %"
+            "label": "portfolio change %"
           },
           {
             "value": -0.92,
-            "label": "this week points against DSEX"
-          },
-          {
-            "value": 0.01,
-            "label": "last week points against DSEX"
+            "label": "points against DSEX"
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd",
-          "10176a17-bb4b-4a54-a406-abf6202c3955"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "sector",
+        "subject": "Pharmaceuticals & Chemicals",
+        "claim": "The data shows the Pharmaceuticals & Chemicals sector fell 2.99% over the week to 1 Oct, 2.25 points behind DSEX, and the portfolio's holdings in it contributed -1.13 points against the sector.",
+        "numbers": [
+          {
+            "value": -2.99,
+            "label": "sector change %"
+          },
+          {
+            "value": -2.25,
+            "label": "points against DSEX"
+          },
+          {
+            "value": -1.13,
+            "label": "portfolio contribution pts"
+          }
+        ],
+        "cites": [
+          "af6874f2-4ce5-4d84-9017-96e5e1572d0a",
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -76,28 +93,20 @@
       {
         "kind": "move",
         "subject": "BXPHARMA",
-        "claim": "The data shows BXPHARMA fell 14.88% this week, 11.89 points against its sector index (stock-specific), after rising 0.6% last week, when it was 1.33 points against its sector index (in line with sector).",
+        "claim": "The data shows BXPHARMA fell 14.88% over the week to 1 Oct, 11.89 points against its sector index, stock-specific, after it reported lower quarterly profit on 27 Sep.",
         "numbers": [
           {
             "value": -14.88,
-            "label": "this week change %"
+            "label": "change %"
           },
           {
             "value": -11.89,
-            "label": "this week points against sector"
-          },
-          {
-            "value": 0.6,
-            "label": "last week change %"
-          },
-          {
-            "value": -1.33,
-            "label": "last week points against sector"
+            "label": "points against sector"
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd",
-          "10176a17-bb4b-4a54-a406-abf6202c3955"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b",
+          "fc71a2a1-72f5-43de-ad11-5a90a4badc2c"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -106,28 +115,19 @@
       {
         "kind": "move",
         "subject": "SQURPHARMA",
-        "claim": "The data shows SQURPHARMA rose 1.24% this week, 4.23 points above its sector index (stock-specific), after rising 3.55% last week, when it was 1.61 points above its sector index (in line with sector).",
+        "claim": "The data shows SQURPHARMA rose 1.24% over the week to 1 Oct, 4.23 points against its sector index, stock-specific.",
         "numbers": [
           {
             "value": 1.24,
-            "label": "this week change %"
+            "label": "change %"
           },
           {
             "value": 4.23,
-            "label": "this week points against sector"
-          },
-          {
-            "value": 3.55,
-            "label": "last week change %"
-          },
-          {
-            "value": 1.61,
-            "label": "last week points against sector"
+            "label": "points against sector"
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd",
-          "10176a17-bb4b-4a54-a406-abf6202c3955"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -136,7 +136,7 @@
       {
         "kind": "move",
         "subject": "RENATA",
-        "claim": "The data shows RENATA fell 3.74% over the week, 0.75 points against its sector index (in line with sector).",
+        "claim": "The data shows RENATA fell 3.74% over the week to 1 Oct, 0.75 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -3.74,
@@ -148,7 +148,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -157,7 +157,7 @@
       {
         "kind": "move",
         "subject": "BRACBANK",
-        "claim": "The data shows BRACBANK fell 1.16% over the week, 0.23 points against its sector index (in line with sector).",
+        "claim": "The data shows BRACBANK fell 1.16% over the week to 1 Oct, 0.23 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -1.16,
@@ -169,7 +169,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -178,28 +178,19 @@
       {
         "kind": "move",
         "subject": "GP",
-        "claim": "The data shows GP fell 0.84% this week, 0.41 points above its sector index (in line with sector), after falling 4.79% last week, 6.78 points against its sector index (stock-specific).",
+        "claim": "The data shows GP fell 0.84% over the week to 1 Oct, 0.41 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -0.84,
-            "label": "this week change %"
+            "label": "change %"
           },
           {
             "value": 0.41,
-            "label": "this week points against sector"
-          },
-          {
-            "value": -4.79,
-            "label": "last week change %"
-          },
-          {
-            "value": -6.78,
-            "label": "last week points against sector"
+            "label": "points against sector"
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd",
-          "10176a17-bb4b-4a54-a406-abf6202c3955"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -208,7 +199,7 @@
       {
         "kind": "move",
         "subject": "UPGDCL",
-        "claim": "The data shows UPGDCL fell 1.11% over the week, 0.06 points against its sector index (in line with sector).",
+        "claim": "The data shows UPGDCL fell 1.11% over the week to 1 Oct, 0.06 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -1.11,
@@ -220,7 +211,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -229,7 +220,7 @@
       {
         "kind": "move",
         "subject": "BATBC",
-        "claim": "The data shows BATBC fell 0.94% over the week, 0.37 points against its sector index (in line with sector).",
+        "claim": "The data shows BATBC fell 0.94% over the week to 1 Oct, 0.37 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -0.94,
@@ -241,7 +232,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -250,7 +241,7 @@
       {
         "kind": "move",
         "subject": "SUMITPOWER",
-        "claim": "The data shows SUMITPOWER fell 1.59% over the week, 0.55 points against its sector index (in line with sector).",
+        "claim": "The data shows SUMITPOWER fell 1.59% over the week to 1 Oct, 0.55 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -1.59,
@@ -262,7 +253,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -271,7 +262,7 @@
       {
         "kind": "move",
         "subject": "EBL",
-        "claim": "The data shows EBL fell 0.73% over the week, 0.2 points against its sector index (in line with sector).",
+        "claim": "The data shows EBL fell 0.73% over the week to 1 Oct, 0.2 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -0.73,
@@ -283,7 +274,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -292,7 +283,7 @@
       {
         "kind": "move",
         "subject": "ROBI",
-        "claim": "The data shows ROBI fell 1.49% over the week, 0.24 points against its sector index (in line with sector).",
+        "claim": "The data shows ROBI fell 1.49% over the week to 1 Oct, 0.24 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -1.49,
@@ -304,7 +295,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -313,7 +304,7 @@
       {
         "kind": "move",
         "subject": "CITYBANK",
-        "claim": "The data shows CITYBANK fell 0.32% over the week, 0.61 points against its sector index (in line with sector).",
+        "claim": "The data shows CITYBANK fell 0.32% over the week to 1 Oct, 0.61 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -0.32,
@@ -325,7 +316,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -334,7 +325,7 @@
       {
         "kind": "move",
         "subject": "OLYMPIC",
-        "claim": "The data shows OLYMPIC fell 0.67% over the week, 0.65 points against its sector index (in line with sector).",
+        "claim": "The data shows OLYMPIC fell 0.67% over the week to 1 Oct, 0.65 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -0.67,
@@ -346,7 +337,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -355,7 +346,7 @@
       {
         "kind": "move",
         "subject": "LHBL",
-        "claim": "The data shows LHBL fell 0.14% over the week, 0.87 points against its sector index (in line with sector).",
+        "claim": "The data shows LHBL fell 0.14% over the week to 1 Oct, 0.87 points against its sector index, in line with sector.",
         "numbers": [
           {
             "value": -0.14,
@@ -367,75 +358,7 @@
           }
         ],
         "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "rule",
-        "subject": "SQURPHARMA",
-        "claim": "The data shows two findings this week: SQURPHARMA is 25.4% of the portfolio, above your 25% limit (0.4 points over), and Pharmaceuticals & Chemicals is 37.8% of the portfolio, 7.8 points above your 30% target; last week only the sector finding was present, at 38.3% and 8.3 points above target.",
-        "numbers": [
-          {
-            "value": 25.4,
-            "label": "SQURPHARMA weight %"
-          },
-          {
-            "value": 25,
-            "label": "position limit %"
-          },
-          {
-            "value": 0.4,
-            "label": "delta pct"
-          },
-          {
-            "value": 37.8,
-            "label": "sector weight %"
-          },
-          {
-            "value": 7.8,
-            "label": "sector delta pct"
-          },
-          {
-            "value": 38.3,
-            "label": "last week sector weight %"
-          },
-          {
-            "value": 8.3,
-            "label": "last week sector delta pct"
-          }
-        ],
-        "cites": [
-          "2777826e-eef8-41ce-a31b-c567c1f04234",
-          "73cf5263-5a2c-4c72-8a3f-9e410be21cf5"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "announcement",
-        "subject": "BXPHARMA",
-        "claim": "The data shows a BXPHARMA earnings announcement dated 2026-09-27, 'Quarterly results: profit lower than the same quarter last year' (EPS Tk 1.62 against Tk 2.41 for the same quarter last year), falls inside this week's window (2026-09-24 to 2026-10-01), before the week's close; BXPHARMA fell 14.88% over the week.",
-        "numbers": [
-          {
-            "value": -14.88,
-            "label": "change %"
-          },
-          {
-            "value": 1.62,
-            "label": "EPS this quarter"
-          },
-          {
-            "value": 2.41,
-            "label": "EPS same quarter last year"
-          }
-        ],
-        "cites": [
-          "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd",
-          "65c0819e-d6e3-4de5-91fc-f4b8faa25fa4"
+          "8157c2c7-5aae-475a-80dd-49d63308f29b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -447,7 +370,7 @@
     ],
     "citations": [
       {
-        "run_query_id": "79fe6c9c-b8f2-41f1-b87b-d6f1f6f2d1bd",
+        "run_query_id": "8157c2c7-5aae-475a-80dd-49d63308f29b",
         "query_id": "week_moves",
         "params": {
           "as_of": "2026-10-01",
@@ -664,695 +587,97 @@
         "sql": "SELECT symbol, from_close, to_close, ROUND((to_close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT symbol,\n         MAX(CASE WHEN rn = 1 THEN close END) AS to_close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n      AND symbol IN (\n        SELECT symbol FROM tradeflow_ledger.transactions\n        WHERE created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n        GROUP BY symbol\n        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0\n      )\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY symbol\n) w\nWHERE from_close IS NOT NULL AND to_close IS NOT NULL\nORDER BY symbol"
       },
       {
-        "run_query_id": "10176a17-bb4b-4a54-a406-abf6202c3955",
-        "query_id": "week_moves",
+        "run_query_id": "af6874f2-4ce5-4d84-9017-96e5e1572d0a",
+        "query_id": "sector_vs_stock",
         "params": {
-          "as_of": "2026-09-24",
+          "as_of": "2026-10-01",
           "sessions": 5
         },
         "source": "zetaris",
-        "row_count": 14,
+        "row_count": 7,
         "rows": [
           {
-            "symbol": "PORTFOLIO",
-            "from_date": "2026-09-17",
-            "to_date": "2026-09-24",
-            "change_pct": 1.69,
-            "change_bdt": 10648.9,
-            "index_change_pct": 1.67,
-            "vs_index_pts": 0.01
-          },
-          {
-            "symbol": "SQURPHARMA",
             "sector": "Pharmaceuticals & Chemicals",
-            "shares": 655,
-            "from_close": 234.1,
-            "to_close": 242.4,
-            "change_pct": 3.55,
-            "contribution_bdt": 5436.5,
-            "contribution_pts": 0.86,
-            "sector_change_pct": 1.93,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": 1.61,
-            "comparison": "in line with sector",
-            "weight_pct": 24.71
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1209.09,
+            "change_pct": -2.99,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -2.25,
+            "contribution_bdt": -7259.4,
+            "contribution_pts": -1.13
           },
           {
-            "symbol": "GP",
-            "sector": "Telecommunication",
-            "shares": 240,
-            "from_close": 376,
-            "to_close": 358,
-            "change_pct": -4.79,
-            "contribution_bdt": -4320,
-            "contribution_pts": -0.68,
-            "sector_change_pct": 1.99,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -6.78,
-            "comparison": "stock-specific",
-            "weight_pct": 13.37
-          },
-          {
-            "symbol": "BRACBANK",
-            "sector": "Bank",
-            "shares": 1520,
-            "from_close": 50.4,
-            "to_close": 51.8,
-            "change_pct": 2.78,
-            "contribution_bdt": 2128,
-            "contribution_pts": 0.34,
-            "sector_change_pct": 3.06,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -0.28,
-            "comparison": "in line with sector",
-            "weight_pct": 12.26
-          },
-          {
-            "symbol": "EBL",
-            "sector": "Bank",
-            "shares": 1200,
-            "from_close": 25.7,
-            "to_close": 27.3,
-            "change_pct": 6.23,
-            "contribution_bdt": 1920,
-            "contribution_pts": 0.3,
-            "sector_change_pct": 3.06,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": 3.17,
-            "comparison": "stock-specific",
-            "weight_pct": 5.1
-          },
-          {
-            "symbol": "BATBC",
             "sector": "Food & Allied",
-            "shares": 80,
-            "from_close": 497.5,
-            "to_close": 518.6,
-            "change_pct": 4.24,
-            "contribution_bdt": 1688,
-            "contribution_pts": 0.27,
-            "sector_change_pct": 3.06,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": 1.19,
-            "comparison": "in line with sector",
-            "weight_pct": 6.46
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1254.3,
+            "change_pct": -1.32,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.57,
+            "contribution_bdt": -502,
+            "contribution_pts": -0.08
           },
           {
-            "symbol": "UPGDCL",
+            "sector": "Telecommunication",
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1172.78,
+            "change_pct": -1.24,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.5,
+            "contribution_bdt": -920,
+            "contribution_pts": -0.14
+          },
+          {
             "sector": "Fuel & Power",
-            "shares": 250,
-            "from_close": 167,
-            "to_close": 171.6,
-            "change_pct": 2.75,
-            "contribution_bdt": 1150,
-            "contribution_pts": 0.18,
-            "sector_change_pct": 3.46,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -0.7,
-            "comparison": "in line with sector",
-            "weight_pct": 6.68
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1317.49,
+            "change_pct": -1.04,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.3,
+            "contribution_bdt": -725,
+            "contribution_pts": -0.11
           },
           {
-            "symbol": "CITYBANK",
-            "sector": "Bank",
-            "shares": 1300,
-            "from_close": 30.5,
-            "to_close": 31.3,
-            "change_pct": 2.62,
-            "contribution_bdt": 1040,
-            "contribution_pts": 0.16,
-            "sector_change_pct": 3.06,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -0.43,
-            "comparison": "in line with sector",
-            "weight_pct": 6.33
-          },
-          {
-            "symbol": "SUMITPOWER",
-            "sector": "Fuel & Power",
-            "shares": 500,
-            "from_close": 29.8,
-            "to_close": 31.4,
-            "change_pct": 5.37,
-            "contribution_bdt": 800,
-            "contribution_pts": 0.13,
-            "sector_change_pct": 3.46,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": 1.91,
-            "comparison": "in line with sector",
-            "weight_pct": 2.44
-          },
-          {
-            "symbol": "RENATA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 36,
-            "from_close": 915.8,
-            "to_close": 933.2,
-            "change_pct": 1.9,
-            "contribution_bdt": 626.4,
-            "contribution_pts": 0.1,
-            "sector_change_pct": 1.93,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -0.03,
-            "comparison": "in line with sector",
-            "weight_pct": 5.23
-          },
-          {
-            "symbol": "BXPHARMA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 320,
-            "from_close": 166.3,
-            "to_close": 167.3,
-            "change_pct": 0.6,
-            "contribution_bdt": 320,
-            "contribution_pts": 0.05,
-            "sector_change_pct": 1.93,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -1.33,
-            "comparison": "in line with sector",
-            "weight_pct": 8.33
-          },
-          {
-            "symbol": "LHBL",
             "sector": "Cement",
-            "shares": 400,
-            "from_close": 71.7,
-            "to_close": 71.1,
-            "change_pct": -0.84,
-            "contribution_bdt": -240,
-            "contribution_pts": -0.04,
-            "sector_change_pct": 0.86,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -1.7,
-            "comparison": "in line with sector",
-            "weight_pct": 4.43
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1095.45,
+            "change_pct": -1.01,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.26,
+            "contribution_bdt": -40,
+            "contribution_pts": -0.01
           },
           {
-            "symbol": "ROBI",
-            "sector": "Telecommunication",
-            "shares": 400,
-            "from_close": 33.3,
-            "to_close": 33.6,
-            "change_pct": 0.9,
-            "contribution_bdt": 120,
-            "contribution_pts": 0.02,
-            "sector_change_pct": 1.99,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -1.09,
-            "comparison": "in line with sector",
-            "weight_pct": 2.09
-          },
-          {
-            "symbol": "OLYMPIC",
-            "sector": "Food & Allied",
-            "shares": 100,
-            "from_close": 164.8,
-            "to_close": 164.6,
-            "change_pct": -0.12,
-            "contribution_bdt": -20,
-            "contribution_pts": 0,
-            "sector_change_pct": 3.06,
-            "index_change_pct": 1.67,
-            "vs_sector_pts": -3.18,
-            "comparison": "stock-specific",
-            "weight_pct": 2.56
-          }
-        ],
-        "sql": "SELECT symbol, from_close, to_close, ROUND((to_close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT symbol,\n         MAX(CASE WHEN rn = 1 THEN close END) AS to_close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-09-24' AS DATE)\n      AND symbol IN (\n        SELECT symbol FROM tradeflow_ledger.transactions\n        WHERE created_at < CAST('2026-09-25T00:00:00+06:00' AS TIMESTAMP)\n        GROUP BY symbol\n        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0\n      )\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY symbol\n) w\nWHERE from_close IS NOT NULL AND to_close IS NOT NULL\nORDER BY symbol"
-      },
-      {
-        "run_query_id": "2777826e-eef8-41ce-a31b-c567c1f04234",
-        "query_id": "rule_findings",
-        "params": {
-          "as_of": "2026-10-01"
-        },
-        "source": "zetaris",
-        "row_count": 23,
-        "rows": [
-          {
-            "row_type": "position",
-            "symbol": "SQURPHARMA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 655,
-            "market_value_bdt": 160737,
-            "weight_pct": 25.44,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "GP",
-            "sector": "Telecommunication",
-            "shares": 240,
-            "market_value_bdt": 85200,
-            "weight_pct": 13.49,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "BRACBANK",
             "sector": "Bank",
-            "shares": 1520,
-            "market_value_bdt": 77824,
-            "weight_pct": 12.32,
-            "target_pct": null,
-            "delta_pct": null
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1190.21,
+            "change_pct": -0.93,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.18,
+            "contribution_bdt": -1282,
+            "contribution_pts": -0.2
           },
           {
-            "row_type": "position",
-            "symbol": "BXPHARMA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 320,
-            "market_value_bdt": 45568,
-            "weight_pct": 7.21,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "UPGDCL",
-            "sector": "Fuel & Power",
-            "shares": 250,
-            "market_value_bdt": 42425,
-            "weight_pct": 6.72,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "BATBC",
-            "sector": "Food & Allied",
-            "shares": 80,
-            "market_value_bdt": 41096,
-            "weight_pct": 6.51,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "EBL",
-            "sector": "Bank",
-            "shares": 1200,
-            "market_value_bdt": 32520,
-            "weight_pct": 5.15,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "CITYBANK",
-            "sector": "Bank",
-            "shares": 1300,
-            "market_value_bdt": 40560,
-            "weight_pct": 6.42,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "RENATA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 36,
-            "market_value_bdt": 32338.8,
-            "weight_pct": 5.12,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "LHBL",
-            "sector": "Cement",
-            "shares": 400,
-            "market_value_bdt": 28400,
-            "weight_pct": 4.5,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "OLYMPIC",
-            "sector": "Food & Allied",
-            "shares": 100,
-            "market_value_bdt": 16350,
-            "weight_pct": 2.59,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "SUMITPOWER",
-            "sector": "Fuel & Power",
-            "shares": 500,
-            "market_value_bdt": 15450,
-            "weight_pct": 2.45,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "ROBI",
-            "sector": "Telecommunication",
-            "shares": 400,
-            "market_value_bdt": 13240,
-            "weight_pct": 2.1,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Pharmaceuticals & Chemicals",
-            "weight_pct": 37.78,
-            "target_pct": 30,
-            "delta_pct": 7.78,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Bank",
-            "weight_pct": 23.89,
-            "target_pct": 25,
-            "delta_pct": -1.11,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Telecommunication",
-            "weight_pct": 15.58,
-            "target_pct": 15,
-            "delta_pct": 0.58,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Fuel & Power",
-            "weight_pct": 9.16,
-            "target_pct": 10,
-            "delta_pct": -0.84,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Food & Allied",
-            "weight_pct": 9.09,
-            "target_pct": 10,
-            "delta_pct": -0.91,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Cement",
-            "weight_pct": 4.5,
-            "target_pct": 5,
-            "delta_pct": -0.5,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
             "sector": "Engineering",
-            "weight_pct": 0,
-            "target_pct": 5,
-            "delta_pct": -5,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "finding",
-            "kind": "max_position_weight",
-            "subject": "SQURPHARMA",
-            "actual_pct": 25.4,
-            "limit_pct": 25,
-            "delta_pct": 0.4,
-            "message": "SQURPHARMA is 25.4% of the portfolio, above your 25% limit."
-          },
-          {
-            "row_type": "finding",
-            "kind": "sector_target",
-            "subject": "Pharmaceuticals & Chemicals",
-            "actual_pct": 37.8,
-            "target_pct": 30,
-            "delta_pct": 7.8,
-            "message": "Pharmaceuticals & Chemicals is 37.8% of the portfolio, 7.8 points above your 30% target."
-          },
-          {
-            "row_type": "finding",
-            "kind": "trade_plan_reached",
-            "subject": "p-06",
-            "symbol": "GP",
-            "side": "buy",
-            "target_price": 358.8,
-            "ltp": 355,
-            "message": "GP is at 355.00, past your buy target of 358.80."
+            "from_date": "2026-09-24",
+            "to_date": "2026-10-01",
+            "close": 1192.96,
+            "change_pct": -0.91,
+            "index_change_pct": -0.75,
+            "vs_index_pts": -0.16,
+            "contribution_bdt": 0,
+            "contribution_pts": 0
           }
         ],
-        "sql": "WITH ledger AS (\n  SELECT UPPER(TRIM(t.symbol)) AS symbol, CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END AS q\n  FROM tradeflow_ledger.transactions t\n  WHERE t.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  UNION ALL\n  SELECT UPPER(TRIM(a.symbol)) AS symbol, FLOOR(SUM(CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END) * CAST(a.bonus_ratio AS DOUBLE) + 1e-9) AS q\n    FROM tradeflow_ledger.corporate_actions a\n    JOIN tradeflow_ledger.transactions t ON UPPER(TRIM(t.symbol)) = UPPER(TRIM(a.symbol)) AND to_date(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka')) <= a.record_date\n    WHERE a.kind = 'stock_dividend' AND a.record_date <= CAST('2026-10-01' AS DATE) AND a.paid_on <= CAST('2026-10-01' AS DATE)\n    GROUP BY a.id, a.symbol, a.bonus_ratio\n),\nheld AS (\n  SELECT symbol, SUM(q) AS shares FROM ledger GROUP BY symbol HAVING SUM(q) > 0\n),\nlast_close AS (\n  SELECT symbol, close FROM (\n    SELECT UPPER(TRIM(symbol)) AS symbol, CAST(close AS DOUBLE) AS close,\n           ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(symbol)) ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n  ) ranked\n  WHERE rn = 1\n),\npos AS (\n  SELECT h.symbol, i.sector, COALESCE(NULLIF(TRIM(i.sector), ''), 'Unknown') AS sector_key, h.shares, ROUND(c.close * h.shares, 2) AS mv\n  FROM held h\n  JOIN last_close c ON c.symbol = h.symbol\n  LEFT JOIN tradeflow_ledger.instruments i ON UPPER(TRIM(i.symbol)) = h.symbol\n),\ntotal AS (\n  SELECT SUM(mv) AS tmv FROM pos WHERE mv > 0\n),\nsec AS (\n  SELECT p.sector_key AS sector, SUM(p.mv) / MAX(t.tmv) * 100 AS pct\n  FROM pos p CROSS JOIN total t\n  WHERE p.mv > 0\n  GROUP BY p.sector_key\n),\ntgt AS (\n  SELECT TRIM(sector) AS sector, CAST(target_percent AS DOUBLE) AS target_pct FROM tradeflow_ledger.sector_targets\n)\nSELECT 'position' AS row_type, p.symbol, p.sector, p.shares, p.mv AS market_value_bdt, ROUND(p.mv / t.tmv * 100, 2) AS weight_pct,\n       CAST(NULL AS DOUBLE) AS target_pct, CAST(NULL AS DOUBLE) AS delta_pct\nFROM pos p CROSS JOIN total t\nUNION ALL\nSELECT 'sector' AS row_type, CAST(NULL AS STRING) AS symbol, COALESCE(s.sector, g.sector) AS sector, CAST(NULL AS DOUBLE) AS shares,\n       CAST(NULL AS DOUBLE) AS market_value_bdt, ROUND(COALESCE(s.pct, 0), 2) AS weight_pct, g.target_pct,\n       CASE WHEN g.sector IS NULL THEN CAST(NULL AS DOUBLE) ELSE ROUND(COALESCE(s.pct, 0) - g.target_pct, 2) END AS delta_pct\nFROM sec s FULL OUTER JOIN tgt g ON LOWER(s.sector) = LOWER(g.sector)\nORDER BY row_type, weight_pct DESC"
+        "sql": "SELECT sector, close, ROUND((close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT sector,\n         MAX(CASE WHEN rn = 1 THEN close END) AS close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT sector, close, ROW_NUMBER() OVER (PARTITION BY sector ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.sector_index_bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY sector\n) w\nWHERE from_close IS NOT NULL AND close IS NOT NULL\nORDER BY change_pct, sector"
       },
       {
-        "run_query_id": "73cf5263-5a2c-4c72-8a3f-9e410be21cf5",
-        "query_id": "rule_findings",
-        "params": {
-          "as_of": "2026-09-24"
-        },
-        "source": "zetaris",
-        "row_count": 22,
-        "rows": [
-          {
-            "row_type": "position",
-            "symbol": "SQURPHARMA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 655,
-            "market_value_bdt": 158772,
-            "weight_pct": 24.71,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "GP",
-            "sector": "Telecommunication",
-            "shares": 240,
-            "market_value_bdt": 85920,
-            "weight_pct": 13.37,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "BRACBANK",
-            "sector": "Bank",
-            "shares": 1520,
-            "market_value_bdt": 78736,
-            "weight_pct": 12.26,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "BXPHARMA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 320,
-            "market_value_bdt": 53536,
-            "weight_pct": 8.33,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "UPGDCL",
-            "sector": "Fuel & Power",
-            "shares": 250,
-            "market_value_bdt": 42900,
-            "weight_pct": 6.68,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "BATBC",
-            "sector": "Food & Allied",
-            "shares": 80,
-            "market_value_bdt": 41488,
-            "weight_pct": 6.46,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "EBL",
-            "sector": "Bank",
-            "shares": 1200,
-            "market_value_bdt": 32760,
-            "weight_pct": 5.1,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "CITYBANK",
-            "sector": "Bank",
-            "shares": 1300,
-            "market_value_bdt": 40690,
-            "weight_pct": 6.33,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "RENATA",
-            "sector": "Pharmaceuticals & Chemicals",
-            "shares": 36,
-            "market_value_bdt": 33595.2,
-            "weight_pct": 5.23,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "LHBL",
-            "sector": "Cement",
-            "shares": 400,
-            "market_value_bdt": 28440,
-            "weight_pct": 4.43,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "OLYMPIC",
-            "sector": "Food & Allied",
-            "shares": 100,
-            "market_value_bdt": 16460,
-            "weight_pct": 2.56,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "SUMITPOWER",
-            "sector": "Fuel & Power",
-            "shares": 500,
-            "market_value_bdt": 15700,
-            "weight_pct": 2.44,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "position",
-            "symbol": "ROBI",
-            "sector": "Telecommunication",
-            "shares": 400,
-            "market_value_bdt": 13440,
-            "weight_pct": 2.09,
-            "target_pct": null,
-            "delta_pct": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Pharmaceuticals & Chemicals",
-            "weight_pct": 38.28,
-            "target_pct": 30,
-            "delta_pct": 8.28,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Bank",
-            "weight_pct": 23.69,
-            "target_pct": 25,
-            "delta_pct": -1.31,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Telecommunication",
-            "weight_pct": 15.47,
-            "target_pct": 15,
-            "delta_pct": 0.47,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Fuel & Power",
-            "weight_pct": 9.12,
-            "target_pct": 10,
-            "delta_pct": -0.88,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Food & Allied",
-            "weight_pct": 9.02,
-            "target_pct": 10,
-            "delta_pct": -0.98,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Cement",
-            "weight_pct": 4.43,
-            "target_pct": 5,
-            "delta_pct": -0.57,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "sector",
-            "sector": "Engineering",
-            "weight_pct": 0,
-            "target_pct": 5,
-            "delta_pct": -5,
-            "symbol": null,
-            "shares": null,
-            "market_value_bdt": null
-          },
-          {
-            "row_type": "finding",
-            "kind": "sector_target",
-            "subject": "Pharmaceuticals & Chemicals",
-            "actual_pct": 38.3,
-            "target_pct": 30,
-            "delta_pct": 8.3,
-            "message": "Pharmaceuticals & Chemicals is 38.3% of the portfolio, 8.3 points above your 30% target."
-          },
-          {
-            "row_type": "finding",
-            "kind": "trade_plan_reached",
-            "subject": "p-06",
-            "symbol": "GP",
-            "side": "buy",
-            "target_price": 358.8,
-            "ltp": 358,
-            "message": "GP is at 358.00, past your buy target of 358.80."
-          }
-        ],
-        "sql": "WITH ledger AS (\n  SELECT UPPER(TRIM(t.symbol)) AS symbol, CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END AS q\n  FROM tradeflow_ledger.transactions t\n  WHERE t.created_at < CAST('2026-09-25T00:00:00+06:00' AS TIMESTAMP)\n  UNION ALL\n  SELECT UPPER(TRIM(a.symbol)) AS symbol, FLOOR(SUM(CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END) * CAST(a.bonus_ratio AS DOUBLE) + 1e-9) AS q\n    FROM tradeflow_ledger.corporate_actions a\n    JOIN tradeflow_ledger.transactions t ON UPPER(TRIM(t.symbol)) = UPPER(TRIM(a.symbol)) AND to_date(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka')) <= a.record_date\n    WHERE a.kind = 'stock_dividend' AND a.record_date <= CAST('2026-09-24' AS DATE) AND a.paid_on <= CAST('2026-09-24' AS DATE)\n    GROUP BY a.id, a.symbol, a.bonus_ratio\n),\nheld AS (\n  SELECT symbol, SUM(q) AS shares FROM ledger GROUP BY symbol HAVING SUM(q) > 0\n),\nlast_close AS (\n  SELECT symbol, close FROM (\n    SELECT UPPER(TRIM(symbol)) AS symbol, CAST(close AS DOUBLE) AS close,\n           ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(symbol)) ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-09-24' AS DATE)\n  ) ranked\n  WHERE rn = 1\n),\npos AS (\n  SELECT h.symbol, i.sector, COALESCE(NULLIF(TRIM(i.sector), ''), 'Unknown') AS sector_key, h.shares, ROUND(c.close * h.shares, 2) AS mv\n  FROM held h\n  JOIN last_close c ON c.symbol = h.symbol\n  LEFT JOIN tradeflow_ledger.instruments i ON UPPER(TRIM(i.symbol)) = h.symbol\n),\ntotal AS (\n  SELECT SUM(mv) AS tmv FROM pos WHERE mv > 0\n),\nsec AS (\n  SELECT p.sector_key AS sector, SUM(p.mv) / MAX(t.tmv) * 100 AS pct\n  FROM pos p CROSS JOIN total t\n  WHERE p.mv > 0\n  GROUP BY p.sector_key\n),\ntgt AS (\n  SELECT TRIM(sector) AS sector, CAST(target_percent AS DOUBLE) AS target_pct FROM tradeflow_ledger.sector_targets\n)\nSELECT 'position' AS row_type, p.symbol, p.sector, p.shares, p.mv AS market_value_bdt, ROUND(p.mv / t.tmv * 100, 2) AS weight_pct,\n       CAST(NULL AS DOUBLE) AS target_pct, CAST(NULL AS DOUBLE) AS delta_pct\nFROM pos p CROSS JOIN total t\nUNION ALL\nSELECT 'sector' AS row_type, CAST(NULL AS STRING) AS symbol, COALESCE(s.sector, g.sector) AS sector, CAST(NULL AS DOUBLE) AS shares,\n       CAST(NULL AS DOUBLE) AS market_value_bdt, ROUND(COALESCE(s.pct, 0), 2) AS weight_pct, g.target_pct,\n       CASE WHEN g.sector IS NULL THEN CAST(NULL AS DOUBLE) ELSE ROUND(COALESCE(s.pct, 0) - g.target_pct, 2) END AS delta_pct\nFROM sec s FULL OUTER JOIN tgt g ON LOWER(s.sector) = LOWER(g.sector)\nORDER BY row_type, weight_pct DESC"
-      },
-      {
-        "run_query_id": "65c0819e-d6e3-4de5-91fc-f4b8faa25fa4",
+        "run_query_id": "fc71a2a1-72f5-43de-ad11-5a90a4badc2c",
         "query_id": "announcements_between",
         "params": {
           "from": "2026-09-25",
@@ -1380,14 +705,14 @@
     "injection_seen": false,
     "memories_recalled": [],
     "applied_corrections": [],
-    "rounds": 3,
+    "rounds": 1,
     "scores": {
       "accuracy": 3,
       "appropriateness": 3,
       "actionability": 3,
       "total": 9
     },
-    "model_source": "openrouter/nvidia/nemotron-3.5-lightning, openrouter/xiaomi/mimo-v2.5",
+    "model_source": "openrouter/nvidia/nemotron-3.5-lightning",
     "partial": false,
     "stop_reason": null
   },

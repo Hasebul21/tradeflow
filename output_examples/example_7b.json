@@ -29,24 +29,24 @@
     }
   ],
   "usage": {
-    "model_calls": 5,
+    "model_calls": 4,
     "query_calls": 5,
-    "tokens_in": 45159,
-    "tokens_out": 5590,
-    "duration_ms": 72431
+    "tokens_in": 36026,
+    "tokens_out": 3219,
+    "duration_ms": 134156
   },
   "trace_id": "example_7b",
   "log_file": "logs/trace-example_7b.jsonl",
-  "execution_time_seconds": 72.431,
+  "execution_time_seconds": 134.156,
   "status": "success",
   "output": {
-    "summary": "Your portfolio fell 1.67% in the week to 1 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.",
-    "review_markdown": "Your portfolio fell 1.67% in the week to 1 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.\n\n- BXPHARMA fell 14.88% over the week, 11.89 points against its sector index, so the move was its own, not the sector's. It came after lower quarterly profit on 27 Sep: EPS Tk 1.62 against Tk 2.41 last year. [q:35a3de74-f742-4bf3-9ed0-2ce914eca19c] [q:4bb33a45-b55e-4bfb-ad1c-9d7d3a1970bc]\n- Pharmaceuticals & Chemicals fell 2.99% against DSEX's 0.75%, dragging the portfolio down 1.13 points. [q:8cf26517-3b26-4956-b624-776ae61d76b2]\n- RENATA fell 3.74% over the week, 0.75 points against its sector index, in line with sector. [q:35a3de74-f742-4bf3-9ed0-2ce914eca19c]\n- BRACBANK fell 1.16% over the week, 0.23 points against its sector index, in line with sector. [q:35a3de74-f742-4bf3-9ed0-2ce914eca19c]\n- Telecommunication fell 1.24% against DSEX, contributing -0.14 points to the portfolio. [q:8cf26517-3b26-4956-b624-776ae61d76b2]\n- Food & Allied fell 1.32% against DSEX's 0.75%, contributing -0.08 points to the portfolio. [q:8cf26517-3b26-4956-b624-776ae61d76b2]\n- Fuel & Power fell 1.04% against DSEX's 0.75%, contributing -0.11 points to the portfolio. [q:8cf26517-3b26-4956-b624-776ae61d76b2]\n- Cement fell 1.01% against DSEX's 0.75%, contributing -0.01 points to the portfolio. [q:8cf26517-3b26-4956-b624-776ae61d76b2]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.\n\n**What to look at next**\n- BXPHARMA's next announcement, against your reason for holding it.\n- Pharmaceuticals & Chemicals, at 1.13 points of the week's drag.\n\nNot covered: what the portfolio will do next week, the data can't predict prices; dividends between 2026-09-25 and 2026-10-01 returned no rows.\n\nThis is a review of your own records, not financial advice.",
+    "summary": "Your portfolio fell 1.67% in the week to 01 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.",
+    "review_markdown": "Your portfolio fell 1.67% in the week to 01 Oct, 0.92 points behind DSEX; BXPHARMA's 14.88% fall explains most of it.\n\n- BXPHARMA fell 14.88%, 11.89 points against its sector index, so the move was its own, not the sector's. It came after lower quarterly profit on 27 Sep. [q:ae3869df-6a3d-4226-8766-2c9f25deef18] [q:06dd656c-ff80-4e5d-acdc-9c0482ccc70d]\n- SQURPHARMA rose 1.24%, 4.23 points above its sector index, so the move was its own, not the sector's. [q:ae3869df-6a3d-4226-8766-2c9f25deef18]\n- RENATA fell 3.74%, 0.75 points against its sector index, in line with sector. [q:ae3869df-6a3d-4226-8766-2c9f25deef18]\n- BRACBANK fell 1.16%, 0.23 points against its sector index, in line with sector. [q:ae3869df-6a3d-4226-8766-2c9f25deef18]\n- GP fell 0.84%, 0.41 points against its sector index, in line with sector. [q:ae3869df-6a3d-4226-8766-2c9f25deef18]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move.\n\n**What to look at next**\n- BXPHARMA\n- SQURPHARMA\n\nNot covered: dividends between 25 Sep and 01 Oct returned no rows, so this review says nothing it would have shown.\n\nThis is a review of your own records, not financial advice.",
     "findings": [
       {
         "kind": "move",
         "subject": "PORTFOLIO",
-        "claim": "The data shows the portfolio fell 1.67% over the week, 0.92 points behind DSEX.",
+        "claim": "The data shows the portfolio fell 1.7% against DSEX over the week to 1 Oct.",
         "numbers": [
           {
             "value": -1.67,
@@ -58,7 +58,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -67,23 +67,40 @@
       {
         "kind": "sector",
         "subject": "Pharmaceuticals & Chemicals",
-        "claim": "The data shows the Pharmaceuticals & Chemicals sector fell 2.99% against DSEX's 0.75%, dragging the portfolio down 1.13 points.",
+        "claim": "The data shows Pharmaceuticals & Chemicals fell 2.99% against DSEX, contributing -1.13 points to the portfolio.",
         "numbers": [
           {
             "value": -2.99,
             "label": "sector change %"
           },
           {
-            "value": -2.25,
-            "label": "points against DSEX"
-          },
-          {
             "value": -1.13,
-            "label": "portfolio points from sector"
+            "label": "points against portfolio"
           }
         ],
         "cites": [
-          "8cf26517-3b26-4956-b624-776ae61d76b2"
+          "668191b8-754e-4762-a396-578ce43bb81f"
+        ],
+        "verdict": null,
+        "proposed_fix": null,
+        "memory_ids": []
+      },
+      {
+        "kind": "move",
+        "subject": "SQURPHARMA",
+        "claim": "The data shows SQURPHARMA rose 1.24% over the week, 4.23 points above DSEX, stock-specific.",
+        "numbers": [
+          {
+            "value": 1.24,
+            "label": "change %"
+          },
+          {
+            "value": 4.23,
+            "label": "points against DSEX"
+          }
+        ],
+        "cites": [
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -92,7 +109,7 @@
       {
         "kind": "move",
         "subject": "BXPHARMA",
-        "claim": "The data shows BXPHARMA fell 14.88% over the week, 11.89 points against its sector index, stock-specific.",
+        "claim": "The data shows BXPHARMA fell 14.88% over the week, 11.89 points against its sector index, stock-specific, after it reported lower quarterly profit on 27 Sep.",
         "numbers": [
           {
             "value": -14.88,
@@ -104,25 +121,9 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "announcement",
-        "subject": "BXPHARMA",
-        "claim": "The data shows BXPHARMA fell after it reported quarterly earnings on 27 Sep: EPS Tk 1.62 against Tk 2.41 last year, price-sensitive.",
-        "numbers": [
-          {
-            "value": -14.88,
-            "label": "change %"
-          }
-        ],
-        "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c",
-          "4bb33a45-b55e-4bfb-ad1c-9d7d3a1970bc"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18",
+          "668191b8-754e-4762-a396-578ce43bb81f",
+          "06dd656c-ff80-4e5d-acdc-9c0482ccc70d"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -131,7 +132,7 @@
       {
         "kind": "move",
         "subject": "RENATA",
-        "claim": "The data shows RENATA fell 3.74% over the week, 0.75 points against its sector index, in line with sector.",
+        "claim": "The data shows RENATA fell 3.74% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -3.74,
@@ -143,7 +144,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -152,7 +153,7 @@
       {
         "kind": "move",
         "subject": "BRACBANK",
-        "claim": "The data shows BRACBANK fell 1.16% over the week, 0.23 points against its sector index, in line with sector.",
+        "claim": "The data shows BRACBANK fell 1.16% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -1.16,
@@ -164,7 +165,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -173,7 +174,7 @@
       {
         "kind": "move",
         "subject": "GP",
-        "claim": "The data shows GP fell 0.84% over the week, 0.41 points against its sector index, in line with sector.",
+        "claim": "The data shows GP fell 0.84% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -0.84,
@@ -185,7 +186,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -194,7 +195,7 @@
       {
         "kind": "move",
         "subject": "UPGDCL",
-        "claim": "The data shows UPGDCL fell 1.11% over the week, 0.06 points against its sector index, in line with sector.",
+        "claim": "The data shows UPGDCL fell 1.11% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -1.11,
@@ -206,7 +207,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -215,7 +216,7 @@
       {
         "kind": "move",
         "subject": "BATBC",
-        "claim": "The data shows BATBC fell 0.94% over the week, 0.37 points against its sector index, in line with sector.",
+        "claim": "The data shows BATBC fell 0.94% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -0.94,
@@ -227,7 +228,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -236,7 +237,7 @@
       {
         "kind": "move",
         "subject": "SUMITPOWER",
-        "claim": "The data shows SUMITPOWER fell 1.59% over the week, 0.55 points against its sector index, in line with sector.",
+        "claim": "The data shows SUMITPOWER fell 1.59% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -1.59,
@@ -248,7 +249,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -257,7 +258,7 @@
       {
         "kind": "move",
         "subject": "EBL",
-        "claim": "The data shows EBL fell 0.73% over the week, 0.2 points against its sector index, in line with sector.",
+        "claim": "The data shows EBL fell 0.73% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -0.73,
@@ -269,7 +270,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -278,7 +279,7 @@
       {
         "kind": "move",
         "subject": "ROBI",
-        "claim": "The data shows ROBI fell 1.49% over the week, 0.24 points against its sector index, in line with sector.",
+        "claim": "The data shows ROBI fell 1.49% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -1.49,
@@ -290,7 +291,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -299,7 +300,7 @@
       {
         "kind": "move",
         "subject": "CITYBANK",
-        "claim": "The data shows CITYBANK fell 0.32% over the week, 0.61 points against its sector index, in line with sector.",
+        "claim": "The data shows CITYBANK fell 0.32% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -0.32,
@@ -311,7 +312,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -320,7 +321,7 @@
       {
         "kind": "move",
         "subject": "OLYMPIC",
-        "claim": "The data shows OLYMPIC fell 0.67% over the week, 0.65 points against its sector index, in line with sector.",
+        "claim": "The data shows OLYMPIC fell 0.67% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -0.67,
@@ -332,7 +333,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -341,7 +342,7 @@
       {
         "kind": "move",
         "subject": "LHBL",
-        "claim": "The data shows LHBL fell 0.14% over the week, 0.87 points against its sector index, in line with sector.",
+        "claim": "The data shows LHBL fell 0.14% over the week, in line with its sector index.",
         "numbers": [
           {
             "value": -0.14,
@@ -353,107 +354,7 @@
           }
         ],
         "cites": [
-          "35a3de74-f742-4bf3-9ed0-2ce914eca19c"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "sector",
-        "subject": "Food & Allied",
-        "claim": "The data shows the Food & Allied sector fell 1.32% against DSEX's 0.75%, contributing -0.08 points to the portfolio.",
-        "numbers": [
-          {
-            "value": -1.32,
-            "label": "sector change %"
-          },
-          {
-            "value": -0.57,
-            "label": "points against DSEX"
-          },
-          {
-            "value": -0.08,
-            "label": "portfolio points from sector"
-          }
-        ],
-        "cites": [
-          "8cf26517-3b26-4956-b624-776ae61d76b2"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "sector",
-        "subject": "Telecommunication",
-        "claim": "The data shows the Telecommunication sector fell 1.24% against DSEX's 0.75%, contributing -0.14 points to the portfolio.",
-        "numbers": [
-          {
-            "value": -1.24,
-            "label": "sector change %"
-          },
-          {
-            "value": -0.5,
-            "label": "points against DSEX"
-          },
-          {
-            "value": -0.14,
-            "label": "portfolio points from sector"
-          }
-        ],
-        "cites": [
-          "8cf26517-3b26-4956-b624-776ae61d76b2"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "sector",
-        "subject": "Fuel & Power",
-        "claim": "The data shows the Fuel & Power sector fell 1.04% against DSEX's 0.75%, contributing -0.11 points to the portfolio.",
-        "numbers": [
-          {
-            "value": -1.04,
-            "label": "sector change %"
-          },
-          {
-            "value": -0.3,
-            "label": "points against DSEX"
-          },
-          {
-            "value": -0.11,
-            "label": "portfolio points from sector"
-          }
-        ],
-        "cites": [
-          "8cf26517-3b26-4956-b624-776ae61d76b2"
-        ],
-        "verdict": null,
-        "proposed_fix": null,
-        "memory_ids": []
-      },
-      {
-        "kind": "sector",
-        "subject": "Cement",
-        "claim": "The data shows the Cement sector fell 1.01% against DSEX's 0.75%, contributing -0.01 points to the portfolio.",
-        "numbers": [
-          {
-            "value": -1.01,
-            "label": "sector change %"
-          },
-          {
-            "value": -0.26,
-            "label": "points against DSEX"
-          },
-          {
-            "value": -0.01,
-            "label": "portfolio points from sector"
-          }
-        ],
-        "cites": [
-          "8cf26517-3b26-4956-b624-776ae61d76b2"
+          "ae3869df-6a3d-4226-8766-2c9f25deef18"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -461,12 +362,11 @@
       }
     ],
     "gaps": [
-      "What the portfolio will do next week: the data can't predict prices.",
       "dividends_between {\"from\":\"2026-09-25\",\"to\":\"2026-10-01\"} returned no rows, so this review says nothing it would have shown."
     ],
     "citations": [
       {
-        "run_query_id": "35a3de74-f742-4bf3-9ed0-2ce914eca19c",
+        "run_query_id": "ae3869df-6a3d-4226-8766-2c9f25deef18",
         "query_id": "week_moves",
         "params": {
           "as_of": "2026-10-01",
@@ -683,7 +583,7 @@
         "sql": "SELECT symbol, from_close, to_close, ROUND((to_close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT symbol,\n         MAX(CASE WHEN rn = 1 THEN close END) AS to_close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n      AND symbol IN (\n        SELECT symbol FROM tradeflow_ledger.transactions\n        WHERE created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n        GROUP BY symbol\n        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0\n      )\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY symbol\n) w\nWHERE from_close IS NOT NULL AND to_close IS NOT NULL\nORDER BY symbol"
       },
       {
-        "run_query_id": "8cf26517-3b26-4956-b624-776ae61d76b2",
+        "run_query_id": "668191b8-754e-4762-a396-578ce43bb81f",
         "query_id": "sector_vs_stock",
         "params": {
           "as_of": "2026-10-01",
@@ -773,7 +673,7 @@
         "sql": "SELECT sector, close, ROUND((close - from_close) / from_close * 100, 2) AS change_pct\nFROM (\n  SELECT sector,\n         MAX(CASE WHEN rn = 1 THEN close END) AS close,\n         MAX(CASE WHEN rn = 6 THEN close END) AS from_close\n  FROM (\n    SELECT sector, close, ROW_NUMBER() OVER (PARTITION BY sector ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.sector_index_bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n  ) ranked\n  WHERE rn IN (1, 6)\n  GROUP BY sector\n) w\nWHERE from_close IS NOT NULL AND close IS NOT NULL\nORDER BY change_pct, sector"
       },
       {
-        "run_query_id": "4bb33a45-b55e-4bfb-ad1c-9d7d3a1970bc",
+        "run_query_id": "06dd656c-ff80-4e5d-acdc-9c0482ccc70d",
         "query_id": "announcements_between",
         "params": {
           "from": "2026-09-25",

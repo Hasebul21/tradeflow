@@ -29,25 +29,33 @@
     }
   ],
   "usage": {
-    "model_calls": 7,
+    "model_calls": 4,
     "query_calls": 5,
-    "tokens_in": 95594,
-    "tokens_out": 7410,
-    "duration_ms": 81092
+    "tokens_in": 64277,
+    "tokens_out": 7395,
+    "duration_ms": 298246
   },
   "trace_id": "example_6b",
   "log_file": "logs/trace-example_6b.jsonl",
-  "execution_time_seconds": 81.092,
+  "execution_time_seconds": 298.246,
   "status": "success",
   "output": {
-    "summary": "Buying 300 EBL at Tk 26.6 raises EBL weight to 6.35% and Bank sector weight to 24.86% (target 25%), while Pharmaceuticals & Chemicals falls to 37.3% (target 30%) and SQURPHARMA falls to 25.12% (limit 25%); no new rule violations are created, and the trade matches the thesis of adding to EBL at a low price against book value.",
-    "review_markdown": "Buying 300 EBL at Tk 26.6 (gross Tk 7,980, commission Tk 31.92, cash Tk 8,011.92) raises total market value from Tk 631,708.80 to Tk 639,838.80. EBL weight increases from 5.15% to 6.35%; Bank sector weight rises from 23.89% to 24.86% (target 25%). Pharmaceuticals & Chemicals weight falls from 37.78% to 37.3% (target 30%). SQURPHARMA weight falls from 25.44% to 25.12% (limit 25%). The trade matches three journal theses: adding to EBL at a low price against book value, and adding a cheap second bank to spread exposure beyond BRACBANK. No new rule violations are created; existing breaches (Pharmaceuticals & Chemicals above target, SQURPHARMA above limit) persist.\n\n- What the trade does to weights and rules: EBL weight rises to 6.35%, Bank sector weight to 24.86% (target 25%), Pharmaceuticals & Chemicals falls to 37.3% (target 30%), SQURPHARMA falls to 25.12% (limit 25%). [q:39182e5e-0403-4aa8-a4c9-554cee79f479]\n\n- Thesis check: the trade matches j-027 (adding to EBL at a low price against book value), j-018 (adding to EBL at a low price against book value) and j-006 (adding a cheap second bank beyond BRACBANK). All verdicts are matching. [q:57986307-f802-4e18-b182-e76e5cc32141]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move. [q:mem-54]\n\n**What to look at next**\n- SQURPHARMA's weight relative to its 25% limit\n- Pharmaceuticals & Chemicals weight relative to its 30% target\n\nNot covered: announcements between 2026-09-01 and 2026-10-01 for EBL\n\nYou asked what to trade. This review explains what happened; the decision stays with you.\n\nThis is a review of your own records, not financial advice.",
+    "summary": "The trade buys 300 EBL at Tk 26.6, raising EBL weight to 6.35% and Bank sector weight to 24.86% (target 25%), while Pharmaceuticals & Chemicals falls to 37.3% (target 30%) and SQURPHARMA falls to 25.12% (limit 25%). Existing rule violations persist with no new ones created. The trade matches journal theses j-027, j-018, and j-006, supporting the direction of adding a cheap second bank to spread exposure beyond BRACBANK.",
+    "review_markdown": "- EBL weight increases from 5.15% to 6.35%; Bank sector weight rises from 23.89% to 24.86% (target 25%). Pharmaceuticals & Chemicals weight falls from 37.78% to 37.3% (target 30%). SQURPHARMA weight falls from 25.44% to 25.12% (limit 25%). Telecommunication weight falls from 15.58% to 15.39% (target 15%). Fuel & Power weight falls from 9.16% to 9.05% (target 10%). Food & Allied weight falls from 9.09% to 8.98% (target 10%). Cement weight falls from 4.5% to 4.44% (target 5%). [q:6fa42096-3acf-4f27-8eb2-c1e707f5b8ae]\n- Commission cost is 31.92 BDT on a gross purchase of 7,980 BDT, raising total market value from 631,708.80 BDT to 639,838.80 BDT. [q:6fa42096-3acf-4f27-8eb2-c1e707f5b8ae]\n- The trade does not create new rule findings; the existing violations (Pharmaceuticals & Chemicals at 37.8% vs 30% target, SQURPHARMA at 25.4% vs 25% limit) persist. [q:87556351-208a-4f07-9ec7-bbb18ae0387b]\n- The trade matches three journal theses: j-027 and j-018 (adding to EBL at a low price against book value) and j-006 (a cheap second bank to spread bank exposure beyond BRACBANK). [q:6fa42096-3acf-4f27-8eb2-c1e707f5b8ae]\n\n**What I remembered**\n- Week to 2026-09-17: no rule broken; EBL rose 6.2%, the largest move. [q:mem-54]\n\n**What to look at next**\n- Pharmaceuticals & Chemicals sector target; the portfolio's weight after this trade.\n\nNot covered: announcements between 2026-09-01 and 2026-10-01 for EBL; no rows were returned.\n\nThis is a review of your own records, not financial advice.",
     "findings": [
       {
         "kind": "pre_trade",
         "subject": "EBL",
-        "claim": "The trade buys 300 EBL at Tk 26.6 (gross Tk 7,980, commission Tk 31.92, cash Tk 8,011.92), raising total market value from Tk 631,708.80 to Tk 639,838.80. EBL weight increases from 5.15% to 6.35%. Bank sector weight rises from 23.89% to 24.86% (target 25%). Pharmaceuticals & Chemicals weight falls from 37.78% to 37.3% (target 30%). SQURPHARMA weight falls from 25.44% to 25.12% (limit 25%). No new rule violations are created; existing max_position_weight (SQURPHARMA) and sector_target (Pharmaceuticals & Chemicals) violations persist.",
+        "claim": "The trade buys 300 EBL at Tk 26.6 (gross Tk 7,980, commission Tk 31.92), raising total market value from Tk 631,708.80 to Tk 639,838.80. EBL weight increases from 5.15% to 6.35%. Bank sector weight rises from 23.89% to 24.86% (target 25%). Pharmaceuticals & Chemicals weight falls from 37.78% to 37.3% (target 30%). SQURPHARMA weight falls from 25.44% to 25.12% (limit 25%). No new rule violations are created; existing max_position_weight (SQURPHARMA) and sector_target (Pharmaceuticals & Chemicals) violations persist.",
         "numbers": [
+          {
+            "value": 300,
+            "label": "quantity"
+          },
+          {
+            "value": 26.6,
+            "label": "price"
+          },
           {
             "value": 7980,
             "label": "gross purchase BDT"
@@ -55,10 +63,6 @@
           {
             "value": 31.92,
             "label": "commission BDT"
-          },
-          {
-            "value": 8011.92,
-            "label": "cash BDT"
           },
           {
             "value": 631708.8,
@@ -114,7 +118,9 @@
           }
         ],
         "cites": [
-          "39182e5e-0403-4aa8-a4c9-554cee79f479"
+          "6fa42096-3acf-4f27-8eb2-c1e707f5b8ae",
+          "f08296f4-fb4b-4ae0-820a-33332536edf7",
+          "87556351-208a-4f07-9ec7-bbb18ae0387b"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -126,7 +132,8 @@
         "claim": "The trade is a buy, matching the thesis's direction of adding to EBL at a low price against book value.",
         "numbers": [],
         "cites": [
-          "57986307-f802-4e18-b182-e76e5cc32141"
+          "f08296f4-fb4b-4ae0-820a-33332536edf7",
+          "6fa42096-3acf-4f27-8eb2-c1e707f5b8ae"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -138,7 +145,8 @@
         "claim": "The trade is a buy, matching the thesis's direction of adding to EBL at a low price against book value.",
         "numbers": [],
         "cites": [
-          "57986307-f802-4e18-b182-e76e5cc32141"
+          "f08296f4-fb4b-4ae0-820a-33332536edf7",
+          "6fa42096-3acf-4f27-8eb2-c1e707f5b8ae"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -150,7 +158,8 @@
         "claim": "The trade is a buy, matching the thesis's direction of adding a cheap second bank to spread bank exposure beyond BRACBANK.",
         "numbers": [],
         "cites": [
-          "57986307-f802-4e18-b182-e76e5cc32141"
+          "f08296f4-fb4b-4ae0-820a-33332536edf7",
+          "6fa42096-3acf-4f27-8eb2-c1e707f5b8ae"
         ],
         "verdict": null,
         "proposed_fix": null,
@@ -162,7 +171,7 @@
     ],
     "citations": [
       {
-        "run_query_id": "39182e5e-0403-4aa8-a4c9-554cee79f479",
+        "run_query_id": "6fa42096-3acf-4f27-8eb2-c1e707f5b8ae",
         "query_id": "what_if",
         "params": {
           "symbol": "EBL",
@@ -336,7 +345,7 @@
         ]
       },
       {
-        "run_query_id": "57986307-f802-4e18-b182-e76e5cc32141",
+        "run_query_id": "f08296f4-fb4b-4ae0-820a-33332536edf7",
         "query_id": "journal_for_symbol",
         "params": {
           "symbol": "EBL",
@@ -395,6 +404,246 @@
           }
         ],
         "sql": "SELECT j.id, j.transaction_id, t.symbol, t.side, date_format(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka'), 'yyyy-MM-dd') AS trade_date, t.quantity, t.price_per_share,\n       j.horizon, j.thesis, j.exit_condition\nFROM tradeflow_ledger.journal j\nJOIN tradeflow_ledger.transactions t ON t.id = j.transaction_id\nWHERE j.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  AND t.symbol = 'EBL'\nORDER BY j.created_at DESC, j.id DESC"
+      },
+      {
+        "run_query_id": "87556351-208a-4f07-9ec7-bbb18ae0387b",
+        "query_id": "rule_findings",
+        "params": {
+          "as_of": "2026-10-01"
+        },
+        "source": "zetaris",
+        "row_count": 23,
+        "rows": [
+          {
+            "row_type": "position",
+            "symbol": "SQURPHARMA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 655,
+            "market_value_bdt": 160737,
+            "weight_pct": 25.44,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "GP",
+            "sector": "Telecommunication",
+            "shares": 240,
+            "market_value_bdt": 85200,
+            "weight_pct": 13.49,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "BRACBANK",
+            "sector": "Bank",
+            "shares": 1520,
+            "market_value_bdt": 77824,
+            "weight_pct": 12.32,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "BXPHARMA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 320,
+            "market_value_bdt": 45568,
+            "weight_pct": 7.21,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "UPGDCL",
+            "sector": "Fuel & Power",
+            "shares": 250,
+            "market_value_bdt": 42425,
+            "weight_pct": 6.72,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "BATBC",
+            "sector": "Food & Allied",
+            "shares": 80,
+            "market_value_bdt": 41096,
+            "weight_pct": 6.51,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "EBL",
+            "sector": "Bank",
+            "shares": 1200,
+            "market_value_bdt": 32520,
+            "weight_pct": 5.15,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "CITYBANK",
+            "sector": "Bank",
+            "shares": 1300,
+            "market_value_bdt": 40560,
+            "weight_pct": 6.42,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "RENATA",
+            "sector": "Pharmaceuticals & Chemicals",
+            "shares": 36,
+            "market_value_bdt": 32338.8,
+            "weight_pct": 5.12,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "LHBL",
+            "sector": "Cement",
+            "shares": 400,
+            "market_value_bdt": 28400,
+            "weight_pct": 4.5,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "OLYMPIC",
+            "sector": "Food & Allied",
+            "shares": 100,
+            "market_value_bdt": 16350,
+            "weight_pct": 2.59,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "SUMITPOWER",
+            "sector": "Fuel & Power",
+            "shares": 500,
+            "market_value_bdt": 15450,
+            "weight_pct": 2.45,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "position",
+            "symbol": "ROBI",
+            "sector": "Telecommunication",
+            "shares": 400,
+            "market_value_bdt": 13240,
+            "weight_pct": 2.1,
+            "target_pct": null,
+            "delta_pct": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Pharmaceuticals & Chemicals",
+            "weight_pct": 37.78,
+            "target_pct": 30,
+            "delta_pct": 7.78,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Bank",
+            "weight_pct": 23.89,
+            "target_pct": 25,
+            "delta_pct": -1.11,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Telecommunication",
+            "weight_pct": 15.58,
+            "target_pct": 15,
+            "delta_pct": 0.58,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Fuel & Power",
+            "weight_pct": 9.16,
+            "target_pct": 10,
+            "delta_pct": -0.84,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Food & Allied",
+            "weight_pct": 9.09,
+            "target_pct": 10,
+            "delta_pct": -0.91,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Cement",
+            "weight_pct": 4.5,
+            "target_pct": 5,
+            "delta_pct": -0.5,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "sector",
+            "sector": "Engineering",
+            "weight_pct": 0,
+            "target_pct": 5,
+            "delta_pct": -5,
+            "symbol": null,
+            "shares": null,
+            "market_value_bdt": null
+          },
+          {
+            "row_type": "finding",
+            "kind": "max_position_weight",
+            "subject": "SQURPHARMA",
+            "actual_pct": 25.4,
+            "limit_pct": 25,
+            "delta_pct": 0.4,
+            "message": "SQURPHARMA is 25.4% of the portfolio, above your 25% limit."
+          },
+          {
+            "row_type": "finding",
+            "kind": "sector_target",
+            "subject": "Pharmaceuticals & Chemicals",
+            "actual_pct": 37.8,
+            "target_pct": 30,
+            "delta_pct": 7.8,
+            "message": "Pharmaceuticals & Chemicals is 37.8% of the portfolio, 7.8 points above your 30% target."
+          },
+          {
+            "row_type": "finding",
+            "kind": "trade_plan_reached",
+            "subject": "p-06",
+            "symbol": "GP",
+            "side": "buy",
+            "target_price": 358.8,
+            "ltp": 355,
+            "message": "GP is at 355.00, past your buy target of 358.80."
+          }
+        ],
+        "sql": "WITH ledger AS (\n  SELECT UPPER(TRIM(t.symbol)) AS symbol, CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END AS q\n  FROM tradeflow_ledger.transactions t\n  WHERE t.created_at < CAST('2026-10-02T00:00:00+06:00' AS TIMESTAMP)\n  UNION ALL\n  SELECT UPPER(TRIM(a.symbol)) AS symbol, FLOOR(SUM(CASE WHEN t.side = 'buy' THEN CAST(t.quantity AS DOUBLE) ELSE -CAST(t.quantity AS DOUBLE) END) * CAST(a.bonus_ratio AS DOUBLE) + 1e-9) AS q\n    FROM tradeflow_ledger.corporate_actions a\n    JOIN tradeflow_ledger.transactions t ON UPPER(TRIM(t.symbol)) = UPPER(TRIM(a.symbol)) AND to_date(from_utc_timestamp(to_utc_timestamp(t.created_at, current_timezone()), 'Asia/Dhaka')) <= a.record_date\n    WHERE a.kind = 'stock_dividend' AND a.record_date <= CAST('2026-10-01' AS DATE) AND a.paid_on <= CAST('2026-10-01' AS DATE)\n    GROUP BY a.id, a.symbol, a.bonus_ratio\n),\nheld AS (\n  SELECT symbol, SUM(q) AS shares FROM ledger GROUP BY symbol HAVING SUM(q) > 0\n),\nlast_close AS (\n  SELECT symbol, close FROM (\n    SELECT UPPER(TRIM(symbol)) AS symbol, CAST(close AS DOUBLE) AS close,\n           ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(symbol)) ORDER BY bar_date DESC) AS rn\n    FROM tradeflow_ledger.bars\n    WHERE bar_date <= CAST('2026-10-01' AS DATE)\n  ) ranked\n  WHERE rn = 1\n),\npos AS (\n  SELECT h.symbol, i.sector, COALESCE(NULLIF(TRIM(i.sector), ''), 'Unknown') AS sector_key, h.shares, ROUND(c.close * h.shares, 2) AS mv\n  FROM held h\n  JOIN last_close c ON c.symbol = h.symbol\n  LEFT JOIN tradeflow_ledger.instruments i ON UPPER(TRIM(i.symbol)) = h.symbol\n),\ntotal AS (\n  SELECT SUM(mv) AS tmv FROM pos WHERE mv > 0\n),\nsec AS (\n  SELECT p.sector_key AS sector, SUM(p.mv) / MAX(t.tmv) * 100 AS pct\n  FROM pos p CROSS JOIN total t\n  WHERE p.mv > 0\n  GROUP BY p.sector_key\n),\ntgt AS (\n  SELECT TRIM(sector) AS sector, CAST(target_percent AS DOUBLE) AS target_pct FROM tradeflow_ledger.sector_targets\n)\nSELECT 'position' AS row_type, p.symbol, p.sector, p.shares, p.mv AS market_value_bdt, ROUND(p.mv / t.tmv * 100, 2) AS weight_pct,\n       CAST(NULL AS DOUBLE) AS target_pct, CAST(NULL AS DOUBLE) AS delta_pct\nFROM pos p CROSS JOIN total t\nUNION ALL\nSELECT 'sector' AS row_type, CAST(NULL AS STRING) AS symbol, COALESCE(s.sector, g.sector) AS sector, CAST(NULL AS DOUBLE) AS shares,\n       CAST(NULL AS DOUBLE) AS market_value_bdt, ROUND(COALESCE(s.pct, 0), 2) AS weight_pct, g.target_pct,\n       CASE WHEN g.sector IS NULL THEN CAST(NULL AS DOUBLE) ELSE ROUND(COALESCE(s.pct, 0) - g.target_pct, 2) END AS delta_pct\nFROM sec s FULL OUTER JOIN tgt g ON LOWER(s.sector) = LOWER(g.sector)\nORDER BY row_type, weight_pct DESC"
       }
     ],
     "needs_human": false,
