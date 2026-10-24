@@ -1,0 +1,208 @@
+{
+  "$schema": "https://github.com/saphan-ai/proven/blob/main/metadata.schema.json",
+  "schema_version": "0.1-community",
+  "project": {
+    "name": "Tradeflow review agents",
+    "summary": "Agents that explain a Dhaka Stock Exchange portfolio, check the reasons behind each trade and review a trade before it is saved, citing the query behind every number, so each answer can be audited.",
+    "licence": "MIT"
+  },
+  "track": "Wildcard [Tinkerer]",
+  "team": {
+    "name": "tradeflow",
+    "solo": true,
+    "builders": [
+      {
+        "name": "Hasebul Hassan Chowdhury",
+        "role": "builder",
+        "github": "Hasebul21"
+      }
+    ]
+  },
+  "repository": "https://github.com/Hasebul21/tradeflow",
+  "submission": {
+    "demo_video": null,
+    "slide_deck": null
+  },
+  "sponsors": {
+    "zetaris": {
+      "status": "working",
+      "how": "Named queries with sql() run through Zetaris: week_moves, sector_vs_stock, announcements_between, fundamentals_latest, dividends_between, journal_for_symbol, rule_findings and reconciliation. Each matches its local() function; parity is confirmed.",
+      "where": ["src/agent/zetaris.ts", "src/agent/queries.ts"],
+      "evidence": ["npm run parity prints every query's SQL and compares it to local(); docs/zetaris-queries.md says 'parity: match' for every query", "A Query trace line with source=zetaris"],
+      "integration_working": true,
+      "in_use_case": true,
+      "use_case_note": "All eight named queries run through Zetaris when the owner's Zetaris account is configured; otherwise they fall back to local rows with source local-fallback.",
+      "interface": "rest",
+      "deployment": "local-docker",
+      "data_sources": ["tradeflow_ledger", "tradeflow_external"]
+    },
+    "meterless": {
+      "status": "working",
+      "how": "H-MEM stores the owner's memories (rules, preferences and corrections) in a per-data-dir ledger; World Model records what each run's query results show for each holding. Nightshift is the sole Nemotron provider.",
+      "where": [
+        "vendor/hmem/src",
+        "vendor/world-model/src",
+        "src/agent/memory.ts",
+        "src/agent/world.ts",
+        "src/agent/llm.ts",
+        "src/agent/config.ts"
+      ],
+      "evidence": [
+        "Memory.recall trace line with retrievalReason and memory ids; src/agent/memory.test.ts tests both paths",
+        "World.record trace line before run_end; src/agent/world.test.ts and src/agent/corrections.test.ts pass",
+        "Every model_call trace line carries requested_model, routed_model and cost_usd; the four runs used Nightshift as the sole provider"
+      ],
+      "integration_working": true,
+      "in_use_case": true,
+      "use_case_note": "H-MEM and World Model are standalone reference implementations (no Meterless cloud). Nightshift connects to OpenRouter which serves NVIDIA Nemotron. Markovian engine: not used.",
+      "engines": ["H-MEM", "World Model"],
+      "provider": "nightshift"
+    },
+    "cursor": {
+      "status": "working",
+      "how": "Not used. The organisers allowed any IDE on 22 Oct. Claude Code, run in Orca's terminal, built the agents with the kit in .claude/. The Cursor copy of the kit was removed on 22 Oct.",
+      "where": [],
+      "evidence": [".cursor/ and .cursorignore were removed on 22 Oct; the build used .claude/ (Claude Code kit)"],
+      "integration_working": false,
+      "in_use_case": false,
+      "use_case_note": "No Cursor job is claimed. The coding-agent kit was copied from .cursor/ to .claude/ before the window opened, and the Cursor copy was removed on 22 Oct.",
+      "surfaces": []
+    },
+    "nvidia": {
+      "status": "working",
+      "how": "Nemotron (openrouter/nvidia/nemotron-3.5-lightning) serves every model call — Planner, Analyst, Evaluator and Writer — through three Nightshift routing tiers.",
+      "where": ["src/agent/llm.ts", "src/agent/config.ts"],
+      "evidence": [
+        "Every model_call trace line carries routed_model=openrouter/nvidia/nemotron-3.5-lightning",
+        "output_examples/traces/ has the trace files from four real runs"
+      ],
+      "integration_working": true,
+      "in_use_case": true,
+      "use_case_note": "All Nemotron calls go through Meterless Nightshift (METERLESS_BASE_URL). Development runs used direct OpenRouter; those are not part of the submitted evidence.",
+      "models": ["openrouter/nvidia/nemotron-3.5-lightning"],
+      "route": "via-meterless"
+    }
+  },
+  "pre_existing": [
+    {
+      "name": "Ledger maths",
+      "what": "Holdings, average cost, break-even, realised and unrealised P/L",
+      "where": ["src/lib/portfolio.ts"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Commission rule",
+      "what": "0.4% commission each way",
+      "where": ["src/lib/fees/trade-commission.ts"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "DSE trading calendar",
+      "what": "Sunday to Thursday trading",
+      "where": ["src/lib/market/trading-calendar.ts"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "JSON data store and portfolio view",
+      "what": "Store, quotes, rules checks and portfolio view builder",
+      "where": ["src/lib/store.ts", "src/lib/rules.ts", "src/lib/portfolio-view.ts", "src/lib/market/quotes.ts"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Pages, forms and JSON API",
+      "what": "Next.js routes, Ant Design UI and components",
+      "where": ["src/app/", "src/components/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Synthetic data and generators",
+      "what": "190 sessions, 15 symbols, 45 trades, planted story and test cases",
+      "where": ["data/", "scripts/seed.mjs", "scripts/seed-data.mjs"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Announcements (synthetic)",
+      "what": "Company announcements, loader, filters, page and API",
+      "where": ["src/lib/announcements.ts", "src/app/announcements/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Corporate actions",
+      "what": "Cash dividends, bonus shares, dividend income",
+      "where": ["src/lib/corporate-actions.ts", "src/app/history/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Broker and bank files",
+      "what": "CSV sources, parsers, loaders and read-only page",
+      "where": ["data/sources/", "src/lib/sources.ts", "src/app/sources/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "DSEX and sector indices",
+      "what": "Index and sector-index maths, pages and APIs",
+      "where": ["src/lib/market/index.ts", "src/lib/market/sector-index.ts", "src/app/sector-indices/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Trade journal",
+      "what": "Journal entries, form fields, transactions page and API",
+      "where": ["src/lib/journal.ts", "src/app/journal/", "src/app/transactions/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Performance attribution",
+      "what": "Attribution against sector indices and DSEX",
+      "where": ["src/lib/attribution.ts", "src/lib/market-views.ts", "src/app/api/attribution/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Trade preview (what-if)",
+      "what": "Preview of a trade before saving",
+      "where": ["src/lib/what-if.ts", "src/app/api/what-if/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Reconciliation",
+      "what": "Deterministic reconciliation of sources against the ledger",
+      "where": ["src/lib/reconcile.ts", "src/app/reconciliation/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Company fundamentals",
+      "what": "Synthetic fundamentals and instrument pages",
+      "where": ["src/lib/fundamentals.ts", "src/app/instruments/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Owner profile",
+      "what": "Profile and preferences",
+      "where": ["src/lib/profile.ts", "src/app/settings/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Health check and OpenAPI",
+      "what": "Health endpoint and OpenAPI description",
+      "where": ["src/lib/health.ts", "src/lib/openapi.ts", "src/app/api/health/", "src/app/api/openapi.json/"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Ant Design UI",
+      "what": "User interface rebuilt with Ant Design 6, Source Sans 3 and Source Serif 4; Tailwind removed",
+      "where": ["src/app/layout.tsx", "src/components/", "src/app/globals.css"],
+      "since": "2026-10-05"
+    },
+    {
+      "name": "Postgres loader and Docker",
+      "what": "Postgres loader, schema, compose and Dockerfile",
+      "where": ["scripts/load-postgres.mjs", "scripts/db-schema.mjs", "docker-compose.yml", "Dockerfile"],
+      "since": "2026-10-05"
+    }
+  ],
+  "run": {
+    "setup": "docker compose -f docker-compose.judge.yml up --build or npm run dev -- -p 8000 for development. See README.md 'Quick start'.",
+    "sample_mode": true,
+    "secrets": ["METERLESS_API_KEY", "METERLESS_BASE_URL", "NEMOTRON_MODEL_DEEP", "NEMOTRON_MODEL_MAIN", "NEMOTRON_MODEL_FAST"]
+  },
+  "evidence_logs": "logs/trace-<run_id>.jsonl"
+}
