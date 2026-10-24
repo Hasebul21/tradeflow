@@ -2,13 +2,13 @@
 
 Agents that explain a Dhaka Stock Exchange portfolio, check the reasons behind each trade and review a trade before it is saved, citing the query behind every number, so each answer can be audited. A review tool, never trading advice.
 
-Track: Wildcard [Tinkerer]. Built in the window: `src/agent` and `vendor`; the coding-agent kit (`.claude`, `evals`, `src/agent/prompts`) was drafted on 5 Oct and copied in when the window opened; pre-existing: see [PRE-EXISTING.md](PRE-EXISTING.md).
+Open Agent Hackathon 2026 (22 to 28 October 2026). Track: Wildcard [Tinkerer]. Built in the window: `src/agent` and `vendor`; the coding-agent kit (`.claude`, `evals`, `src/agent/prompts`) was drafted on 5 Oct and copied in when the window opened; pre-existing: see [PRE-EXISTING.md](PRE-EXISTING.md).
 
 | What | Where |
 |---|---|
 | The traces | [output_examples/traces/](output_examples/traces/) |
 | The results | [evals/RESULTS.md](evals/RESULTS.md), [evals/E2E.md](evals/E2E.md) |
-| The demo video | [demo/out/tradeflow-demo.mp4](demo/out/tradeflow-demo.mp4) |
+| The demo video | [tradeflow-demo.mp4](https://github.com/Hasebul21/tradeflow/blob/main/demo/out/tradeflow-demo.mp4) |
 | The slide deck | [demo/tradeflow-slides.pdf](demo/tradeflow-slides.pdf) |
 | Before the window | [the pre-hackathon tag](https://github.com/Hasebul21/tradeflow/tree/pre-hackathon) |
 
@@ -33,7 +33,7 @@ One real rejection, copied from `output_examples/traces/trace-example_2.jsonl`:
 
 > `reject` — "Explain BXPHARMA: it is the largest move of the week and has no finding."
 
-### What it does
+## What it does
 
 | Task | The question it answers | A real result |
 |---|---|---|
@@ -315,7 +315,7 @@ npm run check       # lint, types, tests, then npm run eval -- --no-results at c
 
 `npm run eval` (`scripts/eval.ts`) first runs `scripts/make-fixtures.ts`, which rewrites `evals/redteam/fixtures/` (git-ignored) from `data/` without `data/memory/`: `base`, an unchanged copy; `injected-note`, with trade plan `p-02`'s note replaced by an instruction to the agents; and `injected-announcement`, with announcement `a-066`'s body replaced the same way. It never edits `data/`. It then runs every file in `input_examples/` in name order, then every case in `evals/redteam/cases.json`, in one process, each with its file name or case id as `run_id`. A run without its own `data_dir` uses `base`, so memory starts empty at the start of each eval and carries over between runs (`example_3b` recalls `example_3a`'s review, and `example_7a` corrects it). A case with its own `data_dir` runs every query locally, because that copy is not in Postgres, and each `Query` trace line says so. Each result is checked against `evals/expectations.json` or the case's `expect` block (`real_model` fields only when `SAMPLE_MODE=false`); every result that is not an error must carry `usage`, end its review with the disclaimer line and never say "you should buy", "you should sell" or "you should hold"; and the trace must take the task's path (Planner, Analyst, Evaluator and Writer in order for `explain_week` and `thesis_check`, a `fixed_plan` line with `what_if` and no Planner for `pre_trade`, no Planner for `feedback`). An expectation whose input file does not exist yet, such as `example_8` before the reconcile task, is listed as skipped. Any failure exits 1. The eval runs in sample mode unless the shell sets `SAMPLE_MODE=false`; a sample-mode run replaces the "Sample mode" section of [`evals/RESULTS.md`](evals/RESULTS.md), and a real-model run appends a "Real model, run <n>" section with the provider's host name, the model ids, the `routed_model`, the total `cost_usd` and the commit it measured. A case the provider rate-limits after the retry is marked "rate-limited" and the eval goes on.
 
-#### Running cases in parallel
+### Running cases in parallel
 
 A real model call can take 1 to 3 minutes, so a run of every case one after the other takes over an hour. Both runners can run independent cases 2 or 3 at a time.
 
@@ -551,6 +551,44 @@ Grouped as `.claude/rules/harness.md` groups its rules.
 
 [`evals/E2E.md`](evals/E2E.md) is the end-to-end check through `POST /run` with real models: 11 planted cases, run twice (49.4 min, then a full rerun on the merged fix), with 10 of 11 outcomes confirmed in each run, no advice, the disclaimer in every review, and memory propagated as planted. `example_5` failed both runs with an unexpected `PromptTooLarge` error and is counted as a content failure.
 
+## Tests
+
+The tests cover the ledger maths and rules in `src/lib/`, every named query, the agents and their guards against sample-model replies, the trace format, the run limits and the eval cases themselves.
+
+```sh
+npm test        # the unit tests
+npm run check   # lint, typecheck, tests and the sample-mode eval at concurrency 1 and 3
+npm run eval    # every input example and red-team case in sample mode
+```
+
+| Check | Latest result | Where it is recorded |
+|---|---|---|
+| `npm test` | 943 passed, 0 failed (86 test files) | run on 2026-10-24 |
+| Sample-mode eval | 25 passed, 0 failed, 0 skipped | [`evals/RESULTS.md`](evals/RESULTS.md) |
+| Real-model eval, most recent | 21 passed, 4 failed, 0 skipped | [`evals/RESULTS.md`](evals/RESULTS.md) |
+| Real-model eval, best | 24 passed, 1 failed, 0 skipped | [`evals/RESULTS.md`](evals/RESULTS.md) |
+| End-to-end check | 10 of 11 planted cases confirmed, in each of two runs | [`evals/E2E.md`](evals/E2E.md) |
+
+## Project structure
+
+| Path | What it holds | New or pre-existing |
+|---|---|---|
+| `src/agent/` | The agent loop, agents, prompts, guards, memory, world model, queries, traces and config | New in the build window |
+| `src/app/` | The pages and JSON API routes, including the new `run`, `explain` and `runs` routes | The base pages are pre-existing; the agent routes are new |
+| `src/lib/` | The ledger maths, attribution, what-if, reconciliation, fundamentals and rules | Pre-existing |
+| `vendor/` | The Meterless H-MEM and World Model reference implementations | New in the build window |
+| `evals/` | The expectations, red-team cases, fixtures and results | New (the kit was drafted 5 Oct) |
+| `input_examples/` | The example questions and red-team inputs | New |
+| `output_examples/` | The results of real-model runs, with `traces/` and the memory ledger | New |
+| `scripts/` | Seed and loader scripts, the agent CLI, the eval and parity runners | Seed and loader are pre-existing; the rest are new |
+| `docs/` | The plan, the Zetaris SQL of each named query, the screenshot | New |
+| `.claude/` | The coding-agent kit: rules, skills, agents and hooks | New (drafted 5 Oct, copied in 22 Oct) |
+| `CLAUDE.md` | The agent's project instructions | New |
+| `AGENTS.md` | The instructions for any coding agent in this repo | New |
+| `BUILD-LOG.md` | One line per build step: what was done and what changed | New |
+| `PRE-EXISTING.md` | What existed before the build window | New (describes pre-existing work) |
+| `metadata.json` | The submission metadata in the community draft schema | New |
+
 ## AI usage
 
 1. **Models and providers.** Every real model call went through Meterless Nightshift, which served `openrouter/nvidia/nemotron-3.5-lightning` on all three tiers. The requested routing ids were `meterless/deep` (strong tier, for the Planner and Writer), `meterless/auto` (main tier, for the Analyst) and `meterless/fast` (fast tier, for the Evaluator's scoring and the Router). Each `model_call` trace line in `output_examples/traces/` carries `requested_model`, `routed_model` and `cost_usd` as evidence. The Nightshift Runtime URL was `http://127.0.0.1:8088/v1`; Nightshift connected to an OpenRouter endpoint, which served an NVIDIA Nemotron model. No reasoning switch was sent to Nightshift. The development runs used direct OpenRouter; those are not part of the submitted evidence.
@@ -598,3 +636,9 @@ Everything at the git tag [`pre-hackathon`](https://github.com/Hasebul21/tradefl
 | [`data/README.md`](data/README.md) is pre-existing and describes every data file, its fields and the planted scenarios | — |
 
 Write any connection-string example without a password part, or the pre-commit hook rejects the commit. The base's own setup text is above.
+
+## Licence
+
+This repository is MIT licensed; see [LICENSE](LICENSE).
+
+Thanks to Zetaris, Meterless and NVIDIA Nemotron; see "Third-party code and licences" above.
