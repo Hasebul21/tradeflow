@@ -21,7 +21,7 @@
   "repository": "https://github.com/Hasebul21/tradeflow",
   "submission": {
     "demo_video": "https://github.com/Hasebul21/tradeflow/blob/main/demo/out/tradeflow-demo.mp4",
-    "slide_deck": "demo/tradeflow-slides.pdf"
+    "slide_deck": "docs/deck/deck.pdf"
   },
   "sponsors": {
     "zetaris": {

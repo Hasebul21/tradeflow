@@ -10,6 +10,7 @@ Open Agent Hackathon 2026 (22 to 28 October 2026). Track: Wildcard [Tinkerer]. B
 | The results | [evals/RESULTS.md](evals/RESULTS.md), [evals/E2E.md](evals/E2E.md) |
 | The demo video | [tradeflow-demo.mp4](https://github.com/Hasebul21/tradeflow/blob/main/demo/out/tradeflow-demo.mp4) |
 | The slide deck | [demo/tradeflow-slides.pdf](demo/tradeflow-slides.pdf) |
+| The pitch deck | [docs/deck/deck.pdf](docs/deck/deck.pdf) |
 | Before the window | [the pre-hackathon tag](https://github.com/Hasebul21/tradeflow/tree/pre-hackathon) |
 
 `metadata.json` follows the participants' community draft schema (unofficial); the organisers have published no format.
